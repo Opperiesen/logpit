@@ -1,0 +1,126 @@
+name: Release
+
+# Tag `vX.Y.Z` (matching Cargo.toml) to publish a release.
+# "Run workflow" from the Actions tab does a dry run: it builds and uploads
+# artifacts but publishes nothing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, arch: x86_64, docker: amd64, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-24.04-arm, arch: aarch64, docker: arm64, target: aarch64-unknown-linux-musl }
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check tag matches Cargo.toml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import sys,json; print(json.load(sys.stdin)["packages"][0]["version"])')
+          [ "v$version" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != Cargo.toml v$version"; exit 1; }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build static binary
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Verify binary is static and runs
+        run: |
+          bin=target/${{ matrix.target }}/release/logpit
+          file "$bin"
+          ldd "$bin" 2>&1 | grep -q -E 'not a dynamic|statically linked'
+          "$bin" --version
+      - name: Package
+        run: |
+          name=logpit-${GITHUB_REF_NAME:-dev}-${{ matrix.arch }}-linux-musl
+          mkdir -p "dist/$name"
+          cp target/${{ matrix.target }}/release/logpit LICENSE README.md CHANGELOG.md logpit.example.toml "dist/$name/"
+          cp contrib/logpit.service "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          mkdir -p docker-bin/${{ matrix.docker }}
+          cp target/${{ matrix.target }}/release/logpit docker-bin/${{ matrix.docker }}/logpit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-bin-${{ matrix.docker }}
+          path: docker-bin/${{ matrix.docker }}/logpit
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tarball-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz | tee SHA256SUMS
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: docker-bin-*
+          path: docker-bin
+      - run: chmod +x docker-bin/*/logpit
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        run: |
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.licenses=Apache-2.0

@@ -1,0 +1,13 @@
+# Container defaults: listen on all interfaces, store under /data.
+# Unprivileged (uid 65532) cannot bind port 514, so syslog uses 5514;
+# map it with `-p 514:5514/udp -p 514:5514/tcp`.
+# Set http.token (mount your own config) before exposing the HTTP port.
+[storage]
+path = "/data/logpit.db"
+
+[syslog]
+udp_listen = "0.0.0.0:5514"
+tcp_listen = "0.0.0.0:5514"
+
+[http]
+listen = "0.0.0.0:8080"
