@@ -1,0 +1,20 @@
+# Copy to logpit.toml (or pass --config). Every key is optional; values shown are the defaults.
+
+[storage]
+path = "logpit.db"
+retention_days = 14          # 0 disables purging
+batch_size = 500
+flush_interval_ms = 500
+queue_capacity = 10000       # entries beyond this are dropped and counted, never buffered unbounded
+max_message_bytes = 16384    # longer messages are truncated
+
+[syslog]
+# Empty string disables a listener. Use "0.0.0.0:514" to receive from other machines
+# (ports below 1024 need root or CAP_NET_BIND_SERVICE).
+udp_listen = "127.0.0.1:5514"
+tcp_listen = "127.0.0.1:5514"
+
+[http]
+listen = "127.0.0.1:8080"
+# token = "change-me"        # protects /ingest and /api/*; set it before exposing the port
+max_body_bytes = 8388608

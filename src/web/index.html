@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogPit</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#1b1f24; --muted:#6a737d; --line:#d8dee4; --accent:#0969da; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#30363d; --accent:#58a6ff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:8px; padding:12px 16px; border-bottom:1px solid var(--line); align-items:center; position:sticky; top:0; background:var(--bg); }
+  h1 { font-size:16px; margin:0 8px 0 0; }
+  input, select, button { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  input[type=search] { flex:1 1 240px; min-width:160px; }
+  button { cursor:pointer; background:var(--accent); color:#fff; border-color:var(--accent); }
+  label { color:var(--muted); display:flex; align-items:center; gap:4px; }
+  #status { color:var(--muted); margin-left:auto; }
+  table { width:100%; border-collapse:collapse; font:12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  td { padding:3px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  td.ts, td.host, td.app { white-space:nowrap; color:var(--muted); }
+  td.msg { white-space:pre-wrap; word-break:break-word; width:100%; }
+  .sev { font-weight:600; }
+  .s0,.s1,.s2,.s3 { color:#d1242f; } .s4 { color:#bf8700; } .s5 { color:#0969da; } .s6 { color:var(--muted); } .s7 { color:var(--muted); opacity:.7; }
+  #empty { padding:24px 16px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>LogPit</h1>
+  <input id="q" type="search" placeholder="Search messages…" autofocus>
+  <input id="host" type="search" placeholder="Host" size="12">
+  <input id="app" type="search" placeholder="App" size="12">
+  <select id="level" title="Minimum severity">
+    <option value="">All levels</option>
+    <option value="3">Error and above</option>
+    <option value="4">Warning and above</option>
+    <option value="6">Info and above</option>
+  </select>
+  <select id="range" title="Time range">
+    <option value="900000">Last 15 min</option>
+    <option value="3600000" selected>Last hour</option>
+    <option value="86400000">Last 24 h</option>
+    <option value="604800000">Last 7 days</option>
+    <option value="">All time</option>
+  </select>
+  <input id="token" type="password" placeholder="Token (if set)" size="12" autocomplete="off">
+  <label><input id="live" type="checkbox"> Live</label>
+  <button id="go">Search</button>
+  <span id="status"></span>
+</header>
+<table><tbody id="rows"></tbody></table>
+<div id="empty" hidden>No matching entries.</div>
+<script>
+const $ = id => document.getElementById(id);
+const LEVELS = ['emerg','alert','crit','err','warn','notice','info','debug'];
+let timer = null;
+try { $('token').value = localStorage.getItem('logpit-token') || ''; } catch {}
+
+function td(cls, text) { const c = document.createElement('td'); c.className = cls; c.textContent = text; return c; }
+
+async function load() {
+  const p = new URLSearchParams({ limit: '500' });
+  for (const k of ['q', 'host', 'app', 'level']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
+  if ($('range').value) p.set('since', String(Date.now() - Number($('range').value)));
+  const headers = {};
+  const token = $('token').value;
+  if (token) { headers.Authorization = 'Bearer ' + token; try { localStorage.setItem('logpit-token', token); } catch {} }
+  try {
+    const res = await fetch('/api/logs?' + p, { headers });
+    if (!res.ok) throw new Error(res.status === 401 ? 'unauthorized: check token' : 'HTTP ' + res.status);
+    const rows = await res.json();
+    const body = $('rows');
+    body.replaceChildren(...rows.map(r => {
+      const tr = document.createElement('tr');
+      tr.append(
+        td('ts', new Date(r.ts).toLocaleString()),
+        td('sev s' + r.severity, LEVELS[r.severity] || r.severity),
+        td('host', r.host), td('app', r.app), td('msg', r.message));
+      return tr;
+    }));
+    $('empty').hidden = rows.length > 0;
+    $('status').textContent = rows.length + ' entries';
+  } catch (e) { $('status').textContent = String(e.message || e); }
+}
+
+$('go').onclick = load;
+for (const id of ['q', 'host', 'app']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+for (const id of ['level', 'range']) $(id).onchange = load;
+$('live').onchange = () => { clearInterval(timer); if ($('live').checked) timer = setInterval(load, 3000); };
+load();
+</script>
+</body>
+</html>

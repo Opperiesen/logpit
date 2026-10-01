@@ -1,0 +1,60 @@
+use std::fmt::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Process-wide counters exposed on `/metrics` in Prometheus text format.
+#[derive(Default)]
+pub struct Metrics {
+    /// Entries accepted into the write queue.
+    pub received: AtomicU64,
+    /// Entries dropped because the write queue was full.
+    pub dropped: AtomicU64,
+    /// Inputs that could not be parsed or exceeded limits.
+    pub rejected: AtomicU64,
+    /// Entries durably written to SQLite.
+    pub stored: AtomicU64,
+    /// Failed batch writes.
+    pub write_errors: AtomicU64,
+}
+
+impl Metrics {
+    pub fn inc(counter: &AtomicU64, n: u64) {
+        counter.fetch_add(n, Ordering::Relaxed);
+    }
+
+    pub fn render(&self) -> String {
+        let mut out = String::new();
+        let rows = [
+            (
+                "logpit_received_total",
+                "Entries accepted into the write queue",
+                &self.received,
+            ),
+            (
+                "logpit_dropped_total",
+                "Entries dropped because the queue was full",
+                &self.dropped,
+            ),
+            (
+                "logpit_rejected_total",
+                "Inputs rejected as invalid or oversized",
+                &self.rejected,
+            ),
+            (
+                "logpit_stored_total",
+                "Entries written to storage",
+                &self.stored,
+            ),
+            (
+                "logpit_write_errors_total",
+                "Failed storage batch writes",
+                &self.write_errors,
+            ),
+        ];
+        for (name, help, counter) in rows {
+            let _ = writeln!(out, "# HELP {name} {help}");
+            let _ = writeln!(out, "# TYPE {name} counter");
+            let _ = writeln!(out, "{name} {}", counter.load(Ordering::Relaxed));
+        }
+        out
+    }
+}
