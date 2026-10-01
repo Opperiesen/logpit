@@ -50,7 +50,7 @@
   <span id="status"></span>
 </header>
 <table><tbody id="rows"></tbody></table>
-<div id="empty" hidden>No matching entries.</div>
+<div id="empty" hidden></div>
 <script>
 const $ = id => document.getElementById(id);
 const LEVELS = ['emerg','alert','crit','err','warn','notice','info','debug'];
@@ -68,7 +68,15 @@ async function load() {
   if (token) { headers.Authorization = 'Bearer ' + token; try { localStorage.setItem('logpit-token', token); } catch {} }
   try {
     const res = await fetch('/api/logs?' + p, { headers });
-    if (!res.ok) throw new Error(res.status === 401 ? 'unauthorized: check token' : 'HTTP ' + res.status);
+    if (res.status === 401) {
+      $('rows').replaceChildren();
+      $('empty').textContent = token ? 'Invalid token. Check the Token field above.' : 'This LogPit requires a token. Enter it in the Token field above, then press Search.';
+      $('empty').hidden = false;
+      $('status').textContent = 'unauthorized';
+      $('token').focus();
+      return;
+    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const rows = await res.json();
     const body = $('rows');
     body.replaceChildren(...rows.map(r => {
@@ -79,12 +87,14 @@ async function load() {
         td('host', r.host), td('app', r.app), td('msg', r.message));
       return tr;
     }));
+    $('empty').textContent = 'No matching entries.';
     $('empty').hidden = rows.length > 0;
     $('status').textContent = rows.length + ' entries';
   } catch (e) { $('status').textContent = String(e.message || e); }
 }
 
 $('go').onclick = load;
+$('token').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 for (const id of ['q', 'host', 'app']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 for (const id of ['level', 'range']) $(id).onchange = load;
 $('live').onchange = () => { clearInterval(timer); if ($('live').checked) timer = setInterval(load, 3000); };
