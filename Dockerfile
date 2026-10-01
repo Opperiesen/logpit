@@ -4,7 +4,7 @@ RUN mkdir /data && chown 65532:65532 /data
 
 FROM scratch
 ARG TARGETARCH
-COPY docker-bin/${TARGETARCH}/logpit /logpit
+COPY docker-bin/docker-bin-${TARGETARCH}/logpit /logpit
 COPY contrib/docker.toml /etc/logpit/logpit.toml
 COPY --from=prep /data /data
 USER 65532:65532
