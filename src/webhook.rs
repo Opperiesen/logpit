@@ -174,6 +174,7 @@ pub struct Webhook {
     format: WebhookFormat,
     headers: Vec<(String, String)>,
     connector: TlsConnector,
+    timeout: Duration,
 }
 
 impl Webhook {
@@ -226,6 +227,7 @@ impl Webhook {
                 .iter()
                 .map(|h| parse_header(h))
                 .collect::<Result<_, _>>()?,
+            timeout: WEBHOOK_TIMEOUT,
             connector: if https {
                 default_connector()
             } else {
@@ -257,36 +259,70 @@ impl Webhook {
         req
     }
 
+    /// Writes the request and returns the status code of the response.
     async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
+        &self,
         stream: &mut S,
         request: &str,
-    ) -> anyhow::Result<()> {
-        timeout(WEBHOOK_TIMEOUT, stream.write_all(request.as_bytes())).await??;
-        timeout(WEBHOOK_TIMEOUT, stream.flush()).await??;
+    ) -> anyhow::Result<u16> {
+        timeout(self.timeout, stream.write_all(request.as_bytes())).await??;
+        timeout(self.timeout, stream.flush()).await??;
         let mut buf = [0u8; 256];
-        let n = timeout(WEBHOOK_TIMEOUT, stream.read(&mut buf)).await??;
+        let n = timeout(self.timeout, stream.read(&mut buf)).await??;
         let head = String::from_utf8_lossy(&buf[..n]);
-        let status = head.split_whitespace().nth(1).unwrap_or("");
-        if status.starts_with('2') {
-            Ok(())
-        } else {
-            bail!("webhook answered {:?}", head.lines().next().unwrap_or(""))
-        }
+        head.split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .with_context(|| {
+                format!(
+                    "unexpected response {:?}",
+                    head.lines().next().unwrap_or("")
+                )
+            })
     }
 
-    pub async fn post_once(&self, event: &Event) -> anyhow::Result<()> {
-        let request = self.request(&render(self.format, event));
-        let tcp = timeout(WEBHOOK_TIMEOUT, TcpStream::connect(&self.connect_addr)).await??;
+    /// Connects (and negotiates TLS for `https`), sends `request` and returns the status code.
+    async fn send_request(&self, request: &str) -> anyhow::Result<u16> {
+        let tcp = timeout(self.timeout, TcpStream::connect(&self.connect_addr)).await??;
         match &self.tls_name {
-            None => Self::exchange(&mut { tcp }, &request).await,
+            None => self.exchange(&mut { tcp }, request).await,
             Some(name) => {
                 let server_name = ServerName::try_from(name.clone())
                     .with_context(|| format!("{name:?} is not a valid server name"))?;
                 let mut tls =
-                    timeout(WEBHOOK_TIMEOUT, self.connector.connect(server_name, tcp)).await??;
-                Self::exchange(&mut tls, &request).await
+                    timeout(self.timeout, self.connector.connect(server_name, tcp)).await??;
+                self.exchange(&mut tls, request).await
             }
         }
+    }
+
+    pub async fn post_once(&self, event: &Event) -> anyhow::Result<()> {
+        let status = self
+            .send_request(&self.request(&render(self.format, event)))
+            .await?;
+        if (200..300).contains(&status) {
+            Ok(())
+        } else {
+            bail!("webhook answered HTTP {status}")
+        }
+    }
+
+    /// Posts `body` to the URL and returns the HTTP status, whatever it is, for callers that
+    /// decide for themselves what to retry. Errors are connection, TLS and timeout failures.
+    pub async fn post_body(&self, content_type: &'static str, body: String) -> anyhow::Result<u16> {
+        let rendered = Rendered {
+            content_type,
+            body,
+            headers: Vec::new(),
+        };
+        self.send_request(&self.request(&rendered)).await
+    }
+
+    /// Time allowed for each step (connect, TLS handshake, write, response); the default suits
+    /// small notifications, bulk senders want longer.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     /// Sends the alert, retrying a couple of times; failures are logged, never fatal. The URL and

@@ -220,6 +220,20 @@ async fn reload_on_sighup(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // `logpit ship ...` is a log shipper, not the server: it has its own options.
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.first().map(String::as_str) == Some("ship") {
+        if raw[1..].iter().any(|a| a == "--help" || a == "-h") {
+            println!("{}", logpit::shipper::USAGE);
+            return Ok(());
+        }
+        let cfg = logpit::shipper::ShipConfig::from_args(&raw[1..], &|k| std::env::var(k).ok())?;
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+            .init();
+        return logpit::shipper::run(cfg).await;
+    }
+
     let args = parse_args()?;
 
     if args.healthcheck {

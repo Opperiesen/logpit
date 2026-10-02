@@ -17,6 +17,7 @@ pub mod model;
 pub mod query;
 pub mod ratelimit;
 pub mod rules;
+pub mod shipper;
 pub mod silence;
 pub mod snappy;
 pub mod stats;

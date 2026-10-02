@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Shipper: `logpit ship` follows the systemd journal and/or log files (rotation, truncation and resume
+  handled) and sends them to a LogPit server through a disk spool, so nothing is lost while the server is
+  down or the shipper restarts (at-least-once). Failed batches are retried by status (token refused and
+  server errors wait; invalid batches are set aside). `contrib/logpit-ship.service` is an example unit.
+
 - Top values: `GET /api/top?field=` returns the most frequent values of a host, app, severity or structured
   field (CEF, logfmt, JSON) among the entries matching the filters, with how many entries have it, how many
   distinct values there are and how many fall outside the list. `GET /api/fields` lists the fields present.

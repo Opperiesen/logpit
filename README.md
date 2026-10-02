@@ -211,17 +211,50 @@ means restarting LogPit; a bad path or key stops it immediately with an explanat
 
 Other sources:
 
-Proxmox / systemd journal — run this every few seconds from a systemd timer or
-cron on the node. `--cursor-file` remembers where the last run stopped, so each
-run ships only new entries (the first run ships the whole journal):
+**`logpit ship`** is a small shipper built into the same binary, for the systemd journal (Proxmox,
+any Linux host) and plain log files. It keeps a disk spool, so entries are not lost when the server
+is down or the shipper restarts:
+
+```sh
+# the journal, as a service (see contrib/logpit-ship.service)
+logpit ship --url http://logpit-host:8080 --journal --token-file /etc/logpit/ship-token
+
+# log files, surviving rotation; shipped lines carry the machine's name and the file's name
+logpit ship --url https://logpit.example.com --file /var/log/nginx/error.log --file /var/log/app.log \
+  --app web --token-file /etc/logpit/ship-token --spool /var/lib/logpit-ship
+```
+
+- **Sources.** `--journal` follows `journalctl -o json` (extra `journalctl` arguments with
+  `--journal-arg`, e.g. `--journal-arg -u --journal-arg sshd`). `--file` follows a file like
+  `tail -F`: it survives rotation (the old file is finished first) and truncation, resumes where it
+  stopped, and holds a line back until it ends. By default only entries that arrive after the shipper
+  starts are sent; `--journal-from-start` and `--from-start` also send what is already there, and a file
+  that appears later is read from its start.
+- **No loss.** Each batch is written to the spool directory (`--spool`, default `./logpit-spool`)
+  before the read position is saved, and stays there until the server accepts it. While the server is
+  unreachable, refuses the token (401/403) or fails (5xx), batches wait and are retried with a growing
+  delay; `--spool-max-mb` (256 by default) drops the oldest ones if the outage outlasts it. A batch
+  the server calls invalid (400, 413, 415, 422) is set aside in `spool/rejected/` instead of blocking the
+  rest. Delivery is **at least once**: a crash between writing a batch and saving the position can send
+  a few entries twice.
+- **Server side.** Journal entries are sent as they are and mapped by LogPit (`_HOSTNAME`,
+  `SYSLOG_IDENTIFIER`, `PRIORITY`, the journal timestamp); file lines become entries with the shipper's
+  `--host` and `--app`, stamped when read, and JSON or `key=value` in them is extracted as usual.
+- **Options.** `--batch-lines` (500) and `--batch-ms` (1000) set when a batch is cut; `--host` and `--app`
+  override the names. The token is read from `--token-file`, `LOGPIT_SHIP_TOKEN_FILE` or
+  `LOGPIT_SHIP_TOKEN`, never from the command line, where it would show in `ps`. `logpit ship --help` lists
+  everything. It needs a `write` token.
+- Lines longer than 64 KiB are cut, and a file truncated and refilled beyond its old size between two
+  checks (every 250 ms) cannot be told from one that was appended to.
+
+Or, without it, run this from a systemd timer or cron on the node (`--cursor-file` remembers where the
+last run stopped; if the POST fails, that batch is not retried because the cursor has already moved):
 
 ```sh
 journalctl -o json --no-pager --cursor-file=/var/lib/logpit-shipper.cursor \
   | curl -fsS -H "Authorization: Bearer $TOKEN" -X POST --data-binary @- \
       http://logpit-host:8080/ingest
 ```
-
-If the POST fails, that batch is not retried (the cursor has already moved).
 
 Plain JSON:
 

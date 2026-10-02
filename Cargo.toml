@@ -20,7 +20,7 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "macros", "signal", "time", "io-util", "sync"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "macros", "signal", "time", "io-util", "sync", "process", "fs"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 tokio-util = { version = "0.7.19", features = ["codec"] }
 toml = "1.1.6"

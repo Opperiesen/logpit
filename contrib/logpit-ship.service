@@ -1,0 +1,23 @@
+[Unit]
+Description=LogPit shipper (systemd journal to a LogPit server)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# The write token goes in a root-only file, exposed to the service as a credential.
+LoadCredential=ship-token:/etc/logpit/ship-token
+ExecStart=/usr/local/bin/logpit ship --url http://logpit-host:8080 --journal --token-file ${CREDENTIALS_DIRECTORY}/ship-token --spool /var/lib/logpit-ship
+# Batches and the read position live here, so nothing is lost or repeated across restarts.
+StateDirectory=logpit-ship
+DynamicUser=yes
+# Needed to read the journal.
+SupplementaryGroups=systemd-journal
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
