@@ -194,7 +194,8 @@ impl Query {
                     .collect::<Vec<_>>()
                     .join("\n")
                     .to_lowercase();
-                text.split_whitespace().all(|w| hay.contains(&w.to_lowercase()))
+                text.split_whitespace()
+                    .all(|w| hay.contains(&w.to_lowercase()))
             }
             _ => true,
         }

@@ -253,7 +253,11 @@ async fn tail(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     if state.sink.live_subscribers() >= MAX_TAIL_SUBSCRIBERS {
-        return (StatusCode::SERVICE_UNAVAILABLE, "too many live tail clients").into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many live tail clients",
+        )
+            .into_response();
     }
     let rx = state.sink.subscribe();
     let stream = futures_util::stream::unfold((rx, query), |(mut rx, query)| async move {
