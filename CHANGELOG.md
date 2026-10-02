@@ -2,11 +2,15 @@
 
 ## Unreleased
 
+## 0.2.1 - 2026-10-02
+
 - Container-first distribution: configuration through `LOGPIT_*` environment variables
   (`LOGPIT_HTTP_TOKEN_FILE` for secrets), `logpit --healthcheck` and an image
   `HEALTHCHECK`, compose and Podman Quadlet examples, and a README that starts from the
   container. The release workflow now smoke-tests the image (healthcheck, auth, syslog
   ingestion, read-only filesystem, all capabilities dropped) before publishing it.
+- Image fix: `/data` is now writable by the non-root user. The 0.2.0 image could not create its
+  database and did not start; use 0.2.1 or later.
 
 ## 0.2.0 - 2026-10-02
 
