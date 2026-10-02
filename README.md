@@ -213,7 +213,8 @@ It needs the `read` scope. Free text (`q`) uses the same full-text index as sear
 filters of `/api/logs` and `limit` (default 100) for the number of hosts, and needs the `read`
 scope. The web UI shows it in the collapsible *Hosts* panel below the chart: it follows the
 current filters and time range, lists every host even when one is selected, refreshes with the
-chart in Live mode, and clicking a host filters the log table on it.
+chart in Live mode, and clicking a host filters the log table on it. Click a column header to sort by it (again to reverse; Enter or Space works with the
+keyboard); the choice is remembered, and the sort applies to the hosts received (at most 200).
 
 ## Live tail
 

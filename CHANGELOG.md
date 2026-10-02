@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Web UI: the *Hosts* panel columns are sortable (click a header, again to reverse). The sort is remembered
+  and keyboard accessible.
+
 ## 0.4.4 - 2026-10-02
 
 - Per-host summary: `GET /api/hosts` returns entries, errors, warnings, last activity and silence state

@@ -41,6 +41,8 @@
   #hosts summary { cursor:pointer; padding:6px 0; color:var(--muted); }
   #hostsTable { width:auto; min-width:min(100%, 520px); margin:0 0 8px; }
   #hostsTable th { text-align:left; font-weight:600; color:var(--muted); padding:2px 14px 2px 0; border-bottom:1px solid var(--line); }
+  #hostsTable th[data-sort] { cursor:pointer; user-select:none; } #hostsTable th[data-sort]:hover { color:var(--accent); }
+  #hostsTable th[aria-sort]::after { content:' \25B2'; font-size:9px; } #hostsTable th[aria-sort=descending]::after { content:' \25BC'; }
   #hostsTable th.n, #hostsTable td.n { text-align:right; }
   #hostsTable td { padding:2px 14px 2px 0; border-bottom:1px solid var(--line); white-space:nowrap; }
   #hostsTable td.name { cursor:pointer; } #hostsTable td.name:hover { color:var(--accent); }
@@ -85,7 +87,7 @@
 <details id="hosts">
   <summary>Hosts <span id="hostsCount"></span></summary>
   <table id="hostsTable">
-    <thead><tr><th>Host</th><th class="n">Entries</th><th class="n">Errors</th><th class="n">Warnings</th><th>Last seen</th></tr></thead>
+    <thead><tr><th data-sort="host">Host</th><th class="n" data-sort="count">Entries</th><th class="n" data-sort="errors">Errors</th><th class="n" data-sort="warnings">Warnings</th><th data-sort="last_ts">Last seen</th></tr></thead>
     <tbody id="hostsBody"></tbody>
   </table>
 </details>
@@ -330,6 +332,63 @@ function ago(ms) {
   return Math.floor(s / 86400) + 'd ago';
 }
 
+// Column sorting is done in the browser on the rows received (at most 200 hosts). Text sorts
+// ascending first, numbers and dates descending first; clicking again reverses.
+let hostRows = [];
+let hostSort = { key: 'count', dir: -1 };
+try {
+  const [k, d] = (localStorage.getItem('logpit-hosts-sort') || '').split(':');
+  if (['host', 'count', 'errors', 'warnings', 'last_ts'].includes(k) && (d === '1' || d === '-1')) hostSort = { key: k, dir: Number(d) };
+} catch {}
+
+function sortedHosts() {
+  const { key, dir } = hostSort;
+  return [...hostRows].sort((a, b) => {
+    const c = key === 'host' ? a.host.localeCompare(b.host) : a[key] - b[key];
+    return c * dir || a.host.localeCompare(b.host);
+  });
+}
+
+function sortBy(key) {
+  hostSort = hostSort.key === key ? { key, dir: -hostSort.dir } : { key, dir: key === 'host' ? 1 : -1 };
+  try { localStorage.setItem('logpit-hosts-sort', hostSort.key + ':' + hostSort.dir); } catch {}
+  renderHosts();
+}
+
+for (const th of document.querySelectorAll('#hostsTable th[data-sort]')) {
+  th.tabIndex = 0;
+  th.title = 'Sort by ' + th.textContent.toLowerCase();
+  th.onclick = () => sortBy(th.dataset.sort);
+  th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(th.dataset.sort); } };
+}
+
+function renderHosts() {
+  for (const th of document.querySelectorAll('#hostsTable th[data-sort]')) {
+    if (th.dataset.sort === hostSort.key) th.setAttribute('aria-sort', hostSort.dir === 1 ? 'ascending' : 'descending');
+    else th.removeAttribute('aria-sort');
+  }
+  $('hostsCount').textContent = '(' + hostRows.length + ')';
+  $('hostsBody').replaceChildren(...sortedHosts().map(h => {
+    const tr = document.createElement('tr');
+    if (snap && h.host === snap.host) tr.className = 'active';
+    const name = td('name', h.host);
+    name.title = 'Filter on host ' + h.host;
+    name.onclick = () => { $('host').value = h.host; load(); };
+    if (h.silent) {
+      const b = document.createElement('span');
+      b.className = 'badge';
+      b.textContent = 'silent';
+      b.title = 'No logs received within the silence threshold';
+      name.append(b);
+    }
+    const num = (v, cls) => td('n' + (v ? (cls ? ' ' + cls : '') : ' zero'), v.toLocaleString());
+    const seen = td('', ago(h.last_ts));
+    seen.title = new Date(h.last_ts).toLocaleString();
+    tr.append(name, num(h.count), num(h.errors, 's3'), num(h.warnings, 's4'), seen);
+    return tr;
+  }));
+}
+
 async function loadHosts() {
   if (!snap || !$('hosts').open) return;
   const p = chartParams();
@@ -338,27 +397,8 @@ async function loadHosts() {
   try {
     const res = await fetch('/api/hosts?' + p, { headers: authHeaders() });
     if (!res.ok) return;
-    const rows = await res.json();
-    $('hostsCount').textContent = '(' + rows.length + ')';
-    $('hostsBody').replaceChildren(...rows.map(h => {
-      const tr = document.createElement('tr');
-      if (h.host === snap.host) tr.className = 'active';
-      const name = td('name', h.host);
-      name.title = 'Filter on host ' + h.host;
-      name.onclick = () => { $('host').value = h.host; load(); };
-      if (h.silent) {
-        const b = document.createElement('span');
-        b.className = 'badge';
-        b.textContent = 'silent';
-        b.title = 'No logs received within the silence threshold';
-        name.append(b);
-      }
-      const num = (v, cls) => td('n' + (v ? (cls ? ' ' + cls : '') : ' zero'), v.toLocaleString());
-      const seen = td('', ago(h.last_ts));
-      seen.title = new Date(h.last_ts).toLocaleString();
-      tr.append(name, num(h.count), num(h.errors, 's3'), num(h.warnings, 's4'), seen);
-      return tr;
-    }));
+    hostRows = await res.json();
+    renderHosts();
   } catch {}
 }
 try { $('hosts').open = localStorage.getItem('logpit-hosts-open') === '1'; } catch {}
