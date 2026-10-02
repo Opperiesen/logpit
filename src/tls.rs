@@ -59,83 +59,21 @@ pub fn build_acceptor(
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::path::PathBuf;
     use std::sync::mpsc::{Receiver, sync_channel};
     use std::time::Duration;
 
-    use rcgen::{
-        BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
-        SanType,
-    };
+    use rcgen::KeyPair;
     use rustls::pki_types::ServerName;
     use tokio::io::AsyncWriteExt;
     use tokio::net::{TcpListener, TcpStream};
     use tokio_rustls::TlsConnector;
 
+    use super::testpki::pki;
     use super::*;
     use crate::ingest::{Sink, serve_tls};
     use crate::metrics::Metrics;
     use crate::model::LogEntry;
     use crate::silence::Tracker;
-
-    struct Pki {
-        dir: PathBuf,
-        ca_pem: String,
-        server_cert: PathBuf,
-        server_key: PathBuf,
-        ca_file: PathBuf,
-        client_cert_pem: String,
-        client_key_pem: String,
-    }
-
-    fn name(cn: &str) -> rcgen::DistinguishedName {
-        let mut dn = rcgen::DistinguishedName::new();
-        dn.push(DnType::CommonName, cn);
-        dn
-    }
-
-    /// A throwaway CA with a `localhost` server certificate and a client certificate.
-    fn pki(tag: &str) -> Pki {
-        let dir = std::env::temp_dir().join(format!("logpit-tls-{}-{tag}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let ca_key = KeyPair::generate().unwrap();
-        let mut ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
-        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        ca_params.distinguished_name = name("test ca");
-        let ca = ca_params.self_signed(&ca_key).unwrap();
-        let issuer = rcgen::Issuer::new(ca_params, ca_key);
-
-        let server_key = KeyPair::generate().unwrap();
-        let mut server_params = CertificateParams::new(vec!["localhost".to_string()]).unwrap();
-        server_params
-            .subject_alt_names
-            .push(SanType::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST)));
-        server_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
-        let server = server_params.signed_by(&server_key, &issuer).unwrap();
-
-        let client_key = KeyPair::generate().unwrap();
-        let mut client_params = CertificateParams::new(Vec::<String>::new()).unwrap();
-        client_params.distinguished_name = name("test client");
-        client_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
-        let client = client_params.signed_by(&client_key, &issuer).unwrap();
-
-        let write = |file: &str, text: String| {
-            let path = dir.join(file);
-            std::fs::write(&path, text).unwrap();
-            path
-        };
-        Pki {
-            ca_pem: ca.pem(),
-            server_cert: write("server.pem", server.pem()),
-            server_key: write("server.key", server_key.serialize_pem()),
-            ca_file: write("ca.pem", ca.pem()),
-            client_cert_pem: client.pem(),
-            client_key_pem: client_key.serialize_pem(),
-            dir,
-        }
-    }
 
     /// Starts a TLS listener on a free port with a sink whose entries are returned on `Receiver`.
     async fn start(acceptor: TlsAcceptor) -> (u16, Receiver<LogEntry>, Arc<Metrics>) {
@@ -286,5 +224,75 @@ mod tests {
         // The matching pair works.
         assert!(build_acceptor(&pki.server_cert, &pki.server_key, None).is_ok());
         std::fs::remove_dir_all(&pki.dir).ok();
+    }
+}
+
+/// Throwaway certificates for tests: a CA, a `localhost` server certificate and a client certificate.
+#[cfg(test)]
+pub(crate) mod testpki {
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::path::PathBuf;
+
+    use rcgen::{
+        BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+        SanType,
+    };
+
+    pub struct Pki {
+        pub dir: PathBuf,
+        pub ca_pem: String,
+        pub server_cert: PathBuf,
+        pub server_key: PathBuf,
+        pub ca_file: PathBuf,
+        pub client_cert_pem: String,
+        pub client_key_pem: String,
+    }
+
+    fn name(cn: &str) -> rcgen::DistinguishedName {
+        let mut dn = rcgen::DistinguishedName::new();
+        dn.push(DnType::CommonName, cn);
+        dn
+    }
+
+    /// A throwaway CA with a `localhost` server certificate and a client certificate.
+    pub fn pki(tag: &str) -> Pki {
+        let dir = std::env::temp_dir().join(format!("logpit-tls-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let ca_key = KeyPair::generate().unwrap();
+        let mut ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        ca_params.distinguished_name = name("test ca");
+        let ca = ca_params.self_signed(&ca_key).unwrap();
+        let issuer = rcgen::Issuer::new(ca_params, ca_key);
+
+        let server_key = KeyPair::generate().unwrap();
+        let mut server_params = CertificateParams::new(vec!["localhost".to_string()]).unwrap();
+        server_params
+            .subject_alt_names
+            .push(SanType::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+        server_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+        let server = server_params.signed_by(&server_key, &issuer).unwrap();
+
+        let client_key = KeyPair::generate().unwrap();
+        let mut client_params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        client_params.distinguished_name = name("test client");
+        client_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
+        let client = client_params.signed_by(&client_key, &issuer).unwrap();
+
+        let write = |file: &str, text: String| {
+            let path = dir.join(file);
+            std::fs::write(&path, text).unwrap();
+            path
+        };
+        Pki {
+            ca_pem: ca.pem(),
+            server_cert: write("server.pem", server.pem()),
+            server_key: write("server.key", server_key.serialize_pem()),
+            ca_file: write("ca.pem", ca.pem()),
+            client_cert_pem: client.pem(),
+            client_key_pem: client_key.serialize_pem(),
+            dir,
+        }
     }
 }

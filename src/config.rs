@@ -100,8 +100,12 @@ pub struct SilenceConfig {
     pub default_after_secs: u64,
     /// How often silence is evaluated.
     pub check_interval_secs: u64,
-    /// `http://` URL that receives a JSON POST on each alert and recovery.
+    /// `http://` or `https://` URL that receives a POST on each alert and recovery.
     pub webhook_url: String,
+    /// Body format: `json` (default), `text`, `slack`, `discord` or `ntfy`.
+    pub webhook_format: crate::webhook::WebhookFormat,
+    /// Extra request headers as `"Name: value"`, for an `Authorization` token for instance.
+    pub webhook_headers: Vec<String>,
     /// Per-host thresholds in seconds, overriding the default; 0 means never alert.
     pub hosts: BTreeMap<String, u64>,
 }
@@ -112,6 +116,8 @@ impl Default for SilenceConfig {
             default_after_secs: 0,
             check_interval_secs: 30,
             webhook_url: String::new(),
+            webhook_format: crate::webhook::WebhookFormat::Json,
+            webhook_headers: Vec::new(),
             hosts: BTreeMap::new(),
         }
     }
@@ -272,6 +278,16 @@ impl Config {
         if let Some(v) = get("LOGPIT_SILENCE_WEBHOOK_URL") {
             self.silence.webhook_url = v;
         }
+        if let Some(v) = get("LOGPIT_SILENCE_WEBHOOK_FORMAT") {
+            self.silence.webhook_format = crate::webhook::WebhookFormat::parse(v.trim())
+                .with_context(|| {
+                    format!("invalid LOGPIT_SILENCE_WEBHOOK_FORMAT {v:?} (json, text, slack, discord or ntfy)")
+                })?;
+        }
+        // One header per variable keeps secrets out of the config file; use TOML for several.
+        if let Some(v) = env_secret(get, "LOGPIT_SILENCE_WEBHOOK_HEADER")? {
+            self.silence.webhook_headers.push(v);
+        }
         if let Some(t) = env_secret(get, "LOGPIT_HTTP_TOKEN")? {
             self.http.token = Some(t);
         }
@@ -368,7 +384,7 @@ impl Config {
             bail!("silence.hosts keys must not be empty");
         }
         if !si.webhook_url.is_empty() {
-            crate::silence::Webhook::parse(&si.webhook_url)?;
+            crate::webhook::Webhook::new(&si.webhook_url, si.webhook_format, &si.webhook_headers)?;
         }
         Ok(())
     }
@@ -458,7 +474,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cfg.silence.hosts["nas"], 3600);
-        assert!(Config::parse("[silence]\nwebhook_url = \"https://x\"").is_err());
+        assert!(Config::parse("[silence]\nwebhook_url = \"https://hooks.example.com/x\"").is_ok());
+        assert!(Config::parse("[silence]\nwebhook_url = \"ftp://x\"").is_err());
         assert!(Config::parse("[silence]\ncheck_interval_secs = 0").is_err());
         assert!(Config::parse("[silence]\nbogus = 1").is_err());
 
@@ -576,6 +593,46 @@ mod tests {
         assert_eq!(cfg.storage.max_db_size_mb, 2048);
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_MAX_DB_SIZE_MB", "big")]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn webhook_format_and_headers_config() {
+        let cfg = Config::parse(
+            "[silence]\nwebhook_url = \"https://ntfy.example.com/logpit\"\nwebhook_format = \"ntfy\"\n\
+             webhook_headers = [\"Authorization: Bearer tk_123\"]",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.silence.webhook_format,
+            crate::webhook::WebhookFormat::Ntfy
+        );
+        assert_eq!(cfg.silence.webhook_headers.len(), 1);
+        assert_eq!(
+            Config::parse("").unwrap().silence.webhook_format,
+            crate::webhook::WebhookFormat::Json
+        );
+        for bad in [
+            "webhook_format = \"xml\"",
+            "webhook_headers = [\"no colon\"]",
+            "webhook_headers = [\"Host: evil\"]",
+            "webhook_headers = [\"X-A: a\\r\\nInjected: 1\"]",
+        ] {
+            let text = format!("[silence]\nwebhook_url = \"https://x.example/h\"\n{bad}");
+            assert!(Config::parse(&text).is_err(), "{bad}");
+        }
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[
+            ("LOGPIT_SILENCE_WEBHOOK_URL", "https://hooks.example.com/x"),
+            ("LOGPIT_SILENCE_WEBHOOK_FORMAT", "discord"),
+            ("LOGPIT_SILENCE_WEBHOOK_HEADER", "X-Token: abc"),
+        ]))
+        .unwrap();
+        cfg.validate().unwrap();
+        assert_eq!(cfg.silence.webhook_headers, ["X-Token: abc"]);
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_SILENCE_WEBHOOK_FORMAT", "xml")]))
                 .is_err()
         );
     }

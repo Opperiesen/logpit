@@ -7,9 +7,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use serde_json::json;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::time::timeout;
 
 use crate::config::SilenceConfig;
 use crate::ingest::now_ms;
@@ -18,8 +15,6 @@ use crate::ingest::now_ms;
 pub const MAX_TRACKED_HOSTS: usize = 1024;
 /// A silent host that is not named in the config is forgotten after this long.
 const FORGET_AFTER_MS: i64 = 7 * 86_400_000;
-const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(5);
-const WEBHOOK_ATTEMPTS: u32 = 3;
 
 /// Silence thresholds: a default for every host plus per-host overrides (0 = never alert).
 #[derive(Debug, Clone, Default)]
@@ -237,100 +232,27 @@ impl Tracker {
     }
 }
 
-/// Target of the alert webhook (plain HTTP only: the image has no TLS stack).
-#[derive(Debug, Clone, PartialEq)]
-pub struct Webhook {
-    authority: String,
-    connect_addr: String,
-    path: String,
-}
-
-impl Webhook {
-    pub fn parse(url: &str) -> anyhow::Result<Self> {
-        let rest = url.strip_prefix("http://").ok_or_else(|| {
-            anyhow::anyhow!(
-                "silence.webhook_url must start with http:// (https is not supported; \
-                 use a local relay for TLS targets)"
-            )
-        })?;
-        let (authority, path) = match rest.find('/') {
-            Some(i) => (&rest[..i], &rest[i..]),
-            None => (rest, "/"),
-        };
-        if authority.is_empty()
-            || authority.contains('@')
-            || authority.contains(char::is_whitespace)
-        {
-            anyhow::bail!("invalid silence.webhook_url {url:?}");
-        }
-        let has_port = !authority.ends_with(']') && authority.contains(':');
-        let connect_addr = if has_port {
-            authority.to_owned()
-        } else {
-            format!("{authority}:80")
-        };
-        Ok(Self {
-            authority: authority.to_owned(),
-            connect_addr,
-            path: path.to_owned(),
-        })
-    }
-
-    async fn post_once(&self, body: &str) -> anyhow::Result<()> {
-        let mut stream = timeout(WEBHOOK_TIMEOUT, TcpStream::connect(&self.connect_addr)).await??;
-        let req = format!(
-            "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\n\
-             Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            self.path,
-            self.authority,
-            body.len()
-        );
-        timeout(WEBHOOK_TIMEOUT, stream.write_all(req.as_bytes())).await??;
-        let mut buf = [0u8; 256];
-        let n = timeout(WEBHOOK_TIMEOUT, stream.read(&mut buf)).await??;
-        let head = String::from_utf8_lossy(&buf[..n]);
-        let status = head.split_whitespace().nth(1).unwrap_or("");
-        if status.starts_with('2') {
-            Ok(())
-        } else {
-            anyhow::bail!("webhook answered {:?}", head.lines().next().unwrap_or(""))
-        }
-    }
-
-    /// Posts `body`, retrying a couple of times; failures are logged, never fatal.
-    pub async fn send(&self, body: String) {
-        for attempt in 1..=WEBHOOK_ATTEMPTS {
-            match self.post_once(&body).await {
-                Ok(()) => return,
-                Err(e) => tracing::warn!("alert webhook attempt {attempt} failed: {e:#}"),
-            }
-            if attempt < WEBHOOK_ATTEMPTS {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-        }
-        tracing::error!("alert webhook gave up after {WEBHOOK_ATTEMPTS} attempts");
-    }
-}
-
 /// Periodically evaluates silence rules, logging and notifying on each transition.
 pub async fn run(
     tracker: std::sync::Arc<Tracker>,
     rules: Rules,
     interval: Duration,
-    webhook: Option<Webhook>,
+    webhook: Option<crate::webhook::Webhook>,
 ) {
     let mut tick = tokio::time::interval(interval);
     loop {
         tick.tick().await;
         for event in tracker.evaluate(&rules, now_ms()) {
-            let payload = event.payload();
-            let message = payload["message"].as_str().unwrap_or_default();
+            let message = event.payload()["message"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
             match event {
                 Event::Silent { .. } => tracing::warn!("silence alert: {message}"),
                 Event::Recovered { .. } => tracing::info!("silence recovered: {message}"),
             }
             if let Some(hook) = webhook.clone() {
-                tokio::spawn(async move { hook.send(payload.to_string()).await });
+                tokio::spawn(async move { hook.send(&event).await });
             }
         }
     }
@@ -451,52 +373,5 @@ mod tests {
         t.touch("a\"b\\c\nd", 0);
         t.evaluate(&r, 5_000);
         assert!(t.render_metrics().contains(r#"host="a\"b\\c\nd""#));
-    }
-
-    #[test]
-    fn webhook_url_parsing() {
-        let w = Webhook::parse("http://ntfy.lan:8081/alerts").unwrap();
-        assert_eq!(
-            (w.connect_addr.as_str(), w.path.as_str()),
-            ("ntfy.lan:8081", "/alerts")
-        );
-        let w = Webhook::parse("http://relay").unwrap();
-        assert_eq!(
-            (w.connect_addr.as_str(), w.path.as_str()),
-            ("relay:80", "/")
-        );
-        assert!(Webhook::parse("https://discord.com/x").is_err());
-        assert!(Webhook::parse("http://user:pw@host/").is_err());
-        assert!(Webhook::parse("http:///x").is_err());
-    }
-
-    #[tokio::test]
-    async fn webhook_posts_json_and_retries_on_failure() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let mut bodies = Vec::new();
-            // First attempt gets a 500, the retry a 200.
-            for status in ["500 Internal Server Error", "200 OK"] {
-                let (mut s, _) = listener.accept().await.unwrap();
-                let mut buf = vec![0u8; 4096];
-                let n = s.read(&mut buf).await.unwrap();
-                bodies.push(String::from_utf8_lossy(&buf[..n]).to_string());
-                s.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n").as_bytes())
-                    .await
-                    .unwrap();
-            }
-            bodies
-        });
-        let hook = Webhook::parse(&format!("http://{addr}/hook")).unwrap();
-        let payload = Event::Recovered { host: "pve".into() }
-            .payload()
-            .to_string();
-        hook.send(payload).await;
-        let bodies = server.await.unwrap();
-        assert_eq!(bodies.len(), 2);
-        assert!(bodies[1].starts_with("POST /hook HTTP/1.1\r\n"));
-        assert!(bodies[1].contains("Content-Type: application/json"));
-        assert!(bodies[1].contains(r#""event":"host_recovered""#));
     }
 }

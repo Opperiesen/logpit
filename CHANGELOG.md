@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Alert webhooks: `https://` URLs are supported (certificates are verified against the built-in Mozilla
+  root list), with `webhook_format` (`json`, `slack`, `discord`, `ntfy`, `text`) and `webhook_headers`
+  for tokens. Host names are clipped and escaped for the target (no `<!channel>`/mention pings, no header
+  injection), and neither the URL nor the headers are logged. Adds the `webpki-roots` crate.
+
 - Context: `GET /api/logs/{id}/context` returns an entry with up to 100 entries on each side, for the same
   host or all hosts. In the web UI, clicking a line's timestamp opens its context below it, with buttons for
   more lines, this host or all hosts, and close.

@@ -10,8 +10,9 @@ use logpit::api::{self, AppState};
 use logpit::config::Config;
 use logpit::ingest::{self, Sink, now_ms};
 use logpit::metrics::Metrics;
-use logpit::silence::{self, MAX_TRACKED_HOSTS, Rules, Tracker, Webhook};
+use logpit::silence::{self, MAX_TRACKED_HOSTS, Rules, Tracker};
 use logpit::store;
+use logpit::webhook::Webhook;
 use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
@@ -256,7 +257,11 @@ async fn main() -> anyhow::Result<()> {
     if silence_rules.enabled() {
         let webhook = match cfg.silence.webhook_url.as_str() {
             "" => None,
-            url => Some(Webhook::parse(url)?),
+            url => Some(Webhook::new(
+                url,
+                cfg.silence.webhook_format,
+                &cfg.silence.webhook_headers,
+            )?),
         };
         let interval = Duration::from_secs(cfg.silence.check_interval_secs);
         tasks.spawn(async move {

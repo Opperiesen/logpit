@@ -26,6 +26,7 @@ tokio-util = { version = "0.7.19", features = ["codec"] }
 toml = "1.1.6"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+webpki-roots = "1.0.9"
 
 [profile.release]
 lto = "thin"

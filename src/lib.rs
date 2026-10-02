@@ -18,3 +18,4 @@ pub mod store;
 pub mod structured;
 pub mod syslog;
 pub mod tls;
+pub mod webhook;

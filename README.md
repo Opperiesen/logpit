@@ -407,12 +407,38 @@ tracked from the first log received (or from startup, for hosts already in the d
 listed under `[silence.hosts]`, which get a full threshold of grace after a restart). Hosts
 not in the config are forgotten after 7 days of silence, and at most 1024 hosts are tracked.
 
-The webhook gets a JSON `POST` such as
-`{"event":"host_silent","host":"pve","silent_for_secs":125,"threshold_secs":120,"message":"…"}`
-(`"event":"host_recovered"` on recovery) and is retried up to 3 times. Only `http://` is
-supported (the image has no TLS stack): for Discord, Slack or other HTTPS services, point it
-at a local relay. The same state is exposed on `/metrics` as `logpit_host_silent{host="…"} 1`
-for each silent host, so Prometheus/Alertmanager can notify instead.
+### Alert webhook
+
+Alerts and recoveries are sent as a `POST` to `webhook_url`, which can be `http://` or
+`https://` (certificates are checked against the Mozilla root list built into LogPit, so it works
+from the image without any CA bundle). The request is retried up to 3 times, failures are logged
+without the URL or headers (they often hold a token), and `webhook_format` picks the body:
+
+| `webhook_format` | Body | For |
+|---|---|---|
+| `json` (default) | `{"event":"host_silent","host":"pve","silent_for_secs":125,"threshold_secs":120,"message":"…"}`, with `"event":"host_recovered"` on recovery | your own receiver |
+| `slack` | `{"text": "…"}` | Slack, Mattermost, Rocket.Chat |
+| `discord` | `{"content": "…"}`, mentions disabled | Discord |
+| `ntfy` | the text, plus `Title`, `Priority` and `Tags` headers | [ntfy](https://ntfy.sh) |
+| `text` | the text | anything that takes a plain body |
+
+```toml
+[silence]
+default_after_secs = 600
+webhook_url = "https://ntfy.example.com/logpit"
+webhook_format = "ntfy"
+webhook_headers = ["Authorization: Bearer tk_…"]   # extra headers, e.g. a token
+```
+
+`LOGPIT_SILENCE_WEBHOOK_URL`, `LOGPIT_SILENCE_WEBHOOK_FORMAT` and `LOGPIT_SILENCE_WEBHOOK_HEADER`
+(one header; use the file for several) are the environment equivalents. The headers `Host`,
+`Content-Type`, `Content-Length`, `Connection`, `Transfer-Encoding` and `Expect` are set by LogPit
+and cannot be overridden. Host names come from whoever sent the logs, so they are clipped, and
+escaped where the target interprets them (`<!channel>` in Slack text, mentions in Discord, non-ASCII
+in ntfy headers). Redirects are not followed, so give the final URL.
+
+The same state is exposed on `/metrics` as `logpit_host_silent{host="…"} 1` for each silent host,
+so Prometheus/Alertmanager can notify instead.
 
 ## Structured fields
 
