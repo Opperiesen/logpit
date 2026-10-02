@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.6 - 2026-10-02
+
 - `GET /api/hosts` accepts `sort` and `order`, and applies `limit` after sorting. The *Hosts* panel now
   sorts on the server instead of in the browser, so a column sort covers every host and not only the
   200 busiest.
