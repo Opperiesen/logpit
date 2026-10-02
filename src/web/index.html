@@ -118,7 +118,22 @@ function authHeaders() {
 let tailCtl = null;
 const MAX_LIVE_ROWS = 1000;
 
-function stopTail() { if (tailCtl) tailCtl.abort(); tailCtl = null; }
+let chartTimer = null, chartBusy = false;
+const CHART_REFRESH_MS = 5000;
+
+function stopTail() {
+  if (tailCtl) tailCtl.abort();
+  tailCtl = null;
+  clearInterval(chartTimer);
+  chartTimer = null;
+}
+
+// While live, redraw the histogram periodically so it follows the stream.
+async function refreshChart() {
+  if (document.hidden || chartBusy) return;
+  chartBusy = true;
+  try { await loadChart(); } finally { chartBusy = false; }
+}
 
 function handleEvent(raw) {
   let name = 'message', data = '';
@@ -138,8 +153,9 @@ function handleEvent(raw) {
 async function startTail() {
   stopTail();
   const ctl = tailCtl = new AbortController();
+  chartTimer = setInterval(refreshChart, CHART_REFRESH_MS);
   const p = new URLSearchParams();
-  for (const k of ['q', 'host', 'app', 'level', 'f']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
+  for (const k of SNAP_KEYS) if (snap[k]) p.set(k, snap[k]);
   while (tailCtl === ctl) {
     try {
       const res = await fetch('/api/tail?' + p, { headers: authHeaders(), signal: ctl.signal });
@@ -165,7 +181,20 @@ async function startTail() {
 
 // Histogram of the current filters, stacked by severity (errors at the bottom), host or app.
 // Clicking a host or app in the legend filters on it.
-let lastChartParams = null;
+// Filters of the last search, so the chart keeps matching the table even if the inputs are
+// edited without searching. The time window slides with the clock (used by live refresh).
+let snap = null;
+const SNAP_KEYS = ['q', 'host', 'app', 'level', 'f'];
+function takeSnapshot() {
+  snap = { range: $('range').value };
+  for (const k of SNAP_KEYS) snap[k] = $(k).value.trim();
+}
+function chartParams() {
+  const p = new URLSearchParams();
+  for (const k of SNAP_KEYS) if (snap[k]) p.set(k, snap[k]);
+  if (snap.range) p.set('since', String(Date.now() - Number(snap.range)));
+  return p;
+}
 try { $('group').value = localStorage.getItem('logpit-group') || 'severity'; } catch {}
 
 function colorFor(group, key, i) {
@@ -173,11 +202,10 @@ function colorFor(group, key, i) {
   return key === 'other' ? 'var(--other)' : 'var(--c' + (i % 10) + ')';
 }
 
-async function loadChart(params) {
-  lastChartParams = params;
+async function loadChart() {
+  if (!snap) return;
   const chart = $('chart'), bar = $('chartbar'), group = $('group').value;
-  const p = new URLSearchParams(params);
-  p.delete('limit');
+  const p = chartParams();
   p.set('group_by', group);
   const hide = () => { chart.hidden = true; bar.hidden = true; };
   try {
@@ -245,11 +273,12 @@ async function loadChart(params) {
 
 $('group').onchange = () => {
   try { localStorage.setItem('logpit-group', $('group').value); } catch {}
-  if (lastChartParams) loadChart(lastChartParams);
+  loadChart();
 };
 
 async function load() {
   stopTail();
+  takeSnapshot();
   const p = new URLSearchParams({ limit: '500' });
   for (const k of ['q', 'host', 'app', 'level', 'f']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
   if ($('range').value) p.set('since', String(Date.now() - Number($('range').value)));
@@ -281,7 +310,7 @@ async function load() {
     $('empty').textContent = 'No matching entries.';
     $('empty').hidden = rows.length > 0;
     $('status').textContent = rows.length + ' entries';
-    loadChart(p);
+    loadChart();
     if ($('live').checked) startTail();
   } catch (e) { $('status').textContent = String(e.message || e); }
 }

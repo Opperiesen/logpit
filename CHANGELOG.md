@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Web UI: with *Live* on, the histogram is refreshed every 5 s (paused while the tab is hidden) and its
+  time window slides with the clock. It keeps the filters of the last search even if the inputs are
+  edited afterwards.
+
 ## 0.4.1 - 2026-10-02
 
 - Web UI: the histogram can be stacked by severity, host or app, with a legend showing per-group

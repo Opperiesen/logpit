@@ -185,7 +185,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 Counts entries per time bucket, which is what the chart at the top of the web UI shows. The
 chart can be stacked by severity, host or app (*Stack by*); the legend gives the totals, and
-clicking a host or app in it filters the log table on it.
+clicking a host or app in it filters the log table on it. With *Live* on, the chart is redrawn every 5 s (while the tab is visible).
 It takes the filters of `/api/logs` (`q`, `host`, `app`, `level`, `f`, `since`, `until`) plus:
 
 | Parameter | Meaning |
