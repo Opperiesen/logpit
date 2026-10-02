@@ -6,10 +6,13 @@ use std::sync::mpsc::{SyncSender, TrySendError};
 use std::time::Duration;
 
 use futures_util::StreamExt;
+use tokio::io::AsyncRead;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::{Semaphore, broadcast};
 use tokio::time::timeout;
-use tokio_util::codec::{FramedRead, LinesCodec};
+use tokio_util::codec::FramedRead;
+
+use crate::framing::SyslogFrames;
 
 use crate::metrics::Metrics;
 use crate::model::{LogEntry, truncate_utf8};
@@ -18,6 +21,7 @@ use crate::syslog;
 
 const MAX_TCP_CONNECTIONS: usize = 256;
 const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_LINE_BYTES: usize = 64 * 1024;
 /// Entries a live-tail subscriber may fall behind before it starts losing some.
 const LIVE_CAPACITY: usize = 1024;
@@ -119,37 +123,97 @@ pub async fn run_udp(addr: SocketAddr, sink: Sink) -> anyhow::Result<()> {
 pub async fn run_tcp(addr: SocketAddr, sink: Sink) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("syslog TCP listening on {addr}");
+    serve_tcp(listener, sink).await
+}
+
+/// Reads syslog messages (newline-delimited or octet-counted) until the peer closes, goes
+/// idle, or sends something invalid.
+async fn handle_connection<S: AsyncRead + Unpin>(stream: S, peer: String, sink: Sink, what: &str) {
+    let mut frames = FramedRead::new(stream, SyslogFrames::new(MAX_LINE_BYTES));
+    loop {
+        match timeout(TCP_IDLE_TIMEOUT, frames.next()).await {
+            Ok(Some(Ok(line))) => sink.push_syslog(&line, &peer),
+            Ok(Some(Err(e))) => {
+                tracing::warn!("closing {what} connection from {peer}: {e}");
+                Metrics::inc(&sink.metrics().rejected, 1);
+                return;
+            }
+            Ok(None) | Err(_) => return,
+        }
+    }
+}
+
+/// Accepts connections up to the connection limit; `wrap` turns each accepted stream into
+/// the handler's future (plain TCP reads it directly, TLS performs the handshake first).
+async fn accept_loop<F, Fut>(
+    listener: TcpListener,
+    what: &'static str,
+    wrap: F,
+) -> anyhow::Result<()>
+where
+    F: Fn(tokio::net::TcpStream, String) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
     let permits = Arc::new(Semaphore::new(MAX_TCP_CONNECTIONS));
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(conn) => conn,
             Err(e) => {
-                tracing::warn!("TCP accept error: {e}");
+                tracing::warn!("{what} accept error: {e}");
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
             }
         };
         let Ok(permit) = permits.clone().try_acquire_owned() else {
-            tracing::warn!("too many TCP connections; refusing {peer}");
+            tracing::warn!("too many {what} connections; refusing {peer}");
             continue;
         };
-        let sink = sink.clone();
+        let work = wrap(stream, peer.ip().to_string());
         tokio::spawn(async move {
             let _permit = permit;
-            let peer = peer.ip().to_string();
-            let mut lines =
-                FramedRead::new(stream, LinesCodec::new_with_max_length(MAX_LINE_BYTES));
-            loop {
-                match timeout(TCP_IDLE_TIMEOUT, lines.next()).await {
-                    Ok(Some(Ok(line))) => sink.push_syslog(&line, &peer),
-                    Ok(Some(Err(e))) => {
-                        tracing::warn!("closing TCP connection from {peer}: {e}");
-                        Metrics::inc(&sink.metrics().rejected, 1);
-                        return;
-                    }
-                    Ok(None) | Err(_) => return,
-                }
-            }
+            work.await;
         });
     }
+}
+
+pub async fn serve_tcp(listener: TcpListener, sink: Sink) -> anyhow::Result<()> {
+    accept_loop(listener, "TCP", move |stream, peer| {
+        handle_connection(stream, peer, sink.clone(), "TCP")
+    })
+    .await
+}
+
+pub async fn run_tls(
+    addr: SocketAddr,
+    sink: Sink,
+    acceptor: tokio_rustls::TlsAcceptor,
+) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(addr).await?;
+    tracing::info!("syslog TLS listening on {addr}");
+    serve_tls(listener, sink, acceptor).await
+}
+
+pub async fn serve_tls(
+    listener: TcpListener,
+    sink: Sink,
+    acceptor: tokio_rustls::TlsAcceptor,
+) -> anyhow::Result<()> {
+    accept_loop(listener, "TLS", move |stream, peer| {
+        let (sink, acceptor) = (sink.clone(), acceptor.clone());
+        async move {
+            match timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await {
+                Ok(Ok(tls)) => handle_connection(tls, peer, sink, "TLS").await,
+                Ok(Err(e)) => {
+                    // Port scanners and clients with the wrong CA end up here; not worth a warning.
+                    tracing::debug!("TLS handshake with {peer} failed: {e}");
+                    Metrics::inc(&sink.metrics().tls_failures, 1);
+                }
+                Err(_) => {
+                    tracing::debug!("TLS handshake with {peer} timed out");
+                    Metrics::inc(&sink.metrics().tls_failures, 1);
+                }
+            }
+        }
+    })
+    .await
 }

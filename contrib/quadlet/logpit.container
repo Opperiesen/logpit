@@ -15,6 +15,12 @@ ContainerName=logpit
 PublishPort=514:5514/udp
 PublishPort=514:5514/tcp
 PublishPort=8080:8080
+# Syslog over TLS (see the README): publish 6514 and mount the certificate and key
+#PublishPort=6514:6514/tcp
+#Volume=/etc/logpit/certs:/certs:ro,Z
+#Environment=LOGPIT_SYSLOG_TLS_LISTEN=0.0.0.0:6514
+#Environment=LOGPIT_SYSLOG_TLS_CERT=/certs/logpit.pem
+#Environment=LOGPIT_SYSLOG_TLS_KEY=/certs/logpit.key
 Volume=logpit-data:/data
 Secret=logpit-token
 Environment=LOGPIT_HTTP_TOKEN_FILE=/run/secrets/logpit-token

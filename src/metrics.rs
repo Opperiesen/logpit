@@ -16,6 +16,8 @@ pub struct Metrics {
     pub write_errors: AtomicU64,
     /// Entries evicted to stay under `storage.max_db_size_mb`.
     pub size_evicted: AtomicU64,
+    /// TLS connections that failed or timed out during the handshake.
+    pub tls_failures: AtomicU64,
     /// Bytes of the database holding data, as last measured by the retention task.
     pub db_used_bytes: AtomicU64,
 }
@@ -52,6 +54,11 @@ impl Metrics {
                 "logpit_write_errors_total",
                 "Failed storage batch writes",
                 &self.write_errors,
+            ),
+            (
+                "logpit_tls_handshake_failures_total",
+                "Syslog TLS connections that failed the handshake",
+                &self.tls_failures,
             ),
             (
                 "logpit_size_evicted_total",

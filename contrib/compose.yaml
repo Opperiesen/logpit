@@ -9,11 +9,16 @@ services:
       - "514:5514/udp"   # syslog
       - "514:5514/tcp"
       - "8080:8080"      # web UI and API
+      # - "6514:6514/tcp"  # syslog over TLS, see the README ("Syslog over TLS")
     environment:
       LOGPIT_HTTP_TOKEN: ${LOGPIT_TOKEN:?set LOGPIT_TOKEN in .env}
       LOGPIT_RETENTION_DAYS: "14"
+      # LOGPIT_SYSLOG_TLS_LISTEN: 0.0.0.0:6514
+      # LOGPIT_SYSLOG_TLS_CERT: /certs/logpit.pem
+      # LOGPIT_SYSLOG_TLS_KEY: /certs/logpit.key
     volumes:
       - logpit-data:/data
+      # - ./certs:/certs:ro
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

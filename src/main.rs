@@ -174,6 +174,16 @@ async fn main() -> anyhow::Result<()> {
 
     let udp = parse_addr("syslog.udp_listen", &cfg.syslog.udp_listen)?;
     let tcp = parse_addr("syslog.tcp_listen", &cfg.syslog.tcp_listen)?;
+    let tls = parse_addr("syslog.tls_listen", &cfg.syslog.tls_listen)?;
+    // Load the certificates before anything else starts, so a bad path or key fails fast.
+    let tls_acceptor = match (tls, &cfg.syslog.tls_cert, &cfg.syslog.tls_key) {
+        (Some(_), Some(cert), Some(key)) => Some(logpit::tls::build_acceptor(
+            cert,
+            key,
+            cfg.syslog.tls_client_ca.as_deref(),
+        )?),
+        _ => None,
+    };
     let http: SocketAddr = cfg
         .http
         .listen
@@ -226,6 +236,9 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Some(addr) = tcp {
         tasks.spawn(ingest::run_tcp(addr, sink.clone()));
+    }
+    if let (Some(addr), Some(acceptor)) = (tls, tls_acceptor) {
+        tasks.spawn(ingest::run_tls(addr, sink.clone(), acceptor));
     }
     drop(sink);
 

@@ -7,7 +7,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 
 ## Features
 
-- **Ingestion**: syslog over UDP and TCP (RFC 5424 and RFC 3164), and HTTP
+- **Ingestion**: syslog over UDP, TCP and TLS (RFC 5424 and RFC 3164, newline or octet-counted
+  framing, optional client certificates), and HTTP
   (`POST /ingest`) accepting NDJSON or a JSON array, including raw
   `journalctl -o json` output.
 - **Structured fields**: CEF events (e.g. UniFi's SIEM export) are parsed into
@@ -72,6 +73,9 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_HTTP_LISTEN` | `0.0.0.0:8080` | Web UI and API address |
 | `LOGPIT_SYSLOG_UDP_LISTEN` | `0.0.0.0:5514` | Empty string disables UDP syslog |
 | `LOGPIT_SYSLOG_TCP_LISTEN` | `0.0.0.0:5514` | Empty string disables TCP syslog |
+| `LOGPIT_SYSLOG_TLS_LISTEN` | *(off)* | Address of the syslog-over-TLS listener, e.g. `0.0.0.0:6514`; needs the next two |
+| `LOGPIT_SYSLOG_TLS_CERT`, `LOGPIT_SYSLOG_TLS_KEY` | | PEM certificate chain and private key for the TLS listener |
+| `LOGPIT_SYSLOG_TLS_CLIENT_CA` | | PEM CA file: clients must then present a certificate issued by it |
 | `LOGPIT_STORAGE_PATH` | `/data/logpit.db` | SQLite file |
 | `LOGPIT_RETENTION_DAYS` | `14` | `0` disables purging |
 | `LOGPIT_MAX_DB_SIZE_MB` | `0` | Soft cap on the database size; the oldest entries are evicted beyond it. `0` = off (see below) |
@@ -111,6 +115,46 @@ Syslog (rsyslog, on any Linux host or router):
 ```
 *.* @@logpit-host:514      # TCP; use a single @ for UDP
 ```
+
+### Syslog over TLS
+
+Plain syslog is readable and forgeable on the network. For logs that leave a trusted LAN, enable
+the TLS listener (RFC 5425, conventionally port 6514). It needs a certificate, which can be
+self-signed when you control the senders:
+
+```sh
+openssl req -x509 -newkey rsa:3072 -nodes -days 825 -keyout logpit.key -out logpit.pem \
+  -subj "/CN=logpit-host" -addext "subjectAltName=DNS:logpit-host"
+podman run … -p 6514:6514/tcp \
+  -e LOGPIT_SYSLOG_TLS_LISTEN=0.0.0.0:6514 \
+  -e LOGPIT_SYSLOG_TLS_CERT=/certs/logpit.pem -e LOGPIT_SYSLOG_TLS_KEY=/certs/logpit.key \
+  -v ./certs:/certs:ro …
+```
+
+The key must be readable by uid 65532 inside the container, and the certificate's name must
+match what senders connect to. Senders then trust `logpit.pem` (or its CA), for example with
+rsyslog (the `rsyslog-gnutls` package):
+
+```
+global(DefaultNetstreamDriver="gtls" DefaultNetstreamDriverCAFile="/etc/rsyslog.d/logpit.pem")
+*.* action(type="omfwd" target="logpit-host" port="6514" protocol="tcp"
+           StreamDriver="gtls" StreamDriverMode="1" StreamDriverAuthMode="x509/name"
+           StreamDriverPermittedPeers="logpit-host" TCP_Framing="octet-counted")
+```
+
+To also **authenticate the senders**, set `LOGPIT_SYSLOG_TLS_CLIENT_CA` (or `syslog.tls_client_ca`)
+to a PEM file of the CAs that issue your client certificates: a client without a valid
+certificate is refused during the handshake (add `DefaultNetstreamDriverCertFile` and
+`DefaultNetstreamDriverKeyFile` on the sender side). Without it, any client that can reach the
+port may send.
+
+TLS 1.2 and 1.3 are accepted. Both framings work on one connection and are detected per message:
+octet counting (`<length> <message>`, which RFC 5425 requires) and newline-delimited lines. Plain
+TCP syslog understands both too. Failed handshakes are counted in
+`logpit_tls_handshake_failures_total`. Certificates are read at startup, so replacing them
+means restarting LogPit; a bad path or key stops it immediately with an explanation.
+
+Other sources:
 
 Proxmox / systemd journal — run this every few seconds from a systemd timer or
 cron on the node. `--cursor-file` remembers where the last run stopped, so each

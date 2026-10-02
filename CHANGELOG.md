@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Syslog over TLS (RFC 5425): `syslog.tls_listen`, `tls_cert`, `tls_key` (or the `LOGPIT_SYSLOG_TLS_*`
+  variables) enable a TLS 1.2/1.3 listener, and `tls_client_ca` requires client certificates. Built on
+  rustls with the `ring` provider (no OpenSSL; the binary grows by about 1 MB). Certificates are loaded at
+  startup and a bad one stops LogPit with a clear error. New metric `logpit_tls_handshake_failures_total`.
+- Syslog over TCP and TLS now accepts octet-counted frames (`<length> <message>`) as well as
+  newline-delimited lines, detected per message. Blank lines between messages are ignored.
+
 ## 0.4.9 - 2026-10-03
 
 - Search text: `q` now supports `OR`, `-word` / `NOT word` exclusions, `"phrases"` and `prefix*`

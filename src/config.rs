@@ -40,8 +40,17 @@ pub struct StorageConfig {
 pub struct SyslogConfig {
     /// UDP listen address; empty string disables the listener.
     pub udp_listen: String,
-    /// TCP listen address (newline-delimited); empty string disables it.
+    /// TCP listen address (newline-delimited or octet-counted); empty string disables it.
     pub tcp_listen: String,
+    /// TLS listen address (RFC 5425, usually port 6514); empty string disables it. Needs
+    /// `tls_cert` and `tls_key`.
+    pub tls_listen: String,
+    /// PEM certificate chain presented to clients (the server certificate first).
+    pub tls_cert: Option<PathBuf>,
+    /// PEM private key for `tls_cert`.
+    pub tls_key: Option<PathBuf>,
+    /// PEM file of CAs: when set, clients must present a certificate issued by one of them.
+    pub tls_client_ca: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -128,6 +137,10 @@ impl Default for SyslogConfig {
         Self {
             udp_listen: "127.0.0.1:5514".into(),
             tcp_listen: "127.0.0.1:5514".into(),
+            tls_listen: String::new(),
+            tls_cert: None,
+            tls_key: None,
+            tls_client_ca: None,
         }
     }
 }
@@ -205,6 +218,21 @@ impl Config {
         if let Some(v) = get("LOGPIT_SYSLOG_TCP_LISTEN") {
             self.syslog.tcp_listen = v;
         }
+        if let Some(v) = get("LOGPIT_SYSLOG_TLS_LISTEN") {
+            self.syslog.tls_listen = v;
+        }
+        for (name, slot) in [
+            ("LOGPIT_SYSLOG_TLS_CERT", &mut self.syslog.tls_cert),
+            ("LOGPIT_SYSLOG_TLS_KEY", &mut self.syslog.tls_key),
+            (
+                "LOGPIT_SYSLOG_TLS_CLIENT_CA",
+                &mut self.syslog.tls_client_ca,
+            ),
+        ] {
+            if let Some(v) = get(name) {
+                *slot = (!v.is_empty()).then(|| PathBuf::from(v));
+            }
+        }
         if let Some(v) = get("LOGPIT_HTTP_LISTEN") {
             self.http.listen = v;
         }
@@ -280,6 +308,17 @@ impl Config {
         }
         if matches!(&self.http.token, Some(t) if t.is_empty()) {
             bail!("http.token must not be empty (remove it to disable auth)");
+        }
+        let sy = &self.syslog;
+        if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
+            bail!("syslog.tls_listen needs syslog.tls_cert and syslog.tls_key");
+        }
+        if sy.tls_listen.is_empty()
+            && (sy.tls_cert.is_some() || sy.tls_key.is_some() || sy.tls_client_ca.is_some())
+        {
+            bail!(
+                "syslog.tls_cert, tls_key and tls_client_ca are set but syslog.tls_listen is empty"
+            );
         }
         let mut seen = std::collections::HashSet::new();
         for t in &self.http.tokens {
@@ -511,6 +550,40 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_MAX_DB_SIZE_MB", "big")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn syslog_tls_config() {
+        let ok = Config::parse(
+            "[syslog]\ntls_listen = \"0.0.0.0:6514\"\ntls_cert = \"/c.pem\"\ntls_key = \"/k.pem\"\ntls_client_ca = \"/ca.pem\"",
+        )
+        .unwrap();
+        assert_eq!(ok.syslog.tls_client_ca, Some(PathBuf::from("/ca.pem")));
+        assert_eq!(Config::parse("").unwrap().syslog.tls_listen, "");
+        // A listener without a certificate, or a certificate without a listener, is a mistake.
+        assert!(Config::parse("[syslog]\ntls_listen = \"0.0.0.0:6514\"").is_err());
+        assert!(
+            Config::parse("[syslog]\ntls_listen = \"0.0.0.0:6514\"\ntls_cert = \"/c.pem\"")
+                .is_err()
+        );
+        assert!(Config::parse("[syslog]\ntls_cert = \"/c.pem\"").is_err());
+
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[
+            ("LOGPIT_SYSLOG_TLS_LISTEN", "0.0.0.0:6514"),
+            ("LOGPIT_SYSLOG_TLS_CERT", "/run/secrets/cert.pem"),
+            ("LOGPIT_SYSLOG_TLS_KEY", "/run/secrets/key.pem"),
+        ]))
+        .unwrap();
+        cfg.validate().unwrap();
+        assert_eq!(
+            cfg.syslog.tls_key,
+            Some(PathBuf::from("/run/secrets/key.pem"))
+        );
+        // An empty value clears a path set in the file.
+        cfg.apply_env(&env(&[("LOGPIT_SYSLOG_TLS_KEY", "")]))
+            .unwrap();
+        assert!(cfg.validate().is_err());
     }
 
     #[test]
