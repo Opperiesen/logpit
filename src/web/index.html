@@ -49,7 +49,7 @@
     <option value="">All time</option>
   </select>
   <input id="token" type="password" placeholder="Token (if set)" size="12" autocomplete="off">
-  <label><input id="live" type="checkbox"> Live</label>
+  <label title="Stream new entries as they arrive"><input id="live" type="checkbox"> Live</label>
   <button id="go">Search</button>
   <span id="status"></span>
 </header>
@@ -58,7 +58,6 @@
 <script>
 const $ = id => document.getElementById(id);
 const LEVELS = ['emerg','alert','crit','err','warn','notice','info','debug'];
-let timer = null;
 try { $('token').value = localStorage.getItem('logpit-token') || ''; } catch {}
 
 function td(cls, text) { const c = document.createElement('td'); c.className = cls; c.textContent = text; return c; }
@@ -84,13 +83,77 @@ function msgCell(r) {
   return c;
 }
 
+function rowEl(r) {
+  const tr = document.createElement('tr');
+  tr.append(
+    td('ts', new Date(r.ts).toLocaleString()),
+    td('sev s' + r.severity, LEVELS[r.severity] || r.severity),
+    td('host', r.host), td('app', r.app), msgCell(r));
+  return tr;
+}
+
+function authHeaders() {
+  const token = $('token').value;
+  return token ? { Authorization: 'Bearer ' + token } : {};
+}
+
+// Live tail: SSE over fetch (EventSource cannot send the Authorization header).
+let tailCtl = null;
+const MAX_LIVE_ROWS = 1000;
+
+function stopTail() { if (tailCtl) tailCtl.abort(); tailCtl = null; }
+
+function handleEvent(raw) {
+  let name = 'message', data = '';
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('event:')) name = line.slice(6).trim();
+    else if (line.startsWith('data:')) data += line.slice(5).trimStart();
+  }
+  if (name === 'lagged') { $('status').textContent = 'live: skipped ' + data + ' entries'; return; }
+  if (!data) return;
+  const body = $('rows');
+  body.prepend(rowEl(JSON.parse(data)));
+  while (body.rows.length > MAX_LIVE_ROWS) body.deleteRow(-1);
+  $('empty').hidden = true;
+  $('status').textContent = 'live · ' + body.rows.length + ' entries';
+}
+
+async function startTail() {
+  stopTail();
+  const ctl = tailCtl = new AbortController();
+  const p = new URLSearchParams();
+  for (const k of ['q', 'host', 'app', 'level', 'f']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
+  while (tailCtl === ctl) {
+    try {
+      const res = await fetch('/api/tail?' + p, { headers: authHeaders(), signal: ctl.signal });
+      if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
+      $('status').textContent = 'live';
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += value.replace(/\r\n/g, '\n');
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) { handleEvent(buf.slice(0, i)); buf = buf.slice(i + 2); }
+      }
+    } catch (e) {
+      if (ctl.signal.aborted) return;
+      $('status').textContent = 'live: ' + String(e.message || e) + ' (retrying)';
+    }
+    if (tailCtl !== ctl) return;
+    await new Promise(r => setTimeout(r, 3000));
+  }
+}
+
 async function load() {
+  stopTail();
   const p = new URLSearchParams({ limit: '500' });
   for (const k of ['q', 'host', 'app', 'level', 'f']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
   if ($('range').value) p.set('since', String(Date.now() - Number($('range').value)));
-  const headers = {};
+  const headers = authHeaders();
   const token = $('token').value;
-  if (token) { headers.Authorization = 'Bearer ' + token; try { localStorage.setItem('logpit-token', token); } catch {} }
+  if (token) { try { localStorage.setItem('logpit-token', token); } catch {} }
   try {
     const res = await fetch('/api/logs?' + p, { headers });
     if (res.status === 401) {
@@ -104,17 +167,11 @@ async function load() {
     if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
     const rows = await res.json();
     const body = $('rows');
-    body.replaceChildren(...rows.map(r => {
-      const tr = document.createElement('tr');
-      tr.append(
-        td('ts', new Date(r.ts).toLocaleString()),
-        td('sev s' + r.severity, LEVELS[r.severity] || r.severity),
-        td('host', r.host), td('app', r.app), msgCell(r));
-      return tr;
-    }));
+    body.replaceChildren(...rows.map(rowEl));
     $('empty').textContent = 'No matching entries.';
     $('empty').hidden = rows.length > 0;
     $('status').textContent = rows.length + ' entries';
+    if ($('live').checked) startTail();
   } catch (e) { $('status').textContent = String(e.message || e); }
 }
 
@@ -122,7 +179,7 @@ $('go').onclick = load;
 $('token').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 for (const id of ['q', 'host', 'app', 'f']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 for (const id of ['level', 'range']) $(id).onchange = load;
-$('live').onchange = () => { clearInterval(timer); if ($('live').checked) timer = setInterval(load, 3000); };
+$('live').onchange = () => { if ($('live').checked) load(); else { stopTail(); load(); } };
 load();
 </script>
 </body>

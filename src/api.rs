@@ -6,10 +6,12 @@ use std::sync::Arc;
 use axum::extract::{DefaultBodyLimit, Query as QueryParams, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::Value;
+use tokio::sync::broadcast;
 
 use crate::ingest::{Sink, now_ms};
 use crate::metrics::Metrics;
@@ -18,6 +20,7 @@ use crate::store::{self, Query};
 
 const MAX_LIMIT: usize = 1000;
 const DEFAULT_LIMIT: usize = 100;
+const MAX_TAIL_SUBSCRIBERS: usize = 32;
 const INDEX_HTML: &str = include_str!("web/index.html");
 
 #[derive(Clone)]
@@ -31,6 +34,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
     let protected = Router::new()
         .route("/ingest", post(ingest))
         .route("/api/logs", get(search))
+        .route("/api/tail", get(tail))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token))
         .layer(DefaultBodyLimit::max(max_body_bytes));
 
@@ -235,6 +239,47 @@ async fn search(
             (StatusCode::INTERNAL_SERVER_ERROR, "search failed").into_response()
         }
     }
+}
+
+/// Server-sent events stream of newly ingested entries matching the search filters
+/// (`q`, `host`, `app`, `level`, `f`). A `lagged` event reports entries skipped when
+/// the client reads too slowly.
+async fn tail(
+    State(state): State<AppState>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let query = match parse_search(params) {
+        Ok(q) => q,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    if state.sink.live_subscribers() >= MAX_TAIL_SUBSCRIBERS {
+        return (StatusCode::SERVICE_UNAVAILABLE, "too many live tail clients").into_response();
+    }
+    let rx = state.sink.subscribe();
+    let stream = futures_util::stream::unfold((rx, query), |(mut rx, query)| async move {
+        loop {
+            match rx.recv().await {
+                Ok(entry) if query.matches(&entry) => {
+                    let event = Event::default().json_data(&*entry).ok()?;
+                    return Some((Ok::<_, std::convert::Infallible>(event), (rx, query)));
+                }
+                Ok(_) => {}
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    let event = Event::default().event("lagged").data(n.to_string());
+                    return Some((Ok(event), (rx, query)));
+                }
+                Err(broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    });
+    // Reverse proxies such as nginx buffer responses by default, which would stall the stream.
+    let mut resp = Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response();
+    let h = resp.headers_mut();
+    h.insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
+    h.insert("x-accel-buffering", "no".parse().unwrap());
+    resp
 }
 
 #[cfg(test)]

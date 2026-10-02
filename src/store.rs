@@ -169,6 +169,38 @@ pub fn valid_field_key(key: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
 }
 
+impl Query {
+    /// Whether a freshly ingested entry satisfies this query's filters, for live tailing.
+    /// Time bounds and `limit` are ignored. Free text matches case-insensitively as
+    /// substrings of the message or field values (no FTS index is involved).
+    pub fn matches(&self, e: &LogEntry) -> bool {
+        if self.host.as_ref().is_some_and(|h| *h != e.host)
+            || self.app.as_ref().is_some_and(|a| *a != e.app)
+            || self.max_severity.is_some_and(|s| e.severity > s)
+        {
+            return false;
+        }
+        if !self
+            .fields
+            .iter()
+            .all(|(k, v)| e.fields.get(k).is_some_and(|x| x == v))
+        {
+            return false;
+        }
+        match self.text.as_deref() {
+            Some(text) if text.split_whitespace().next().is_some() => {
+                let hay = std::iter::once(e.message.as_str())
+                    .chain(e.fields.values().map(String::as_str))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .to_lowercase();
+                text.split_whitespace().all(|w| hay.contains(&w.to_lowercase()))
+            }
+            _ => true,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct Row {
     pub id: i64,
@@ -328,6 +360,29 @@ mod tests {
         assert_eq!(search(&conn, &window).unwrap().len(), 1);
 
         assert_eq!(search(&conn, &q(2)).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn live_query_matching() {
+        let mut e = entry(1, "pve", 3, "Disk Error on sda");
+        e.fields.insert("act".into(), "blocked".into());
+        let mut q = q(10);
+        assert!(q.matches(&e));
+        q.text = Some("disk ERROR".into());
+        q.host = Some("pve".into());
+        q.max_severity = Some(3);
+        q.fields.push(("act".into(), "blocked".into()));
+        assert!(q.matches(&e));
+        q.text = Some("blocked".into());
+        assert!(q.matches(&e), "text also matches field values");
+        q.text = Some("missing".into());
+        assert!(!q.matches(&e));
+        q.text = None;
+        q.max_severity = Some(2);
+        assert!(!q.matches(&e));
+        q.max_severity = None;
+        q.fields = vec![("act".into(), "allowed".into())];
+        assert!(!q.matches(&e));
     }
 
     #[test]
