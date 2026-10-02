@@ -22,6 +22,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Container-native**: multi-arch image (amd64, arm64), non-root, runs read-only
   with all capabilities dropped, configured through environment variables,
   built-in healthcheck, token via secret file.
+- **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Observability**: Prometheus metrics at `/metrics`, health at `/healthz`.
 
 ## Quick start
@@ -69,6 +70,8 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_SYSLOG_TCP_LISTEN` | `0.0.0.0:5514` | Empty string disables TCP syslog |
 | `LOGPIT_STORAGE_PATH` | `/data/logpit.db` | SQLite file |
 | `LOGPIT_RETENTION_DAYS` | `14` | `0` disables purging |
+| `LOGPIT_SILENCE_AFTER_SECS` | `0` | Alert when any host is silent this long; `0` disables |
+| `LOGPIT_SILENCE_WEBHOOK_URL` | | `http://` URL notified on alerts and recoveries |
 | `LOGPIT_CONFIG` | `/etc/logpit/logpit.toml` | TOML file with the same settings |
 
 For more settings (batching, queue size, message limit) mount your own TOML over
@@ -136,6 +139,35 @@ the `q`, `host`, `app`, `level` and `f` filters of `/api/logs`; `since`, `until`
 are ignored. Unlike search, `q` here is a case-insensitive substring match on the message
 and field values. Only entries ingested after the connection opens are sent. A slow client
 gets a `lagged` event with the number of skipped entries; at most 32 clients may tail at once.
+
+## Silence alerts
+
+Detects hosts that stop sending logs (a crashed node, a dead router). Enable it for every
+host with `LOGPIT_SILENCE_AFTER_SECS=600`, or per host in the TOML file:
+
+```toml
+[silence]
+default_after_secs = 600     # every host; 0 = only the hosts listed below
+webhook_url = "http://ntfy.lan/logpit"
+check_interval_secs = 30
+
+[silence.hosts]
+pve = 120                    # tighter threshold
+nas = 3600
+printer = 0                  # never alert for this host
+```
+
+A host alerts once when it exceeds its threshold, and once more when logs resume. Hosts are
+tracked from the first log received (or from startup, for hosts already in the database or
+listed under `[silence.hosts]`, which get a full threshold of grace after a restart). Hosts
+not in the config are forgotten after 7 days of silence, and at most 1024 hosts are tracked.
+
+The webhook gets a JSON `POST` such as
+`{"event":"host_silent","host":"pve","silent_for_secs":125,"threshold_secs":120,"message":"…"}`
+(`"event":"host_recovered"` on recovery) and is retried up to 3 times. Only `http://` is
+supported (the image has no TLS stack): for Discord, Slack or other HTTPS services, point it
+at a local relay. The same state is exposed on `/metrics` as `logpit_host_silent{host="…"} 1`
+for each silent host, so Prometheus/Alertmanager can notify instead.
 
 ## Structured fields (CEF)
 

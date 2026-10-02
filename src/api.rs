@@ -75,7 +75,7 @@ async fn require_token(State(state): State<AppState>, req: Request, next: Next) 
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
-        state.sink.metrics().render(),
+        state.sink.metrics().render() + &state.sink.silence().render_metrics(),
     )
 }
 

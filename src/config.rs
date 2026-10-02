@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
@@ -9,6 +10,7 @@ pub struct Config {
     pub storage: StorageConfig,
     pub syslog: SyslogConfig,
     pub http: HttpConfig,
+    pub silence: SilenceConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -41,6 +43,31 @@ pub struct HttpConfig {
     /// When set, `/ingest` and `/api/*` require `Authorization: Bearer <token>`.
     pub token: Option<String>,
     pub max_body_bytes: usize,
+}
+
+/// Alerts for hosts that stop sending logs.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SilenceConfig {
+    /// Alert when any host has sent nothing for this many seconds. 0 disables the default.
+    pub default_after_secs: u64,
+    /// How often silence is evaluated.
+    pub check_interval_secs: u64,
+    /// `http://` URL that receives a JSON POST on each alert and recovery.
+    pub webhook_url: String,
+    /// Per-host thresholds in seconds, overriding the default; 0 means never alert.
+    pub hosts: BTreeMap<String, u64>,
+}
+
+impl Default for SilenceConfig {
+    fn default() -> Self {
+        Self {
+            default_after_secs: 0,
+            check_interval_secs: 30,
+            webhook_url: String::new(),
+            hosts: BTreeMap::new(),
+        }
+    }
 }
 
 impl Default for StorageConfig {
@@ -105,6 +132,15 @@ impl Config {
         if let Some(v) = get("LOGPIT_HTTP_LISTEN") {
             self.http.listen = v;
         }
+        if let Some(v) = get("LOGPIT_SILENCE_AFTER_SECS") {
+            self.silence.default_after_secs = v
+                .trim()
+                .parse()
+                .with_context(|| format!("invalid LOGPIT_SILENCE_AFTER_SECS {v:?}"))?;
+        }
+        if let Some(v) = get("LOGPIT_SILENCE_WEBHOOK_URL") {
+            self.silence.webhook_url = v;
+        }
         match (get("LOGPIT_HTTP_TOKEN"), get("LOGPIT_HTTP_TOKEN_FILE")) {
             (Some(_), Some(_)) => {
                 bail!("set only one of LOGPIT_HTTP_TOKEN and LOGPIT_HTTP_TOKEN_FILE")
@@ -147,6 +183,16 @@ impl Config {
         }
         if matches!(&self.http.token, Some(t) if t.is_empty()) {
             bail!("http.token must not be empty (remove it to disable auth)");
+        }
+        let si = &self.silence;
+        if si.check_interval_secs == 0 {
+            bail!("silence.check_interval_secs must be > 0");
+        }
+        if si.hosts.keys().any(|h| h.is_empty()) {
+            bail!("silence.hosts keys must not be empty");
+        }
+        if !si.webhook_url.is_empty() {
+            crate::silence::Webhook::parse(&si.webhook_url)?;
         }
         Ok(())
     }
@@ -224,6 +270,32 @@ mod tests {
         );
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_RETENTION_DAYS", "abc")]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn silence_config_parses_and_validates() {
+        let cfg = Config::parse(
+            "[silence]\ndefault_after_secs = 600\nwebhook_url = \"http://ntfy:80/x\"\n\
+             [silence.hosts]\nnas = 3600\nprinter = 0",
+        )
+        .unwrap();
+        assert_eq!(cfg.silence.hosts["nas"], 3600);
+        assert!(Config::parse("[silence]\nwebhook_url = \"https://x\"").is_err());
+        assert!(Config::parse("[silence]\ncheck_interval_secs = 0").is_err());
+        assert!(Config::parse("[silence]\nbogus = 1").is_err());
+
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[
+            ("LOGPIT_SILENCE_AFTER_SECS", "300"),
+            ("LOGPIT_SILENCE_WEBHOOK_URL", "http://relay/hook"),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.silence.default_after_secs, 300);
+        cfg.validate().unwrap();
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_SILENCE_AFTER_SECS", "x")]))
                 .is_err()
         );
     }

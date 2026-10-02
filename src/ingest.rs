@@ -13,6 +13,7 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 
 use crate::metrics::Metrics;
 use crate::model::{LogEntry, truncate_utf8};
+use crate::silence::Tracker;
 use crate::syslog;
 
 const MAX_TCP_CONNECTIONS: usize = 256;
@@ -32,15 +33,22 @@ pub struct Sink {
     metrics: Arc<Metrics>,
     max_message_bytes: usize,
     live: broadcast::Sender<Arc<LogEntry>>,
+    silence: Arc<Tracker>,
 }
 
 impl Sink {
-    pub fn new(tx: SyncSender<LogEntry>, metrics: Arc<Metrics>, max_message_bytes: usize) -> Self {
+    pub fn new(
+        tx: SyncSender<LogEntry>,
+        metrics: Arc<Metrics>,
+        max_message_bytes: usize,
+        silence: Arc<Tracker>,
+    ) -> Self {
         Self {
             tx,
             metrics,
             max_message_bytes,
             live: broadcast::channel(LIVE_CAPACITY).0,
+            silence,
         }
     }
 
@@ -53,11 +61,16 @@ impl Sink {
         self.live.receiver_count()
     }
 
+    pub fn silence(&self) -> &Tracker {
+        &self.silence
+    }
+
     pub fn metrics(&self) -> &Metrics {
         &self.metrics
     }
 
     pub fn push(&self, mut entry: LogEntry) {
+        self.silence.touch(&entry.host, now_ms());
         crate::cef::enrich(&mut entry);
         truncate_utf8(&mut entry.message, self.max_message_bytes);
         let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));

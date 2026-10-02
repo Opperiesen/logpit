@@ -9,6 +9,7 @@ use logpit::api::{self, AppState};
 use logpit::config::Config;
 use logpit::ingest::{self, Sink, now_ms};
 use logpit::metrics::Metrics;
+use logpit::silence::{self, MAX_TRACKED_HOSTS, Rules, Tracker, Webhook};
 use logpit::store;
 use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
@@ -128,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
 
     let db_path = cfg.storage.path.clone();
     let conn = store::open(&db_path)?;
+    let seed_conn = store::open(&db_path)?;
     let metrics = Arc::new(Metrics::default());
     let (tx, rx) = sync_channel(cfg.storage.queue_capacity);
 
@@ -140,7 +142,20 @@ async fn main() -> anyhow::Result<()> {
             .spawn(move || store::run_writer(conn, rx, batch, flush, metrics))?
     };
 
-    let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes);
+    let silence_rules = Rules::from_config(&cfg.silence);
+    let tracker = Arc::new(Tracker::new(silence_rules.enabled()));
+    if silence_rules.enabled() {
+        let known = store::known_hosts(&seed_conn, MAX_TRACKED_HOSTS)?;
+        tracker.seed(
+            known
+                .iter()
+                .map(String::as_str)
+                .chain(silence_rules.configured_hosts()),
+            now_ms(),
+        );
+    }
+
+    let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone());
     let state = AppState {
         sink: sink.clone(),
         db_path: db_path.clone(),
@@ -165,6 +180,18 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("HTTP listening on http://{http}");
     let app = api::router(state, cfg.http.max_body_bytes);
     tasks.spawn(async move { axum::serve(listener, app).await.map_err(Into::into) });
+
+    if silence_rules.enabled() {
+        let webhook = match cfg.silence.webhook_url.as_str() {
+            "" => None,
+            url => Some(Webhook::parse(url)?),
+        };
+        let interval = Duration::from_secs(cfg.silence.check_interval_secs);
+        tasks.spawn(async move {
+            silence::run(tracker, silence_rules, interval, webhook).await;
+            Ok(())
+        });
+    }
 
     if cfg.storage.retention_days > 0 {
         tasks.spawn(async move {

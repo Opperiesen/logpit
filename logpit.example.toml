@@ -18,3 +18,11 @@ tcp_listen = "127.0.0.1:5514"
 listen = "127.0.0.1:8080"
 # token = "change-me"        # protects /ingest and /api/*; set it before exposing the port
 max_body_bytes = 8388608
+
+[silence]
+# Alert when a host stops sending logs (webhook + `logpit_host_silent` metric). Off by default.
+default_after_secs = 0       # every host, in seconds; 0 = only the hosts listed below
+check_interval_secs = 30
+webhook_url = ""             # http:// only; JSON POST on each alert and recovery
+# [silence.hosts]
+# pve = 120                  # per-host threshold in seconds; 0 = never alert

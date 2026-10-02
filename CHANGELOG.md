@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Silence alerts: per-host detection of hosts that stop sending logs, configured with `[silence]`
+  or `LOGPIT_SILENCE_AFTER_SECS`. Notifies an `http://` webhook (with retries) on alert and recovery
+  and exposes `logpit_host_silent{host}` on `/metrics`.
+
 ## 0.3.0 - 2026-10-02
 
 - Live tail: `GET /api/tail` streams newly ingested entries as server-sent events, with the same

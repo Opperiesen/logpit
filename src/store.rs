@@ -141,6 +141,12 @@ fn flush(conn: &mut Connection, batch: &mut Vec<LogEntry>, metrics: &Metrics) {
     batch.clear();
 }
 
+/// Distinct hosts present in the database, at most `limit`.
+pub fn known_hosts(conn: &Connection, limit: usize) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT DISTINCT host FROM logs LIMIT ?")?;
+    stmt.query_map([limit as i64], |r| r.get(0))?.collect()
+}
+
 /// Deletes entries older than `cutoff_ms`; returns the number removed.
 pub fn purge_older_than(conn: &Connection, cutoff_ms: i64) -> rusqlite::Result<usize> {
     conn.execute("DELETE FROM logs WHERE ts < ?1", params![cutoff_ms])
