@@ -35,6 +35,8 @@
   .lg b { font-weight:600; color:var(--fg); }
   #chart { display:block; width:100%; height:64px; border-bottom:1px solid var(--line); }
   #chart rect { fill:currentColor; }
+  #chart .hit { fill:transparent; cursor:zoom-in; } #chart .hit:hover { fill:var(--accent); fill-opacity:.15; }
+  #chart .hit.flat { cursor:default; }
   #empty { padding:24px 16px; color:var(--muted); }
 </style>
 </head>
@@ -187,13 +189,38 @@ let snap = null;
 const SNAP_KEYS = ['q', 'host', 'app', 'level', 'f'];
 function takeSnapshot() {
   snap = { range: $('range').value };
+  if (snap.range === 'custom' && zoomWindow) Object.assign(snap, zoomWindow);
   for (const k of SNAP_KEYS) snap[k] = $(k).value.trim();
+}
+// A relative range slides with the clock; a zoomed window is fixed.
+function applyWindow(p, s) {
+  if (s.range === 'custom') { p.set('since', String(s.since)); p.set('until', String(s.until)); }
+  else if (s.range) p.set('since', String(Date.now() - Number(s.range)));
 }
 function chartParams() {
   const p = new URLSearchParams();
   for (const k of SNAP_KEYS) if (snap[k]) p.set(k, snap[k]);
-  if (snap.range) p.set('since', String(Date.now() - Number(snap.range)));
+  applyWindow(p, snap);
   return p;
+}
+
+// Clicking a histogram bar zooms to that bucket: it becomes a fixed window, offered as an extra
+// entry in the range selector (choose another range to leave it). Live is switched off.
+let zoomWindow = null;
+const MIN_ZOOM_MS = 10000;
+function zoomTo(since, until) {
+  zoomWindow = { since, until };
+  let opt = $('range-custom');
+  if (!opt) { opt = document.createElement('option'); opt.id = 'range-custom'; opt.value = 'custom'; $('range').append(opt); }
+  opt.textContent = new Date(since).toLocaleString() + ' → ' + new Date(until).toLocaleString();
+  $('range').value = 'custom';
+  $('live').checked = false;
+  load();
+}
+function leaveZoom() {
+  zoomWindow = null;
+  const opt = $('range-custom');
+  if (opt) opt.remove();
 }
 try { $('group').value = localStorage.getItem('logpit-group') || 'severity'; } catch {}
 
@@ -221,11 +248,10 @@ async function loadChart() {
       if (group === 'severity') el.setAttribute('class', 's' + LEVELS.indexOf(k));
       else el.style.color = colorFor(group, k, i);
     };
-    const bars = [];
+    const bars = [], hits = [];
     d.buckets.forEach((b, i) => {
       let y = 100;
       const parts = [];
-      let last = null;
       keys.forEach((k, ki) => {
         const n = (b.groups || {})[k];
         if (!n) return;
@@ -236,17 +262,24 @@ async function loadChart() {
         style(r, k, ki);
         r.setAttribute('x', i + 0.1); r.setAttribute('width', 0.8);
         r.setAttribute('y', y); r.setAttribute('height', h);
-        bars.push(r); last = r;
+        bars.push(r);
         parts.push((k || '(none)') + ' ' + n);
       });
-      if (last) {
-        const t = document.createElementNS(NS, 'title');
-        t.textContent = new Date(b.ts).toLocaleString() + ' — ' + b.total + ' (' + parts.join(', ') + ')';
-        last.append(t);
-      }
+      const hit = document.createElementNS(NS, 'rect');
+      hit.setAttribute('class', 'hit');
+      hit.setAttribute('x', i); hit.setAttribute('width', 1);
+      hit.setAttribute('y', 0); hit.setAttribute('height', 100);
+      const zoomable = d.bucket_ms > MIN_ZOOM_MS;
+      if (zoomable) hit.onclick = () => zoomTo(b.ts, b.ts + d.bucket_ms - 1);
+      else hit.classList.add('flat');
+      const t = document.createElementNS(NS, 'title');
+      t.textContent = new Date(b.ts).toLocaleString() + ' — ' + b.total +
+        (parts.length ? ' (' + parts.join(', ') + ')' : '') + (zoomable ? ' · click to zoom' : '');
+      hit.append(t);
+      hits.push(hit);
     });
     chart.setAttribute('viewBox', '0 0 ' + Math.max(1, d.buckets.length) + ' 100');
-    chart.replaceChildren(...bars);
+    chart.replaceChildren(...bars, ...hits);
     chart.hidden = false;
 
     const items = keys.map((k, ki) => {
@@ -279,9 +312,10 @@ $('group').onchange = () => {
 async function load() {
   stopTail();
   takeSnapshot();
+  if (snap.range === 'custom') $('live').checked = false;
   const p = new URLSearchParams({ limit: '500' });
   for (const k of ['q', 'host', 'app', 'level', 'f']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
-  if ($('range').value) p.set('since', String(Date.now() - Number($('range').value)));
+  applyWindow(p, snap);
   const headers = authHeaders();
   const token = $('token').value;
   if (token) { try { localStorage.setItem('logpit-token', token); } catch {} }
@@ -318,7 +352,8 @@ async function load() {
 $('go').onclick = load;
 $('token').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 for (const id of ['q', 'host', 'app', 'f']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
-for (const id of ['level', 'range']) $(id).onchange = load;
+$('level').onchange = load;
+$('range').onchange = () => { if ($('range').value !== 'custom') leaveZoom(); load(); };
 $('live').onchange = () => { if ($('live').checked) load(); else { stopTail(); load(); } };
 load();
 </script>

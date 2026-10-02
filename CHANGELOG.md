@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Web UI: clicking a histogram bar zooms to its time bucket. The window is fixed and shown as an extra
+  entry in the time-range selector; choosing another range leaves it. Live is switched off while zoomed.
+
 ## 0.4.2 - 2026-10-02
 
 - Web UI: with *Live* on, the histogram is refreshed every 5 s (paused while the tab is hidden) and its
