@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.8 - 2026-10-03
+
 - Export: `GET /api/export` streams the entries matching the search filters as NDJSON (re-ingestable
   through `/ingest`) or CSV, oldest first, with an optional `limit`. The web UI gets *Export* buttons
   (up to 100,000 entries).
