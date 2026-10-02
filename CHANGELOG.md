@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.5 - 2026-10-02
+
 - Web UI: the *Hosts* panel columns are sortable (click a header, again to reverse). The sort is remembered
   and keyboard accessible.
 
