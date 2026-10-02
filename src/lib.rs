@@ -9,5 +9,6 @@ pub mod ingest;
 pub mod metrics;
 pub mod model;
 pub mod silence;
+pub mod stats;
 pub mod store;
 pub mod syslog;

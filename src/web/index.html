@@ -25,6 +25,8 @@
   .fields span { cursor:pointer; } .fields span:hover { color:var(--accent); }
   .fields b { font-weight:600; }
   .s0,.s1,.s2,.s3 { color:#d1242f; } .s4 { color:#bf8700; } .s5 { color:#0969da; } .s6 { color:var(--muted); } .s7 { color:var(--muted); opacity:.7; }
+  #chart { display:block; width:100%; height:64px; border-bottom:1px solid var(--line); }
+  #chart rect { fill:currentColor; }
   #empty { padding:24px 16px; color:var(--muted); }
 </style>
 </head>
@@ -53,6 +55,7 @@
   <button id="go">Search</button>
   <span id="status"></span>
 </header>
+<svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" hidden></svg>
 <table><tbody id="rows"></tbody></table>
 <div id="empty" hidden></div>
 <script>
@@ -146,6 +149,46 @@ async function startTail() {
   }
 }
 
+// Histogram of the current filters, stacked by severity (errors at the bottom).
+async function loadChart(params) {
+  const chart = $('chart');
+  const p = new URLSearchParams(params);
+  p.delete('limit');
+  p.set('group_by', 'severity');
+  try {
+    const res = await fetch('/api/stats?' + p, { headers: authHeaders() });
+    if (!res.ok) { chart.hidden = true; return; }
+    const d = await res.json();
+    const max = Math.max(1, ...d.buckets.map(b => b.total));
+    const NS = 'http://www.w3.org/2000/svg';
+    const bars = [];
+    d.buckets.forEach((b, i) => {
+      let y = 100;
+      const parts = [];
+      LEVELS.forEach((name, sev) => {
+        const n = (b.groups || {})[name];
+        if (!n) return;
+        const h = 100 * n / max;
+        y -= h;
+        const r = document.createElementNS(NS, 'rect');
+        r.setAttribute('class', 's' + sev);
+        r.setAttribute('x', i + 0.1); r.setAttribute('width', 0.8);
+        r.setAttribute('y', y); r.setAttribute('height', h);
+        bars.push(r);
+        parts.push(name + ' ' + n);
+      });
+      if (parts.length) {
+        const t = document.createElementNS(NS, 'title');
+        t.textContent = new Date(b.ts).toLocaleString() + ' — ' + b.total + ' (' + parts.join(', ') + ')';
+        bars[bars.length - 1].append(t);
+      }
+    });
+    chart.setAttribute('viewBox', '0 0 ' + Math.max(1, d.buckets.length) + ' 100');
+    chart.replaceChildren(...bars);
+    chart.hidden = false;
+  } catch { chart.hidden = true; }
+}
+
 async function load() {
   stopTail();
   const p = new URLSearchParams({ limit: '500' });
@@ -179,6 +222,7 @@ async function load() {
     $('empty').textContent = 'No matching entries.';
     $('empty').hidden = rows.length > 0;
     $('status').textContent = rows.length + ' entries';
+    loadChart(p);
     if ($('live').checked) startTail();
   } catch (e) { $('status').textContent = String(e.message || e); }
 }

@@ -17,7 +17,8 @@ use crate::auth::{Auth, Decision, Scope};
 use crate::ingest::{Sink, now_ms};
 use crate::metrics::Metrics;
 use crate::model::LogEntry;
-use crate::store::{self, Query};
+use crate::stats;
+use crate::store::{self, GroupBy, Query};
 
 const MAX_LIMIT: usize = 1000;
 const DEFAULT_LIMIT: usize = 100;
@@ -42,6 +43,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
     let read = Router::new()
         .route("/api/logs", get(search))
         .route("/api/tail", get(tail))
+        .route("/api/stats", get(stats))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Read),
             require_scope,
@@ -249,6 +251,109 @@ async fn search(
     }
 }
 
+struct StatsRequest {
+    query: Query,
+    bucket_ms: Option<i64>,
+    group: GroupBy,
+}
+
+/// `bucket` (`5m`, `1h`, or seconds) and `group_by` (`host`, `app`, `severity`,
+/// `field:<key>`) on top of the search filters.
+fn parse_stats(params: Vec<(String, String)>) -> Result<StatsRequest, String> {
+    let mut bucket_ms = None;
+    let mut group = GroupBy::None;
+    for (k, v) in &params {
+        match (k.as_str(), v.as_str()) {
+            ("bucket", v) if !v.is_empty() => {
+                bucket_ms =
+                    Some(stats::parse_bucket_ms(v).ok_or("invalid bucket (try 30s, 5m, 1h, 1d)")?);
+            }
+            ("group_by", "" | "none") => {}
+            ("group_by", "host") => group = GroupBy::Host,
+            ("group_by", "app") => group = GroupBy::App,
+            ("group_by", "severity" | "level") => group = GroupBy::Severity,
+            ("group_by", v) => {
+                let key = v.strip_prefix("field:").unwrap_or("");
+                if !crate::store::valid_field_key(key) {
+                    return Err("group_by must be host, app, severity or field:<key>".into());
+                }
+                group = GroupBy::Field(key.to_string());
+            }
+            _ => {}
+        }
+    }
+    Ok(StatsRequest {
+        query: parse_search(params)?,
+        bucket_ms,
+        group,
+    })
+}
+
+/// Entry counts per time bucket over `since..until`. An absent `until` means now and an
+/// absent `since` the oldest entry; without `bucket`, a size giving about 120 buckets is chosen.
+async fn stats(
+    State(state): State<AppState>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let req = match parse_stats(params) {
+        Ok(r) => r,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let path = state.db_path.clone();
+    let result =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Result<stats::Stats, String>> {
+            let conn = store::open(&path)?;
+            let until = req.query.until_ms.unwrap_or_else(now_ms);
+            let since = match req.query.since_ms {
+                Some(s) => s,
+                None => store::min_ts(&conn)?
+                    .unwrap_or(until - 3_600_000)
+                    .min(until),
+            };
+            if since > until {
+                return Ok(Err("since must not be after until".into()));
+            }
+            let bucket_ms = req
+                .bucket_ms
+                .unwrap_or_else(|| stats::auto_bucket_ms(until - since));
+            if until.div_euclid(bucket_ms) - since.div_euclid(bucket_ms) >= stats::MAX_BUCKETS {
+                return Ok(Err(format!(
+                    "range needs more than {} buckets; use a larger bucket or a shorter range",
+                    stats::MAX_BUCKETS
+                )));
+            }
+            let query = Query {
+                since_ms: Some(since),
+                until_ms: Some(until),
+                ..req.query
+            };
+            let mut rows = store::stats(&conn, &query, bucket_ms, &req.group)?;
+            if req.group == GroupBy::Severity {
+                for (_, g, _) in &mut rows {
+                    if let Ok(n) = g.parse::<u8>() {
+                        *g = crate::model::severity_name(n).to_string();
+                    }
+                }
+            }
+            let grouped = req.group != GroupBy::None;
+            Ok(Ok(stats::assemble(rows, since, until, bucket_ms, grouped)))
+        })
+        .await;
+
+    match result {
+        Ok(Ok(Ok(s))) => Json(s).into_response(),
+        Ok(Ok(Err(msg))) => (StatusCode::BAD_REQUEST, msg).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("stats failed: {e:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "stats failed").into_response()
+        }
+        Err(e) => {
+            tracing::error!("stats task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "stats failed").into_response()
+        }
+    }
+}
+
 /// Server-sent events stream of newly ingested entries matching the search filters
 /// (`q`, `host`, `app`, `level`, `f`). A `lagged` event reports entries skipped when
 /// the client reads too slowly.
@@ -342,6 +447,31 @@ mod tests {
         assert_eq!(e.fields.len(), 3);
         assert_eq!(e.fields["n"], "5");
         assert_eq!(e.fields["ok"], "true");
+    }
+
+    #[test]
+    fn stats_params_parse_and_validate() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let r = parse_stats(p(&[
+            ("bucket", "5m"),
+            ("group_by", "severity"),
+            ("host", "pve"),
+        ]))
+        .unwrap();
+        assert_eq!((r.bucket_ms, r.group), (Some(300_000), GroupBy::Severity));
+        assert_eq!(r.query.host.as_deref(), Some("pve"));
+        let r = parse_stats(p(&[("group_by", "field:act")])).unwrap();
+        assert_eq!(r.group, GroupBy::Field("act".into()));
+        let r = parse_stats(p(&[("bucket", ""), ("group_by", "")])).unwrap();
+        assert_eq!((r.bucket_ms, r.group), (None, GroupBy::None));
+        assert!(parse_stats(p(&[("bucket", "soon")])).is_err());
+        assert!(parse_stats(p(&[("group_by", "message")])).is_err());
+        assert!(parse_stats(p(&[("group_by", "field:a b")])).is_err());
+        assert!(parse_stats(p(&[("since", "x")])).is_err());
     }
 
     #[test]

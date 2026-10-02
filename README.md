@@ -14,7 +14,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   key/value fields, which are indexed for search and filterable by exact match.
 - **Storage**: SQLite (WAL) with FTS5 full-text search, batched writes,
   automatic retention.
-- **Search**: `GET /api/logs`, a live tail (`GET /api/tail`, server-sent events) and a
+- **Search**: `GET /api/logs`, volume statistics per time bucket (`GET /api/stats`), a live tail (`GET /api/tail`, server-sent events) and a
   minimal built-in web UI at `/` with a *Live* toggle.
 - **Robustness**: bounded queue with drop counters (no unbounded memory),
   message size limits, TCP connection limits and idle timeouts, graceful
@@ -175,6 +175,33 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `f` | `key:value` exact match on a structured field; repeat to combine (e.g. `f=act:blocked&f=proto:TCP`) |
 | `since`, `until` | Unix timestamps in milliseconds |
 | `limit` | 1–1000, default 100 |
+
+## Statistics
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8080/api/stats?since=1700000000000&bucket=5m&group_by=host&level=4'
+```
+
+Counts entries per time bucket, which is what the chart at the top of the web UI shows.
+It takes the filters of `/api/logs` (`q`, `host`, `app`, `level`, `f`, `since`, `until`) plus:
+
+| Parameter | Meaning |
+|---|---|
+| `bucket` | Bucket size: seconds, or `30s`, `5m`, `1h`, `1d` (at least 1 s). Default: a size giving about 120 buckets over the range |
+| `group_by` | Split each bucket by `host`, `app`, `severity` or `field:<key>` (e.g. `field:act`) |
+
+`until` defaults to now and `since` to the oldest entry. Buckets are aligned to the Unix epoch,
+empty ones are returned with `total: 0`, and a range may not need more than 2000 buckets.
+With `group_by`, the 10 largest groups are listed in `keys` (largest first) and the rest are
+summed into `other`:
+
+```json
+{"bucket_ms":300000,"since":…,"until":…,"keys":["pve","nas"],
+ "buckets":[{"ts":1700000100000,"total":12,"groups":{"pve":8,"nas":4}}, …]}
+```
+
+It needs the `read` scope. Free text (`q`) uses the same full-text index as search.
 
 ## Live tail
 

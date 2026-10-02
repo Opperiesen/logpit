@@ -176,6 +176,65 @@ pub fn purge(conn: &Connection, cutoffs: &[Option<i64>; 8]) -> rusqlite::Result<
     Ok(removed)
 }
 
+/// What to split each bucket's count by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GroupBy {
+    None,
+    Host,
+    App,
+    Severity,
+    /// A structured field (validated with [`valid_field_key`]).
+    Field(String),
+}
+
+/// Counts of entries matching `q` per time bucket (`ts` floored to a multiple of
+/// `bucket_ms`) and, optionally, per group. Returns `(bucket_start, group, count)`, with an
+/// empty group when not grouping; empty buckets are not returned.
+pub fn stats(
+    conn: &Connection,
+    q: &Query,
+    bucket_ms: i64,
+    group: &GroupBy,
+) -> rusqlite::Result<Vec<(i64, String, u64)>> {
+    let group_expr = match group {
+        GroupBy::None => "''".to_string(),
+        GroupBy::Host => "l.host".to_string(),
+        GroupBy::App => "l.app".to_string(),
+        GroupBy::Severity => "CAST(l.severity AS TEXT)".to_string(),
+        GroupBy::Field(key) => {
+            if !valid_field_key(key) {
+                return Err(rusqlite::Error::InvalidParameterName(key.clone()));
+            }
+            // The key is restricted to a safe charset, so it can be inlined as a literal.
+            format!("COALESCE(json_extract(l.fields, '$.\"{key}\"'), '')")
+        }
+    };
+    let filter = Filter::new(q)?;
+    // bucket_ms is an i64 formatted by us, never user text.
+    let sql = format!(
+        "SELECT (l.ts / {bucket_ms}) * {bucket_ms} AS b, {group_expr} AS g, COUNT(*) \
+         FROM logs l{} GROUP BY b, g ORDER BY b",
+        filter.sql()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(
+        params_from_iter(filter.args.iter().map(|a| a.as_ref())),
+        |r| {
+            Ok((
+                r.get(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)? as u64,
+            ))
+        },
+    )?;
+    rows.collect()
+}
+
+/// Smallest timestamp in the database, if any.
+pub fn min_ts(conn: &Connection) -> rusqlite::Result<Option<i64>> {
+    conn.query_row("SELECT MIN(ts) FROM logs", [], |r| r.get(0))
+}
+
 /// Bytes of the database file that hold data (pages not on the freelist). Deleting rows frees
 /// pages for reuse but never shrinks the file, so this is the figure a size limit bounds.
 pub fn used_bytes(conn: &Connection) -> rusqlite::Result<u64> {
@@ -297,52 +356,79 @@ pub fn fts_query(text: &str) -> Option<String> {
     (!terms.is_empty()).then(|| terms.join(" "))
 }
 
+/// The FROM-join and WHERE conditions shared by search and stats for one query.
+struct Filter {
+    join_fts: bool,
+    conds: Vec<&'static str>,
+    args: Vec<Box<dyn ToSql>>,
+}
+
+impl Filter {
+    fn new(q: &Query) -> rusqlite::Result<Self> {
+        let mut f = Filter {
+            join_fts: false,
+            conds: Vec::new(),
+            args: Vec::new(),
+        };
+        if let Some(fts) = q.text.as_deref().and_then(fts_query) {
+            f.join_fts = true;
+            f.conds.push("logs_fts MATCH ?");
+            f.args.push(Box::new(fts));
+        }
+        if let Some(h) = &q.host {
+            f.conds.push("l.host = ?");
+            f.args.push(Box::new(h.clone()));
+        }
+        if let Some(a) = &q.app {
+            f.conds.push("l.app = ?");
+            f.args.push(Box::new(a.clone()));
+        }
+        if let Some(s) = q.max_severity {
+            f.conds.push("l.severity <= ?");
+            f.args.push(Box::new(s));
+        }
+        if let Some(t) = q.since_ms {
+            f.conds.push("l.ts >= ?");
+            f.args.push(Box::new(t));
+        }
+        if let Some(t) = q.until_ms {
+            f.conds.push("l.ts <= ?");
+            f.args.push(Box::new(t));
+        }
+        for (key, value) in &q.fields {
+            if !valid_field_key(key) {
+                return Err(rusqlite::Error::InvalidParameterName(key.clone()));
+            }
+            f.conds.push("json_extract(l.fields, ?) = ?");
+            f.args.push(Box::new(format!("$.\"{key}\"")));
+            f.args.push(Box::new(value.clone()));
+        }
+        Ok(f)
+    }
+
+    /// ` JOIN …` plus ` WHERE …`, to append after `FROM logs l`.
+    fn sql(&self) -> String {
+        let mut sql = String::new();
+        if self.join_fts {
+            sql.push_str(" JOIN logs_fts f ON f.rowid = l.id");
+        }
+        if !self.conds.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&self.conds.join(" AND "));
+        }
+        sql
+    }
+}
+
 pub fn search(conn: &Connection, q: &Query) -> rusqlite::Result<Vec<Row>> {
+    let mut filter = Filter::new(q)?;
     let mut sql = String::from(
         "SELECT l.id, l.ts, l.host, l.app, l.severity, l.message, l.fields FROM logs l",
     );
-    let mut args: Vec<Box<dyn ToSql>> = Vec::new();
-    let mut conds: Vec<&str> = Vec::new();
-
-    if let Some(fts) = q.text.as_deref().and_then(fts_query) {
-        sql.push_str(" JOIN logs_fts f ON f.rowid = l.id");
-        conds.push("logs_fts MATCH ?");
-        args.push(Box::new(fts));
-    }
-    if let Some(h) = &q.host {
-        conds.push("l.host = ?");
-        args.push(Box::new(h.clone()));
-    }
-    if let Some(a) = &q.app {
-        conds.push("l.app = ?");
-        args.push(Box::new(a.clone()));
-    }
-    if let Some(s) = q.max_severity {
-        conds.push("l.severity <= ?");
-        args.push(Box::new(s));
-    }
-    if let Some(t) = q.since_ms {
-        conds.push("l.ts >= ?");
-        args.push(Box::new(t));
-    }
-    if let Some(t) = q.until_ms {
-        conds.push("l.ts <= ?");
-        args.push(Box::new(t));
-    }
-    for (key, value) in &q.fields {
-        if !valid_field_key(key) {
-            return Err(rusqlite::Error::InvalidParameterName(key.clone()));
-        }
-        conds.push("json_extract(l.fields, ?) = ?");
-        args.push(Box::new(format!("$.\"{key}\"")));
-        args.push(Box::new(value.clone()));
-    }
-    if !conds.is_empty() {
-        sql.push_str(" WHERE ");
-        sql.push_str(&conds.join(" AND "));
-    }
+    sql.push_str(&filter.sql());
     sql.push_str(" ORDER BY l.ts DESC, l.id DESC LIMIT ?");
-    args.push(Box::new(q.limit as i64));
+    filter.args.push(Box::new(q.limit as i64));
+    let args = filter.args;
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(args.iter().map(|a| a.as_ref())), |r| {
@@ -503,6 +589,69 @@ mod tests {
         .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].message, "new line");
+    }
+
+    #[test]
+    fn stats_count_per_bucket_with_filters_and_groups() {
+        let mut conn = mem();
+        let mut a = entry(1_500, "pve", 3, "disk error");
+        a.fields.insert("act".into(), "blocked".into());
+        let batch = vec![
+            entry(100, "pve", 6, "boot"),
+            entry(900, "nas", 6, "sync"),
+            a,
+            entry(1_999, "nas", 3, "disk error"),
+            entry(2_000, "pve", 6, "next bucket"),
+        ];
+        insert_batch(&mut conn, &batch).unwrap();
+        let all = Query { ..q(0) };
+
+        let plain = stats(&conn, &all, 1000, &GroupBy::None).unwrap();
+        assert_eq!(
+            plain,
+            vec![
+                (0, "".into(), 2),
+                (1000, "".into(), 2),
+                (2000, "".into(), 1)
+            ]
+        );
+
+        let by_host = stats(&conn, &all, 1000, &GroupBy::Host).unwrap();
+        assert_eq!(
+            by_host,
+            vec![
+                (0, "nas".into(), 1),
+                (0, "pve".into(), 1),
+                (1000, "nas".into(), 1),
+                (1000, "pve".into(), 1),
+                (2000, "pve".into(), 1)
+            ]
+        );
+
+        // Filters (full-text, severity, time range) apply exactly as in search.
+        let errors = Query {
+            text: Some("disk".into()),
+            max_severity: Some(3),
+            since_ms: Some(1000),
+            ..q(0)
+        };
+        let by_sev = stats(&conn, &errors, 1000, &GroupBy::Severity).unwrap();
+        assert_eq!(by_sev, vec![(1000, "3".into(), 2)]);
+
+        // Grouping by a structured field; entries without it fall in the empty group.
+        let by_act = stats(&conn, &all, 2000, &GroupBy::Field("act".into())).unwrap();
+        assert_eq!(
+            by_act,
+            vec![
+                (0, "".into(), 3),
+                (0, "blocked".into(), 1),
+                (2000, "".into(), 1)
+            ]
+        );
+        assert!(stats(&conn, &all, 1000, &GroupBy::Field("a b".into())).is_err());
+
+        assert_eq!(min_ts(&conn).unwrap(), Some(100));
+        assert_eq!(min_ts(&mem()).unwrap(), None);
     }
 
     #[test]

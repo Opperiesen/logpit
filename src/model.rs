@@ -16,6 +16,14 @@ pub struct LogEntry {
     pub fields: BTreeMap<String, String>,
 }
 
+/// Short name of a syslog severity (`err`, `warn`, …).
+pub fn severity_name(sev: u8) -> &'static str {
+    const NAMES: [&str; 8] = [
+        "emerg", "alert", "crit", "err", "warn", "notice", "info", "debug",
+    ];
+    NAMES.get(usize::from(sev)).copied().unwrap_or("unknown")
+}
+
 /// Parses a syslog severity given as a name (`err`, `warning`, …) or number (0-7).
 pub fn parse_severity(s: &str) -> Option<u8> {
     let s = s.trim().to_ascii_lowercase();

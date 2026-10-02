@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Statistics: `GET /api/stats` counts entries per time bucket with the search filters, optionally
+  grouped by host, app, severity or a structured field, and the web UI shows it as a histogram
+  stacked by severity above the log table.
+
 - Disk size cap: `storage.max_db_size_mb` / `LOGPIT_MAX_DB_SIZE_MB` evicts the oldest entries when the
   data in the database exceeds the cap (checked every minute, down to 90%). New metrics
   `logpit_db_used_bytes` and `logpit_size_evicted_total`. The retention task now always runs.
