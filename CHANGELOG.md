@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-10-02
+
 - Statistics: `GET /api/stats` counts entries per time bucket with the search filters, optionally
   grouped by host, app, severity or a structured field, and the web UI shows it as a histogram
   stacked by severity above the log table.
