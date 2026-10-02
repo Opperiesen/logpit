@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.0 - 2026-10-03
+
 - Loki and GELF input: `POST /loki/api/v1/push` accepts Loki's JSON and snappy-compressed protobuf (Promtail,
   Grafana Alloy, Vector…), authenticating with the write token as bearer token or basic-auth password;
   labels map to host, app, level and fields. GELF is accepted at `POST /gelf` and on optional UDP and TCP
