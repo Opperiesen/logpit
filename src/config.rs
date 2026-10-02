@@ -24,6 +24,9 @@ pub struct StorageConfig {
     /// Per-severity override of `retention_days`, by name or number (e.g. `debug = 2`,
     /// `err = 90`); 0 keeps that severity forever.
     pub retention_by_severity: BTreeMap<String, u32>,
+    /// Soft cap on the database size in MB: the oldest entries are evicted beyond it.
+    /// 0 disables the cap.
+    pub max_db_size_mb: u64,
     pub batch_size: usize,
     pub flush_interval_ms: u64,
     /// Capacity of the in-memory queue between ingestion and storage.
@@ -91,6 +94,7 @@ impl Default for StorageConfig {
             path: PathBuf::from("logpit.db"),
             retention_days: 14,
             retention_by_severity: BTreeMap::new(),
+            max_db_size_mb: 0,
             batch_size: 500,
             flush_interval_ms: 500,
             queue_capacity: 10_000,
@@ -175,6 +179,12 @@ impl Config {
                 .trim()
                 .parse()
                 .with_context(|| format!("invalid LOGPIT_RETENTION_DAYS {v:?}"))?;
+        }
+        if let Some(v) = get("LOGPIT_MAX_DB_SIZE_MB") {
+            self.storage.max_db_size_mb = v
+                .trim()
+                .parse()
+                .with_context(|| format!("invalid LOGPIT_MAX_DB_SIZE_MB {v:?}"))?;
         }
         if let Some(v) = get("LOGPIT_RETENTION_BY_SEVERITY") {
             for pair in v.split(',').map(str::trim).filter(|p| !p.is_empty()) {
@@ -265,6 +275,9 @@ impl Config {
             bail!("storage.max_message_bytes must be >= 64");
         }
         s.retention_table()?;
+        if s.max_db_size_mb != 0 && s.max_db_size_mb < 16 {
+            bail!("storage.max_db_size_mb must be 0 (off) or at least 16");
+        }
         if matches!(&self.http.token, Some(t) if t.is_empty()) {
             bail!("http.token must not be empty (remove it to disable auth)");
         }
@@ -475,6 +488,27 @@ mod tests {
         );
         assert!(
             bad.apply_env(&env(&[("LOGPIT_RETENTION_BY_SEVERITY", "debug=x")]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn max_db_size_config() {
+        assert_eq!(Config::parse("").unwrap().storage.max_db_size_mb, 0);
+        assert_eq!(
+            Config::parse("[storage]\nmax_db_size_mb = 500")
+                .unwrap()
+                .storage
+                .max_db_size_mb,
+            500
+        );
+        assert!(Config::parse("[storage]\nmax_db_size_mb = 4").is_err());
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[("LOGPIT_MAX_DB_SIZE_MB", "2048")]))
+            .unwrap();
+        assert_eq!(cfg.storage.max_db_size_mb, 2048);
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_MAX_DB_SIZE_MB", "big")]))
                 .is_err()
         );
     }

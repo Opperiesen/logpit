@@ -72,6 +72,7 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_SYSLOG_TCP_LISTEN` | `0.0.0.0:5514` | Empty string disables TCP syslog |
 | `LOGPIT_STORAGE_PATH` | `/data/logpit.db` | SQLite file |
 | `LOGPIT_RETENTION_DAYS` | `14` | `0` disables purging |
+| `LOGPIT_MAX_DB_SIZE_MB` | `0` | Soft cap on the database size; the oldest entries are evicted beyond it. `0` = off (see below) |
 | `LOGPIT_RETENTION_BY_SEVERITY` | | Per-severity retention, e.g. `debug=2,info=7,err=90` (see below) |
 | `LOGPIT_SILENCE_AFTER_SECS` | `0` | Alert when any host is silent this long; `0` disables |
 | `LOGPIT_SILENCE_WEBHOOK_URL` | | `http://` URL notified on alerts and recoveries |
@@ -143,6 +144,21 @@ levels can be dropped early while errors are kept longer:
 Severities are `emerg`, `alert`, `crit`, `err`, `warn`, `notice`, `info`, `debug` (or `0`–`7`),
 and a value of `0` keeps that severity forever. In the TOML file this is the
 `[storage.retention_by_severity]` table. Purging runs at startup and then hourly.
+
+## Disk size cap
+
+`LOGPIT_MAX_DB_SIZE_MB=2048` (or `storage.max_db_size_mb`; minimum 16) keeps the database from
+growing without bound when logs arrive faster than the retention period expects. Every minute
+LogPit measures the pages of `logpit.db` that hold data; above the cap it deletes the **oldest
+entries first**, whatever their severity, until usage is back to 90% of the cap. Age-based
+retention still applies on top of it.
+
+It is a soft cap: SQLite reuses freed pages but never shrinks the file, so `logpit.db` stays at
+its high-water mark (roughly the cap plus what arrives within a minute), and the `-wal` file is
+extra. To give space back to the filesystem, stop LogPit and run `sqlite3 logpit.db VACUUM`.
+Because part of the search index is reclaimed lazily, a purge can remove a bit more than the
+strict minimum. `/metrics` exposes `logpit_db_used_bytes` and `logpit_size_evicted_total`; evictions
+are also logged as warnings, which usually means the cap is too low for your log volume.
 
 ## Searching
 

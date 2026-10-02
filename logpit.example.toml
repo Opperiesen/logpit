@@ -7,6 +7,7 @@ batch_size = 500
 flush_interval_ms = 500
 queue_capacity = 10000       # entries beyond this are dropped and counted, never buffered unbounded
 max_message_bytes = 16384    # longer messages are truncated
+max_db_size_mb = 0           # soft cap: beyond it the oldest entries are evicted; 0 = off, else >= 16
 
 # Per-severity override of retention_days (emerg, alert, crit, err, warn, notice, info, debug
 # or 0-7); 0 keeps that severity forever.

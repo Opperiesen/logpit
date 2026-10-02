@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
@@ -61,21 +62,55 @@ fn parse_addr(label: &str, s: &str) -> anyhow::Result<Option<SocketAddr>> {
         .with_context(|| format!("invalid {label} address {s:?}"))
 }
 
-async fn retention_loop(path: PathBuf, retention_days: [u32; 8]) {
-    let mut tick = tokio::time::interval(Duration::from_secs(3600));
+/// Time-based retention runs hourly; the size cap and the size gauge every minute.
+async fn retention_loop(
+    path: PathBuf,
+    retention_days: [u32; 8],
+    max_db_bytes: u64,
+    metrics: Arc<Metrics>,
+) {
+    const TICK: Duration = Duration::from_secs(60);
+    const TICKS_PER_PURGE: u64 = 60;
+    let mut tick = tokio::time::interval(TICK);
+    let mut n = 0u64;
     loop {
         tick.tick().await;
+        let purge_by_age =
+            n.is_multiple_of(TICKS_PER_PURGE) && retention_days.iter().any(|&d| d > 0);
+        n += 1;
         let now = now_ms();
         let cutoffs = retention_days.map(|d| (d > 0).then(|| now - i64::from(d) * 86_400_000));
         let path = path.clone();
-        let result = tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(usize, usize, u64)> {
             let conn = store::open(&path)?;
-            store::purge(&conn, &cutoffs).map_err(anyhow::Error::from)
+            let aged = if purge_by_age {
+                store::purge(&conn, &cutoffs)?
+            } else {
+                0
+            };
+            let evicted = if max_db_bytes > 0 {
+                store::enforce_size_limit(&conn, max_db_bytes)?
+            } else {
+                0
+            };
+            Ok((aged, evicted, store::used_bytes(&conn)?))
         })
         .await;
         match result {
-            Ok(Ok(0)) => {}
-            Ok(Ok(n)) => tracing::info!("retention: purged {n} entries"),
+            Ok(Ok((aged, evicted, used))) => {
+                metrics.db_used_bytes.store(used, Ordering::Relaxed);
+                Metrics::inc(&metrics.size_evicted, evicted as u64);
+                if aged > 0 {
+                    tracing::info!("retention: purged {aged} entries");
+                }
+                if evicted > 0 {
+                    tracing::warn!(
+                        "size limit: evicted {evicted} oldest entries ({} MB in use, limit {} MB)",
+                        used / 1_000_000,
+                        max_db_bytes / 1_000_000
+                    );
+                }
+            }
             Ok(Err(e)) => tracing::error!("retention failed: {e:#}"),
             Err(e) => tracing::error!("retention task failed: {e}"),
         }
@@ -156,6 +191,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    let retention_metrics = metrics.clone();
     let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone());
     let state = AppState {
         sink: sink.clone(),
@@ -195,12 +231,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let retention = cfg.storage.retention_table()?;
-    if retention.iter().any(|&d| d > 0) {
-        tasks.spawn(async move {
-            retention_loop(db_path, retention).await;
-            Ok(())
-        });
-    }
+    let max_db_bytes = cfg.storage.max_db_size_mb * 1_000_000;
+    tasks.spawn(async move {
+        retention_loop(db_path, retention, max_db_bytes, retention_metrics).await;
+        Ok(())
+    });
 
     tokio::select! {
         _ = shutdown_signal() => tracing::info!("shutdown requested"),

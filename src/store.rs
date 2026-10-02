@@ -176,6 +176,49 @@ pub fn purge(conn: &Connection, cutoffs: &[Option<i64>; 8]) -> rusqlite::Result<
     Ok(removed)
 }
 
+/// Bytes of the database file that hold data (pages not on the freelist). Deleting rows frees
+/// pages for reuse but never shrinks the file, so this is the figure a size limit bounds.
+pub fn used_bytes(conn: &Connection) -> rusqlite::Result<u64> {
+    let pragma = |name: &str| conn.pragma_query_value(None, name, |r| r.get::<_, i64>(0));
+    let pages = pragma("page_count")? - pragma("freelist_count")?;
+    Ok(u64::try_from(pages).unwrap_or(0) * u64::try_from(pragma("page_size")?).unwrap_or(0))
+}
+
+/// Entries deleted per transaction when enforcing a size limit.
+const EVICT_CHUNK: i64 = 500;
+/// Upper bound on chunks per call; any remainder is handled by the next run.
+const EVICT_MAX_CHUNKS: usize = 4000;
+/// Give up after this many consecutive chunks that did not shrink the data in use, rather
+/// than emptying the database on a measurement that is not moving.
+const EVICT_MAX_STALLS: u32 = 5;
+
+/// If the data in use exceeds `max_bytes`, deletes the oldest entries until it is down to
+/// 90% of that (so the limit is not hit again on the next entry). Returns the number of
+/// entries removed. Part of the full-text index is only reclaimed when SQLite merges its
+/// segments, so slightly more than the strict minimum may be removed.
+pub fn enforce_size_limit(conn: &Connection, max_bytes: u64) -> rusqlite::Result<usize> {
+    if used_bytes(conn)? <= max_bytes {
+        return Ok(0);
+    }
+    let target = max_bytes / 10 * 9;
+    let (mut removed, mut stalls) = (0, 0);
+    let mut used = used_bytes(conn)?;
+    for _ in 0..EVICT_MAX_CHUNKS {
+        let n = conn.execute(
+            "DELETE FROM logs WHERE id IN (SELECT id FROM logs ORDER BY ts, id LIMIT ?1)",
+            params![EVICT_CHUNK],
+        )?;
+        removed += n;
+        let now = used_bytes(conn)?;
+        stalls = if now < used { 0 } else { stalls + 1 };
+        used = now;
+        if n == 0 || used <= target || stalls >= EVICT_MAX_STALLS {
+            break;
+        }
+    }
+    Ok(removed)
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Query {
     pub text: Option<String>,
@@ -460,6 +503,45 @@ mod tests {
         .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].message, "new line");
+    }
+
+    #[test]
+    fn size_limit_evicts_oldest_entries_first() {
+        let mut conn = mem();
+        let filler = "x".repeat(1000);
+        let batch: Vec<LogEntry> = (0..4000)
+            .map(|i| entry(i, "h", 6, &format!("line {i} {filler}")))
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let before = used_bytes(&conn).unwrap();
+        assert!(before > 4_000_000);
+
+        // Under the limit: nothing happens.
+        assert_eq!(enforce_size_limit(&conn, before + 1).unwrap(), 0);
+
+        let limit = before / 2;
+        let removed = enforce_size_limit(&conn, limit).unwrap();
+        assert!(removed > 0 && removed < 4000, "removed {removed}");
+        assert!(used_bytes(&conn).unwrap() <= limit / 10 * 9);
+
+        let rows = search(&conn, &q(5000)).unwrap();
+        assert_eq!(rows.len(), 4000 - removed);
+        // The newest entry survives, and what remains is a contiguous newest range.
+        assert_eq!(rows[0].ts, 3999);
+        assert_eq!(rows.last().unwrap().ts, removed as i64);
+        // The search index only returns what is still stored.
+        let hits = |text: &str| {
+            search(
+                &conn,
+                &Query {
+                    text: Some(text.into()),
+                    ..q(10)
+                },
+            )
+            .unwrap()
+            .len()
+        };
+        assert_eq!((hits("line 0"), hits("line 3999")), (0, 1));
     }
 
     #[test]

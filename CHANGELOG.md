@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Disk size cap: `storage.max_db_size_mb` / `LOGPIT_MAX_DB_SIZE_MB` evicts the oldest entries when the
+  data in the database exceeds the cap (checked every minute, down to 90%). New metrics
+  `logpit_db_used_bytes` and `logpit_size_evicted_total`. The retention task now always runs.
+
 - Retention by severity: `[storage.retention_by_severity]` / `LOGPIT_RETENTION_BY_SEVERITY` override
   `retention_days` per severity (0 keeps a severity forever), e.g. 2 days of debug but 90 of errors.
 

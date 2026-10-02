@@ -14,6 +14,10 @@ pub struct Metrics {
     pub stored: AtomicU64,
     /// Failed batch writes.
     pub write_errors: AtomicU64,
+    /// Entries evicted to stay under `storage.max_db_size_mb`.
+    pub size_evicted: AtomicU64,
+    /// Bytes of the database holding data, as last measured by the retention task.
+    pub db_used_bytes: AtomicU64,
 }
 
 impl Metrics {
@@ -49,12 +53,22 @@ impl Metrics {
                 "Failed storage batch writes",
                 &self.write_errors,
             ),
+            (
+                "logpit_size_evicted_total",
+                "Entries evicted to stay under the database size limit",
+                &self.size_evicted,
+            ),
         ];
         for (name, help, counter) in rows {
             let _ = writeln!(out, "# HELP {name} {help}");
             let _ = writeln!(out, "# TYPE {name} counter");
             let _ = writeln!(out, "{name} {}", counter.load(Ordering::Relaxed));
         }
+        let _ = writeln!(
+            out,
+            "# HELP logpit_db_used_bytes Database bytes holding data\n# TYPE logpit_db_used_bytes gauge\nlogpit_db_used_bytes {}",
+            self.db_used_bytes.load(Ordering::Relaxed)
+        );
         out
     }
 }
