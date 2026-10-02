@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `GET /api/hosts` accepts `sort` and `order`, and applies `limit` after sorting. The *Hosts* panel now
+  sorts on the server instead of in the browser, so a column sort covers every host and not only the
+  200 busiest.
+
 ## 0.4.5 - 2026-10-02
 
 - Web UI: the *Hosts* panel columns are sortable (click a header, again to reverse). The sort is remembered

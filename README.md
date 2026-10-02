@@ -210,11 +210,15 @@ It needs the `read` scope. Free text (`q`) uses the same full-text index as sear
 `GET /api/hosts` summarizes the matching entries per host, busiest first: `count`, `errors`
 (severity 0-3), `warnings` (severity 4) and `last_ts` (Unix ms of the host's latest entry), plus
 `silent` when [silence alerts](#silence-alerts) are enabled and tracking that host. It takes the
-filters of `/api/logs` and `limit` (default 100) for the number of hosts, and needs the `read`
-scope. The web UI shows it in the collapsible *Hosts* panel below the chart: it follows the
+filters of `/api/logs`, `limit` (default 100) for the number of hosts, and `sort`
+(`host`, `count`, `errors`, `warnings` or `last_ts`; default `count`) with `order` (`asc` or
+`desc`; default `asc` for `host`, `desc` otherwise). The limit applies after sorting, so
+`sort=last_ts&order=asc` lists the quietest hosts even when there are more hosts than `limit`.
+It needs the `read` scope. The web UI shows it in the collapsible *Hosts* panel below the chart: it follows the
 current filters and time range, lists every host even when one is selected, refreshes with the
 chart in Live mode, and clicking a host filters the log table on it. Click a column header to sort by it (again to reverse; Enter or Space works with the
-keyboard); the choice is remembered, and the sort applies to the hosts received (at most 200).
+keyboard); the choice is remembered, and the server does the sorting, so the 200 hosts shown
+are the first 200 in that order.
 
 ## Live tail
 

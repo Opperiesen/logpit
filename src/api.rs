@@ -18,7 +18,7 @@ use crate::ingest::{Sink, now_ms};
 use crate::metrics::Metrics;
 use crate::model::LogEntry;
 use crate::stats;
-use crate::store::{self, GroupBy, Query};
+use crate::store::{self, GroupBy, HostSort, HostSortKey, Query};
 
 const MAX_LIMIT: usize = 1000;
 const DEFAULT_LIMIT: usize = 100;
@@ -355,20 +355,52 @@ async fn stats(
     }
 }
 
+/// `sort` (`host`, `count`, `errors`, `warnings`, `last_ts`) and `order` (`asc`, `desc`) on top
+/// of the search filters. Without `order`, text sorts ascending and numbers descending.
+fn parse_hosts(params: Vec<(String, String)>) -> Result<(Query, HostSort), String> {
+    let mut sort = HostSort::default();
+    let mut order = None;
+    for (k, v) in &params {
+        match (k.as_str(), v.as_str()) {
+            ("sort", "") | ("order", "") => {}
+            ("sort", v) => {
+                let key = match v {
+                    "host" => HostSortKey::Host,
+                    "count" => HostSortKey::Count,
+                    "errors" => HostSortKey::Errors,
+                    "warnings" => HostSortKey::Warnings,
+                    "last_ts" => HostSortKey::LastTs,
+                    _ => return Err("sort must be host, count, errors, warnings or last_ts".into()),
+                };
+                sort = HostSort::natural(key);
+            }
+            ("order", "asc") => order = Some(false),
+            ("order", "desc") => order = Some(true),
+            ("order", _) => return Err("order must be asc or desc".into()),
+            _ => {}
+        }
+    }
+    if let Some(desc) = order {
+        sort.desc = desc;
+    }
+    Ok((parse_search(params)?, sort))
+}
+
 /// Per-host totals (entries, errors, warnings, last activity, silence state) over the entries
-/// matching the search filters. `limit` caps the number of hosts.
+/// matching the search filters, ordered by `sort`/`order`. `limit` caps the number of hosts
+/// after sorting.
 async fn hosts(
     State(state): State<AppState>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let query = match parse_search(params) {
-        Ok(q) => q,
+    let (query, sort) = match parse_hosts(params) {
+        Ok(r) => r,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
-        store::host_summary(&conn, &query).map_err(anyhow::Error::from)
+        store::host_summary(&conn, &query, sort).map_err(anyhow::Error::from)
     })
     .await;
     match result {
@@ -482,6 +514,47 @@ mod tests {
         assert_eq!(e.fields.len(), 3);
         assert_eq!(e.fields["n"], "5");
         assert_eq!(e.fields["ok"], "true");
+    }
+
+    #[test]
+    fn hosts_params_parse_and_validate() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let (q, s) = parse_hosts(p(&[("limit", "5")])).unwrap();
+        assert_eq!((q.limit, s), (5, HostSort::default()));
+        let (_, s) = parse_hosts(p(&[("sort", "host")])).unwrap();
+        assert_eq!(
+            s,
+            HostSort {
+                key: HostSortKey::Host,
+                desc: false
+            }
+        );
+        let (_, s) = parse_hosts(p(&[("sort", "last_ts"), ("order", "asc")])).unwrap();
+        assert_eq!(
+            s,
+            HostSort {
+                key: HostSortKey::LastTs,
+                desc: false
+            }
+        );
+        // `order` wins whichever side of `sort` it comes on.
+        let (_, s) = parse_hosts(p(&[("order", "desc"), ("sort", "host")])).unwrap();
+        assert_eq!(
+            s,
+            HostSort {
+                key: HostSortKey::Host,
+                desc: true
+            }
+        );
+        let (_, s) = parse_hosts(p(&[("sort", ""), ("order", "")])).unwrap();
+        assert_eq!(s, HostSort::default());
+        assert!(parse_hosts(p(&[("sort", "message")])).is_err());
+        assert!(parse_hosts(p(&[("order", "up")])).is_err());
+        assert!(parse_hosts(p(&[("since", "x")])).is_err());
     }
 
     #[test]

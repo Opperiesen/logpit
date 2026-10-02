@@ -332,8 +332,8 @@ function ago(ms) {
   return Math.floor(s / 86400) + 'd ago';
 }
 
-// Column sorting is done in the browser on the rows received (at most 200 hosts). Text sorts
-// ascending first, numbers and dates descending first; clicking again reverses.
+// Column sorting is done by the server (`sort`/`order`), so the 200-host cap applies after
+// sorting. Text sorts ascending first, numbers and dates descending first; clicking again reverses.
 let hostRows = [];
 let hostSort = { key: 'count', dir: -1 };
 try {
@@ -341,18 +341,11 @@ try {
   if (['host', 'count', 'errors', 'warnings', 'last_ts'].includes(k) && (d === '1' || d === '-1')) hostSort = { key: k, dir: Number(d) };
 } catch {}
 
-function sortedHosts() {
-  const { key, dir } = hostSort;
-  return [...hostRows].sort((a, b) => {
-    const c = key === 'host' ? a.host.localeCompare(b.host) : a[key] - b[key];
-    return c * dir || a.host.localeCompare(b.host);
-  });
-}
-
 function sortBy(key) {
   hostSort = hostSort.key === key ? { key, dir: -hostSort.dir } : { key, dir: key === 'host' ? 1 : -1 };
   try { localStorage.setItem('logpit-hosts-sort', hostSort.key + ':' + hostSort.dir); } catch {}
-  renderHosts();
+  markSort();
+  loadHosts();
 }
 
 for (const th of document.querySelectorAll('#hostsTable th[data-sort]')) {
@@ -362,13 +355,17 @@ for (const th of document.querySelectorAll('#hostsTable th[data-sort]')) {
   th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(th.dataset.sort); } };
 }
 
-function renderHosts() {
+function markSort() {
   for (const th of document.querySelectorAll('#hostsTable th[data-sort]')) {
     if (th.dataset.sort === hostSort.key) th.setAttribute('aria-sort', hostSort.dir === 1 ? 'ascending' : 'descending');
     else th.removeAttribute('aria-sort');
   }
+}
+
+function renderHosts() {
+  markSort();
   $('hostsCount').textContent = '(' + hostRows.length + ')';
-  $('hostsBody').replaceChildren(...sortedHosts().map(h => {
+  $('hostsBody').replaceChildren(...hostRows.map(h => {
     const tr = document.createElement('tr');
     if (snap && h.host === snap.host) tr.className = 'active';
     const name = td('name', h.host);
@@ -389,18 +386,25 @@ function renderHosts() {
   }));
 }
 
+let hostsReq = 0;
 async function loadHosts() {
   if (!snap || !$('hosts').open) return;
+  const req = ++hostsReq;
   const p = chartParams();
   p.delete('host');
   p.set('limit', '200');
+  p.set('sort', hostSort.key);
+  p.set('order', hostSort.dir === 1 ? 'asc' : 'desc');
   try {
     const res = await fetch('/api/hosts?' + p, { headers: authHeaders() });
     if (!res.ok) return;
-    hostRows = await res.json();
+    const rows = await res.json();
+    if (req !== hostsReq) return; // a newer request (e.g. another sort click) superseded this one
+    hostRows = rows;
     renderHosts();
   } catch {}
 }
+markSort();
 try { $('hosts').open = localStorage.getItem('logpit-hosts-open') === '1'; } catch {}
 $('hosts').addEventListener('toggle', () => {
   try { localStorage.setItem('logpit-hosts-open', $('hosts').open ? '1' : '0'); } catch {}

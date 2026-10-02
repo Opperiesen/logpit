@@ -245,13 +245,63 @@ pub struct HostSummary {
     pub silent: Option<bool>,
 }
 
-/// Per-host totals over the entries matching `q`, busiest first, at most `q.limit` hosts.
-pub fn host_summary(conn: &Connection, q: &Query) -> rusqlite::Result<Vec<HostSummary>> {
+/// Column of the per-host summary to order by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostSortKey {
+    Host,
+    Count,
+    Errors,
+    Warnings,
+    LastTs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostSort {
+    pub key: HostSortKey,
+    pub desc: bool,
+}
+
+impl Default for HostSort {
+    /// Busiest hosts first.
+    fn default() -> Self {
+        Self {
+            key: HostSortKey::Count,
+            desc: true,
+        }
+    }
+}
+
+impl HostSort {
+    /// Text sorts ascending first, numbers and dates descending first.
+    pub fn natural(key: HostSortKey) -> Self {
+        Self {
+            key,
+            desc: key != HostSortKey::Host,
+        }
+    }
+}
+
+/// Per-host totals over the entries matching `q`, ordered by `sort` (ties by host name), at
+/// most `q.limit` hosts. The limit applies after sorting, so `LastTs` ascending lists the
+/// quietest hosts even when there are more hosts than the limit.
+pub fn host_summary(
+    conn: &Connection,
+    q: &Query,
+    sort: HostSort,
+) -> rusqlite::Result<Vec<HostSummary>> {
     let mut filter = Filter::new(q)?;
+    let column = match sort.key {
+        HostSortKey::Host => "l.host",
+        HostSortKey::Count => "n",
+        HostSortKey::Errors => "errors",
+        HostSortKey::Warnings => "warnings",
+        HostSortKey::LastTs => "last_ts",
+    };
+    let dir = if sort.desc { "DESC" } else { "ASC" };
     let sql = format!(
-        "SELECT l.host, COUNT(*) AS n, COALESCE(SUM(l.severity <= 3), 0), \
-         COALESCE(SUM(l.severity = 4), 0), MAX(l.ts) FROM logs l{} \
-         GROUP BY l.host ORDER BY n DESC, l.host LIMIT ?",
+        "SELECT l.host, COUNT(*) AS n, COALESCE(SUM(l.severity <= 3), 0) AS errors, \
+         COALESCE(SUM(l.severity = 4), 0) AS warnings, MAX(l.ts) AS last_ts FROM logs l{} \
+         GROUP BY l.host ORDER BY {column} {dir}, l.host LIMIT ?",
         filter.sql()
     );
     filter.args.push(Box::new(q.limit as i64));
@@ -709,7 +759,7 @@ mod tests {
         ];
         insert_batch(&mut conn, &batch).unwrap();
 
-        let all = host_summary(&conn, &q(10)).unwrap();
+        let all = host_summary(&conn, &q(10), HostSort::default()).unwrap();
         let row = |h: &str| all.iter().find(|r| r.host == h).unwrap();
         assert_eq!(
             all.iter().map(|r| r.host.as_str()).collect::<Vec<_>>(),
@@ -738,7 +788,7 @@ mod tests {
             since_ms: Some(180),
             ..q(10)
         };
-        let r = host_summary(&conn, &recent).unwrap();
+        let r = host_summary(&conn, &recent, HostSort::default()).unwrap();
         assert_eq!(
             r.iter()
                 .map(|r| (r.host.as_str(), r.count))
@@ -749,9 +799,76 @@ mod tests {
             text: Some("error".into()),
             ..q(10)
         };
-        assert_eq!(host_summary(&conn, &text).unwrap().len(), 1);
-        assert_eq!(host_summary(&conn, &q(2)).unwrap().len(), 2);
-        assert!(host_summary(&mem(), &q(10)).unwrap().is_empty());
+        assert_eq!(
+            host_summary(&conn, &text, HostSort::default())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            host_summary(&conn, &q(2), HostSort::default())
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(
+            host_summary(&mem(), &q(10), HostSort::default())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn host_summary_sorting_and_limit_after_sort() {
+        let mut conn = mem();
+        let batch = vec![
+            entry(100, "alpha", 6, "a"),
+            entry(900, "alpha", 3, "a"),
+            entry(300, "bravo", 6, "b"),
+            entry(310, "bravo", 4, "b"),
+            entry(320, "bravo", 6, "b"),
+            entry(500, "charlie", 3, "c"),
+            entry(510, "charlie", 3, "c"),
+            entry(520, "charlie", 6, "c"),
+            entry(530, "charlie", 4, "c"),
+            entry(540, "charlie", 4, "c"),
+        ];
+        insert_batch(&mut conn, &batch).unwrap();
+        let order = |key, desc, limit| {
+            host_summary(&conn, &q(limit), HostSort { key, desc })
+                .unwrap()
+                .into_iter()
+                .map(|r| r.host)
+                .collect::<Vec<_>>()
+        };
+        use HostSortKey::*;
+        // count: charlie 5, bravo 3, alpha 2; errors: charlie 2, alpha 1, bravo 0;
+        // warnings: charlie 2, bravo 1, alpha 0; last seen: alpha 900, charlie 540, bravo 320.
+        assert_eq!(order(Count, true, 10), ["charlie", "bravo", "alpha"]);
+        assert_eq!(order(Count, false, 10), ["alpha", "bravo", "charlie"]);
+        assert_eq!(order(Errors, true, 10), ["charlie", "alpha", "bravo"]);
+        assert_eq!(order(Warnings, true, 10), ["charlie", "bravo", "alpha"]);
+        assert_eq!(order(LastTs, true, 10), ["alpha", "charlie", "bravo"]);
+        assert_eq!(order(LastTs, false, 10), ["bravo", "charlie", "alpha"]);
+        assert_eq!(order(Host, false, 10), ["alpha", "bravo", "charlie"]);
+        assert_eq!(order(Host, true, 10), ["charlie", "bravo", "alpha"]);
+        // The limit applies after sorting: the quietest host, not the busiest.
+        assert_eq!(order(LastTs, false, 1), ["bravo"]);
+        assert_eq!(order(Count, true, 1), ["charlie"]);
+        assert_eq!(
+            HostSort::natural(Host),
+            HostSort {
+                key: Host,
+                desc: false
+            }
+        );
+        assert_eq!(
+            HostSort::natural(LastTs),
+            HostSort {
+                key: LastTs,
+                desc: true
+            }
+        );
     }
 
     #[test]
