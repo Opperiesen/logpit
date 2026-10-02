@@ -183,7 +183,9 @@ curl -H "Authorization: Bearer $TOKEN" \
   'http://localhost:8080/api/stats?since=1700000000000&bucket=5m&group_by=host&level=4'
 ```
 
-Counts entries per time bucket, which is what the chart at the top of the web UI shows.
+Counts entries per time bucket, which is what the chart at the top of the web UI shows. The
+chart can be stacked by severity, host or app (*Stack by*); the legend gives the totals, and
+clicking a host or app in it filters the log table on it.
 It takes the filters of `/api/logs` (`q`, `host`, `app`, `level`, `f`, `since`, `until`) plus:
 
 | Parameter | Meaning |

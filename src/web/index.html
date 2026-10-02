@@ -25,6 +25,14 @@
   .fields span { cursor:pointer; } .fields span:hover { color:var(--accent); }
   .fields b { font-weight:600; }
   .s0,.s1,.s2,.s3 { color:#d1242f; } .s4 { color:#bf8700; } .s5 { color:#0969da; } .s6 { color:var(--muted); } .s7 { color:var(--muted); opacity:.7; }
+  :root { --c0:#4e79a7; --c1:#f28e2b; --c2:#59a14f; --c3:#b07aa1; --c4:#76b7b2; --c5:#edc948; --c6:#ff9da7; --c7:#9c755f; --c8:#af7aa1; --c9:#86bc86; --other:#8b949e; }
+  #chartbar { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; padding:6px 16px; font-size:12px; color:var(--muted); }
+  #chartbar select { padding:2px 6px; font-size:12px; }
+  #legend { display:flex; flex-wrap:wrap; gap:2px 12px; }
+  .lg { display:inline-flex; align-items:center; gap:5px; }
+  .lg[data-key] { cursor:pointer; } .lg[data-key]:hover { color:var(--accent); }
+  .lg i { width:10px; height:10px; border-radius:2px; background:currentColor; display:inline-block; }
+  .lg b { font-weight:600; color:var(--fg); }
   #chart { display:block; width:100%; height:64px; border-bottom:1px solid var(--line); }
   #chart rect { fill:currentColor; }
   #empty { padding:24px 16px; color:var(--muted); }
@@ -55,6 +63,12 @@
   <button id="go">Search</button>
   <span id="status"></span>
 </header>
+<div id="chartbar" hidden>
+  <label>Stack by
+    <select id="group"><option value="severity">severity</option><option value="host">host</option><option value="app">app</option></select>
+  </label>
+  <div id="legend"></div>
+</div>
 <svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" hidden></svg>
 <table><tbody id="rows"></tbody></table>
 <div id="empty" hidden></div>
@@ -149,45 +163,90 @@ async function startTail() {
   }
 }
 
-// Histogram of the current filters, stacked by severity (errors at the bottom).
+// Histogram of the current filters, stacked by severity (errors at the bottom), host or app.
+// Clicking a host or app in the legend filters on it.
+let lastChartParams = null;
+try { $('group').value = localStorage.getItem('logpit-group') || 'severity'; } catch {}
+
+function colorFor(group, key, i) {
+  if (group === 'severity') return null; // styled through the s0..s7 classes
+  return key === 'other' ? 'var(--other)' : 'var(--c' + (i % 10) + ')';
+}
+
 async function loadChart(params) {
-  const chart = $('chart');
+  lastChartParams = params;
+  const chart = $('chart'), bar = $('chartbar'), group = $('group').value;
   const p = new URLSearchParams(params);
   p.delete('limit');
-  p.set('group_by', 'severity');
+  p.set('group_by', group);
+  const hide = () => { chart.hidden = true; bar.hidden = true; };
   try {
     const res = await fetch('/api/stats?' + p, { headers: authHeaders() });
-    if (!res.ok) { chart.hidden = true; return; }
+    if (!res.ok) { hide(); return; }
     const d = await res.json();
+    // Stacking order: severities from most to least severe, otherwise largest group first.
+    const keys = group === 'severity' ? LEVELS.filter(k => d.keys.includes(k)) : d.keys;
+    const totals = Object.fromEntries(keys.map(k => [k, 0]));
     const max = Math.max(1, ...d.buckets.map(b => b.total));
     const NS = 'http://www.w3.org/2000/svg';
+    const style = (el, k, i) => {
+      if (group === 'severity') el.setAttribute('class', 's' + LEVELS.indexOf(k));
+      else el.style.color = colorFor(group, k, i);
+    };
     const bars = [];
     d.buckets.forEach((b, i) => {
       let y = 100;
       const parts = [];
-      LEVELS.forEach((name, sev) => {
-        const n = (b.groups || {})[name];
+      let last = null;
+      keys.forEach((k, ki) => {
+        const n = (b.groups || {})[k];
         if (!n) return;
+        totals[k] += n;
         const h = 100 * n / max;
         y -= h;
         const r = document.createElementNS(NS, 'rect');
-        r.setAttribute('class', 's' + sev);
+        style(r, k, ki);
         r.setAttribute('x', i + 0.1); r.setAttribute('width', 0.8);
         r.setAttribute('y', y); r.setAttribute('height', h);
-        bars.push(r);
-        parts.push(name + ' ' + n);
+        bars.push(r); last = r;
+        parts.push((k || '(none)') + ' ' + n);
       });
-      if (parts.length) {
+      if (last) {
         const t = document.createElementNS(NS, 'title');
         t.textContent = new Date(b.ts).toLocaleString() + ' — ' + b.total + ' (' + parts.join(', ') + ')';
-        bars[bars.length - 1].append(t);
+        last.append(t);
       }
     });
     chart.setAttribute('viewBox', '0 0 ' + Math.max(1, d.buckets.length) + ' 100');
     chart.replaceChildren(...bars);
     chart.hidden = false;
-  } catch { chart.hidden = true; }
+
+    const items = keys.map((k, ki) => {
+      const el = document.createElement('span');
+      el.className = 'lg';
+      const sw = document.createElement('i');
+      style(sw, k, ki);
+      const name = document.createElement('span');
+      name.textContent = k || '(none)';
+      const n = document.createElement('b');
+      n.textContent = totals[k].toLocaleString();
+      el.append(sw, name, n);
+      if ((group === 'host' || group === 'app') && k && k !== 'other') {
+        el.dataset.key = k;
+        el.title = 'Filter on ' + group + ' ' + k;
+        el.onclick = () => { $(group).value = k; load(); };
+      }
+      return el;
+    });
+    $('legend').replaceChildren(...items);
+    bar.hidden = false;
+  } catch { hide(); }
 }
+
+$('group').onchange = () => {
+  try { localStorage.setItem('logpit-group', $('group').value); } catch {}
+  if (lastChartParams) loadChart(lastChartParams);
+};
 
 async function load() {
   stopTail();

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Web UI: the histogram can be stacked by severity, host or app, with a legend showing per-group
+  totals; clicking a host or app in the legend filters on it.
+
 ## 0.4.0 - 2026-10-02
 
 - Statistics: `GET /api/stats` counts entries per time bucket with the search filters, optionally
