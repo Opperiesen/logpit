@@ -7,7 +7,8 @@
 
 use serde_json::Value;
 
-use crate::model::{LogEntry, parse_severity, truncate_utf8};
+use crate::model::{LogEntry, level_severity, truncate_utf8};
+use crate::proto::{Reader, utf8};
 
 const MAX_FIELDS: usize = 64;
 const MAX_KEY_BYTES: usize = 64;
@@ -85,71 +86,6 @@ pub fn parse_labels(text: &str) -> Vec<(String, String)> {
 }
 
 // ---- protobuf -----------------------------------------------------------------------------
-
-struct Reader<'a> {
-    buf: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> Reader<'a> {
-    fn new(buf: &'a [u8]) -> Self {
-        Self { buf, pos: 0 }
-    }
-
-    fn done(&self) -> bool {
-        self.pos >= self.buf.len()
-    }
-
-    fn varint(&mut self) -> Option<u64> {
-        let (mut value, mut shift) = (0u64, 0u32);
-        loop {
-            let byte = *self.buf.get(self.pos)?;
-            self.pos += 1;
-            if shift >= 64 {
-                return None;
-            }
-            value |= u64::from(byte & 0x7f) << shift;
-            if byte & 0x80 == 0 {
-                return Some(value);
-            }
-            shift += 7;
-        }
-    }
-
-    fn bytes(&mut self) -> Option<&'a [u8]> {
-        let len = usize::try_from(self.varint()?).ok()?;
-        let end = self.pos.checked_add(len)?;
-        let slice = self.buf.get(self.pos..end)?;
-        self.pos = end;
-        Some(slice)
-    }
-
-    /// The next field's number and wire type.
-    fn key(&mut self) -> Option<(u32, u8)> {
-        let key = self.varint()?;
-        Some((u32::try_from(key >> 3).ok()?, (key & 7) as u8))
-    }
-
-    /// Skips a value of the given wire type.
-    fn skip(&mut self, wire: u8) -> Option<()> {
-        match wire {
-            0 => {
-                self.varint()?;
-            }
-            1 => self.pos = self.pos.checked_add(8).filter(|e| *e <= self.buf.len())?,
-            2 => {
-                self.bytes()?;
-            }
-            5 => self.pos = self.pos.checked_add(4).filter(|e| *e <= self.buf.len())?,
-            _ => return None,
-        }
-        Some(())
-    }
-}
-
-fn utf8(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).into_owned()
-}
 
 /// `google.protobuf.Timestamp { int64 seconds = 1; int32 nanos = 2; }` as Unix milliseconds.
 fn timestamp_ms(buf: &[u8]) -> Option<i64> {
@@ -312,18 +248,6 @@ const APP_LABELS: [&str; 7] = [
     "syslog_identifier",
 ];
 const LEVEL_LABELS: [&str; 4] = ["level", "severity", "detected_level", "log_level"];
-
-/// Severity from the usual level words (`warn`, `error`, `fatal`, …); `None` when unknown.
-fn level_severity(text: &str) -> Option<u8> {
-    let t = text.trim().to_ascii_lowercase();
-    match t.as_str() {
-        "trace" | "debug" | "dbg" => Some(7),
-        "info" | "information" => Some(6),
-        "fatal" | "panic" => Some(0),
-        "unknown" | "" => None,
-        other => parse_severity(other),
-    }
-}
 
 fn field_key(key: &str) -> Option<String> {
     let mut k: String = key

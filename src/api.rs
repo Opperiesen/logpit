@@ -52,6 +52,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/ingest", post(ingest))
         .route("/loki/api/v1/push", post(loki_push))
         .route("/gelf", post(gelf_ingest))
+        .route("/v1/logs", post(otlp_logs))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Write),
             require_scope,
@@ -213,27 +214,106 @@ struct IngestResult {
     rejected: usize,
 }
 
+/// The request body with its `Content-Encoding` undone: none, or gzip (and zlib's `deflate` when
+/// `allow_deflate`). Anything else is a 415, a damaged stream a 400, a bomb a 413.
+fn decompress_request(
+    headers: &HeaderMap,
+    body: Bytes,
+    allow_deflate: bool,
+) -> Result<Bytes, (StatusCode, String)> {
+    let encoding = headers
+        .get(header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let result = match encoding.as_str() {
+        "" | "identity" => return Ok(body),
+        "gzip" | "x-gzip" => crate::inflate::gunzip(&body, crate::loki::MAX_DECOMPRESSED_BYTES),
+        "deflate" if allow_deflate => {
+            crate::inflate::zlib(&body, crate::loki::MAX_DECOMPRESSED_BYTES)
+        }
+        other => {
+            return Err((
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                format!("unsupported Content-Encoding {other:?}"),
+            ));
+        }
+    };
+    match result {
+        Ok(plain) => Ok(Bytes::from(plain)),
+        Err(crate::inflate::Error::TooLarge) => Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "decompressed body too large".into(),
+        )),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e.to_string())),
+    }
+}
+
+/// OpenTelemetry logs over HTTP (OTLP): protobuf or JSON, optionally gzip-compressed, which is what
+/// the OpenTelemetry Collector and the SDK exporters send. Resource and log attributes become the
+/// host, app, level and fields. Answers 200 with an empty export response.
+async fn otlp_logs(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    let body = match decompress_request(&headers, body, false) {
+        Ok(b) => b,
+        Err((status, msg)) => return (status, msg).into_response(),
+    };
+    let is_json = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|t| t.to_ascii_lowercase().contains("json"));
+    let sink = state.sink.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let now = now_ms();
+        let entries = if is_json {
+            crate::otlp::decode_json(&body, now)
+        } else {
+            crate::otlp::decode_protobuf(&body, now)
+        }?;
+        for entry in entries {
+            sink.push(entry);
+        }
+        Ok::<_, &'static str>(())
+    })
+    .await;
+    match result {
+        Ok(Ok(())) if is_json => {
+            ([(header::CONTENT_TYPE, "application/json")], "{}").into_response()
+        }
+        Ok(Ok(())) => ([(header::CONTENT_TYPE, "application/x-protobuf")], "").into_response(),
+        Ok(Err(msg)) => {
+            Metrics::inc(&state.sink.metrics().rejected, 1);
+            (StatusCode::BAD_REQUEST, msg).into_response()
+        }
+        Err(e) => {
+            tracing::error!("otlp task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "export failed").into_response()
+        }
+    }
+}
+
 /// Loki's push API: JSON, or snappy-compressed protobuf (what Promtail and Grafana Alloy send).
 /// Labels become the host, app, level and fields; JSON or `key=value` data inside a line is
 /// extracted as well when structured parsing is on. Answers 204 like Loki.
 async fn loki_push(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    let text = |name: header::HeaderName| {
-        headers
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_ascii_lowercase()
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let is_snappy = headers
+        .get(header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|e| e.trim().eq_ignore_ascii_case("snappy"));
+    // `snappy` is how Loki's protobuf is compressed (handled below); gzip is undone here.
+    let body = if is_snappy {
+        body
+    } else {
+        match decompress_request(&headers, body, false) {
+            Ok(b) => b,
+            Err((status, msg)) => return (status, msg).into_response(),
+        }
     };
-    let (content_type, encoding) = (text(header::CONTENT_TYPE), text(header::CONTENT_ENCODING));
-    if !matches!(encoding.as_str(), "" | "identity" | "snappy") {
-        return (
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            format!(
-                "unsupported Content-Encoding {encoding:?}: send JSON or snappy-compressed protobuf"
-            ),
-        )
-            .into_response();
-    }
     let is_json = content_type.contains("json");
     let sink = state.sink.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
@@ -280,17 +360,10 @@ async fn loki_push(State(state): State<AppState>, headers: HeaderMap, body: Byte
 
 /// GELF over HTTP: one JSON message per request. Answers 202 like Graylog.
 async fn gelf_ingest(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    let encoding = headers
-        .get(header::CONTENT_ENCODING)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if !matches!(encoding, "" | "identity") {
-        return (
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "compressed GELF is not supported",
-        )
-            .into_response();
-    }
+    let body = match decompress_request(&headers, body, true) {
+        Ok(b) => b,
+        Err((status, msg)) => return (status, msg).into_response(),
+    };
     match state.sink.push_gelf(&body) {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
@@ -1129,6 +1202,67 @@ mod tests {
         assert!(parse_hosts(p(&[("sort", "message")])).is_err());
         assert!(parse_hosts(p(&[("order", "up")])).is_err());
         assert!(parse_hosts(p(&[("since", "x")])).is_err());
+    }
+
+    // `{"short_message":"hello"}` compressed by Python's gzip and zlib modules.
+    const GZ_HELLO: &[u8] = &[
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xab, 0x56, 0x2a, 0xce, 0xc8,
+        0x2f, 0x2a, 0x89, 0xcf, 0x4d, 0x2d, 0x2e, 0x4e, 0x4c, 0x4f, 0x55, 0xb2, 0x52, 0xca, 0x48,
+        0xcd, 0xc9, 0xc9, 0x57, 0xaa, 0x05, 0x00, 0xb5, 0x73, 0x46, 0x97, 0x19, 0x00, 0x00, 0x00,
+    ];
+    const ZL_HELLO: &[u8] = &[
+        0x78, 0x9c, 0xab, 0x56, 0x2a, 0xce, 0xc8, 0x2f, 0x2a, 0x89, 0xcf, 0x4d, 0x2d, 0x2e, 0x4e,
+        0x4c, 0x4f, 0x55, 0xb2, 0x52, 0xca, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0xaa, 0x05, 0x00, 0x7c,
+        0x08, 0x09, 0x43,
+    ];
+
+    #[test]
+    fn request_bodies_are_decompressed_by_content_encoding() {
+        let headers = |enc: &str| {
+            let mut h = HeaderMap::new();
+            if !enc.is_empty() {
+                h.insert(header::CONTENT_ENCODING, enc.parse().unwrap());
+            }
+            h
+        };
+        let plain = br#"{"short_message":"hello"}"#;
+        let ok = |enc: &str, body: &[u8], deflate: bool| {
+            decompress_request(&headers(enc), Bytes::copy_from_slice(body), deflate)
+        };
+        assert_eq!(ok("", plain, false).unwrap(), plain.as_slice());
+        assert_eq!(ok("identity", plain, false).unwrap(), plain.as_slice());
+        assert_eq!(ok("gzip", GZ_HELLO, false).unwrap(), plain.as_slice());
+        assert_eq!(
+            ok("GZIP", GZ_HELLO, false).unwrap(),
+            plain.as_slice(),
+            "case-insensitive"
+        );
+        assert_eq!(ok("deflate", ZL_HELLO, true).unwrap(), plain.as_slice());
+        // deflate only where it is accepted; unknown encodings are a 415, damaged data a 400.
+        assert_eq!(
+            ok("deflate", ZL_HELLO, false).unwrap_err().0,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        assert_eq!(
+            ok("br", plain, true).unwrap_err().0,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        assert_eq!(
+            ok(
+                "gzip",
+                b"definitely not gzip, but long enough to pass the length check",
+                false
+            )
+            .unwrap_err()
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            ok("gzip", &GZ_HELLO[..GZ_HELLO.len() - 4], false)
+                .unwrap_err()
+                .0,
+            StatusCode::BAD_REQUEST
+        );
     }
 
     #[test]

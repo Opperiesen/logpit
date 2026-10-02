@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- OpenTelemetry: `POST /v1/logs` accepts OTLP/HTTP logs (protobuf or JSON, with or without gzip) from the
+  OpenTelemetry Collector and SDK exporters. Resource and record attributes, the scope and the trace and
+  span ids become fields; the severity comes from `severityNumber` or the text. OTLP over gRPC is not
+  supported.
+- gzip and zlib: request bodies may now be compressed for Loki (gzip), GELF over HTTP (gzip, deflate) and
+  OTLP, and GELF over UDP and TCP accepts gzip- and zlib-compressed messages (chunked UDP is still refused).
+  Decompression is capped and checks the gzip checksum and length. Adds the pure-Rust `miniz_oxide` crate;
+  Snappy, protobuf and gzip framing are decoded by small built-in readers.
+
 - Saved views: `GET/POST /api/views` and `DELETE /api/views/{id}` keep named searches (the web UI's query
   string) on the server, and the UI gets a *Views* menu with *Save view* and *Delete*, shared by everyone
   who uses the instance. Stored in an extra table that leaves the schema version unchanged.

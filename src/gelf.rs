@@ -1,8 +1,8 @@
 //! GELF (Graylog Extended Log Format) input: one JSON object per message, over UDP, TCP
 //! (messages separated by a NUL byte or a newline) or `POST /gelf`.
 //!
-//! Compressed (gzip, zlib) and chunked UDP messages are not supported; the sender needs to use
-//! uncompressed GELF (Docker: `--log-opt gelf-compression-type=none`).
+//! Messages may be gzip- or zlib-compressed (the usual default of GELF senders). Chunked UDP
+//! messages are not supported.
 
 use std::io;
 
@@ -15,6 +15,8 @@ use crate::model::{LogEntry, truncate_utf8};
 const MAX_FIELDS: usize = 64;
 const MAX_KEY_BYTES: usize = 64;
 const MAX_VALUE_BYTES: usize = 1024;
+/// A compressed message may not expand beyond this.
+const MAX_MESSAGE_BYTES: usize = 1 << 20;
 
 /// Keys checked, in order, for the application name.
 const APP_KEYS: [&str; 6] = [
@@ -61,15 +63,22 @@ fn field_key(key: &str) -> Option<String> {
 /// Parses one GELF message. `now_ms` is used when it carries no timestamp.
 pub fn parse(data: &[u8], now_ms: i64) -> Result<LogEntry, &'static str> {
     let data = data.trim_ascii();
-    match data {
-        [0x1f, 0x8b, ..] | [0x78, ..] => {
-            return Err("compressed GELF is not supported; set the sender's compression to none");
-        }
-        [0x1e, 0x0f, ..] => {
-            return Err("chunked GELF is not supported; send each message in one datagram");
-        }
-        _ => {}
+    if data.starts_with(&[0x1e, 0x0f]) {
+        return Err("chunked GELF is not supported; send each message in one datagram");
     }
+    // gzip and zlib (what Docker's GELF driver and most libraries use by default) are undone first.
+    let inflated;
+    let data = if crate::inflate::looks_like_gzip(data) {
+        inflated = crate::inflate::gunzip(data, MAX_MESSAGE_BYTES)
+            .map_err(|_| "invalid compressed GELF message")?;
+        inflated.as_slice()
+    } else if crate::inflate::looks_like_zlib(data) {
+        inflated = crate::inflate::zlib(data, MAX_MESSAGE_BYTES)
+            .map_err(|_| "invalid compressed GELF message")?;
+        inflated.as_slice()
+    } else {
+        data
+    };
     let Value::Object(obj) =
         serde_json::from_slice::<Value>(data).map_err(|_| "invalid GELF: not JSON")?
     else {
@@ -290,6 +299,49 @@ mod tests {
             let err = parse(input, 0).unwrap_err();
             assert!(err.contains(expect), "{input:?}: {err}");
         }
+    }
+
+    // The same message compressed by Python's gzip and zlib modules.
+    const GZIPPED: &[u8] = &[
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x1d, 0x8b, 0xc1, 0x0a, 0x80,
+        0x20, 0x10, 0x44, 0x7f, 0x45, 0xf6, 0x1c, 0x41, 0xd0, 0xa9, 0x9f, 0x11, 0xb3, 0x21, 0x25,
+        0x75, 0x63, 0x57, 0xea, 0x10, 0xfd, 0x7b, 0xda, 0x6d, 0xde, 0xbc, 0x99, 0x87, 0x2e, 0x88,
+        0x46, 0x2e, 0xb4, 0x18, 0x9a, 0xc6, 0x89, 0x06, 0x43, 0x81, 0xb5, 0x76, 0xdc, 0xd8, 0x1f,
+        0x90, 0x9f, 0x5a, 0xab, 0x81, 0xa5, 0xda, 0x0c, 0x55, 0xb7, 0xa3, 0x6b, 0xcf, 0xf9, 0x94,
+        0x86, 0xd8, 0x4c, 0x40, 0x4a, 0xdc, 0x47, 0x09, 0x17, 0x52, 0x93, 0x73, 0xcb, 0xd6, 0x73,
+        0xa9, 0x2e, 0x16, 0x88, 0x2d, 0x2e, 0xff, 0x97, 0x1b, 0x2b, 0xbd, 0x1f, 0x6f, 0x43, 0x30,
+        0x50, 0x73, 0x00, 0x00, 0x00,
+    ];
+    const ZLIBBED: &[u8] = &[
+        0x78, 0x9c, 0x1d, 0x8b, 0xc1, 0x0a, 0x80, 0x20, 0x10, 0x44, 0x7f, 0x45, 0xf6, 0x1c, 0x41,
+        0xd0, 0xa9, 0x9f, 0x11, 0xb3, 0x21, 0x25, 0x75, 0x63, 0x57, 0xea, 0x10, 0xfd, 0x7b, 0xda,
+        0x6d, 0xde, 0xbc, 0x99, 0x87, 0x2e, 0x88, 0x46, 0x2e, 0xb4, 0x18, 0x9a, 0xc6, 0x89, 0x06,
+        0x43, 0x81, 0xb5, 0x76, 0xdc, 0xd8, 0x1f, 0x90, 0x9f, 0x5a, 0xab, 0x81, 0xa5, 0xda, 0x0c,
+        0x55, 0xb7, 0xa3, 0x6b, 0xcf, 0xf9, 0x94, 0x86, 0xd8, 0x4c, 0x40, 0x4a, 0xdc, 0x47, 0x09,
+        0x17, 0x52, 0x93, 0x73, 0xcb, 0xd6, 0x73, 0xa9, 0x2e, 0x16, 0x88, 0x2d, 0x2e, 0xff, 0x97,
+        0x1b, 0x2b, 0xbd, 0x1f, 0x5c, 0x92, 0x25, 0x62,
+    ];
+
+    #[test]
+    fn gzip_and_zlib_messages_are_decompressed() {
+        for compressed in [GZIPPED, ZLIBBED] {
+            let e = parse(compressed, 0).unwrap();
+            assert_eq!(
+                (
+                    e.host.as_str(),
+                    e.app.as_str(),
+                    e.severity,
+                    e.message.as_str()
+                ),
+                ("dockerhost", "web", 4, "compressed hello")
+            );
+        }
+        // Damaged compressed data is refused with a reason, never a panic.
+        assert!(parse(&GZIPPED[..GZIPPED.len() - 5], 0).is_err());
+        assert!(parse(&ZLIBBED[..ZLIBBED.len() / 2], 0).is_err());
+        let mut flipped = GZIPPED.to_vec();
+        flipped[14] ^= 0xff;
+        assert!(parse(&flipped, 0).is_err());
     }
 
     #[test]

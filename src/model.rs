@@ -43,6 +43,19 @@ pub fn parse_severity(s: &str) -> Option<u8> {
     })
 }
 
+/// Severity from the usual level words (`warn`, `error`, `fatal`, …) or a number; `None` when
+/// unknown.
+pub fn level_severity(text: &str) -> Option<u8> {
+    let t = text.trim().to_ascii_lowercase();
+    match t.as_str() {
+        "trace" | "debug" | "dbg" => Some(7),
+        "info" | "information" => Some(6),
+        "fatal" | "panic" => Some(0),
+        "unknown" | "" => None,
+        other => parse_severity(other),
+    }
+}
+
 /// Truncates `s` to at most `max` bytes without splitting a UTF-8 character.
 pub fn truncate_utf8(s: &mut String, max: usize) {
     if s.len() <= max {

@@ -7,7 +7,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 
 ## Features
 
-- **Ingestion**: the Loki push API (Promtail, Alloy…), GELF, syslog over UDP, TCP and TLS (RFC 5424 and RFC 3164, newline or octet-counted
+- **Ingestion**: OpenTelemetry (OTLP/HTTP), the Loki push API (Promtail, Alloy…), GELF, syslog over UDP, TCP and TLS (RFC 5424 and RFC 3164, newline or octet-counted
   framing, optional client certificates), and HTTP
   (`POST /ingest`) accepting NDJSON or a JSON array, including raw
   `journalctl -o json` output.
@@ -119,7 +119,7 @@ Syslog (rsyslog, on any Linux host or router):
 *.* @@logpit-host:514      # TCP; use a single @ for UDP
 ```
 
-### Loki and GELF
+### Loki, GELF and OpenTelemetry
 
 Existing log shippers can send to LogPit without a script.
 
@@ -151,7 +151,8 @@ Labels become LogPit's fields: the first of `host`, `hostname`, `nodename`, `nod
 (`debug`, `info`, `warn`, `error`, `fatal`… or 0-7; info by default); every other label, and
 Loki's structured metadata, is kept as a filterable field. JSON or `key=value` inside a line is
 extracted too (see [structured fields](#structured-fields)), with labels winning on a clash. A
-missing host is `unknown`. Answers `204`. Gzip-compressed bodies, tenants (`X-Scope-OrgID` is
+missing host is `unknown`. Answers `204`. A body may be gzip-compressed (`Content-Encoding: gzip`, as
+Fluent Bit sends JSON). Tenants (`X-Scope-OrgID` is
 ignored) and Loki's query API are not supported: this is an input only.
 
 **GELF** (Graylog's JSON format): `POST /gelf` on the HTTP port (needs the write token, answers
@@ -159,17 +160,42 @@ ignored) and Loki's query API are not supported: this is an input only.
 
 ```sh
 -e LOGPIT_GELF_UDP_LISTEN=0.0.0.0:12201 -e LOGPIT_GELF_TCP_LISTEN=0.0.0.0:12202
-docker run --log-driver gelf --log-opt gelf-address=udp://logpit-host:12201 \
-  --log-opt gelf-compression-type=none …
+docker run --log-driver gelf --log-opt gelf-address=udp://logpit-host:12201 …
 ```
 
 `host`, `level` (0-7), `timestamp` (seconds, fractions allowed), `short_message` (required) and
 `full_message` (appended on a new line) map to the entry, `_app`/`_facility`… name the app, and
 other `_custom` fields become fields (`_id` is reserved). TCP messages end with a NUL byte or a
-newline. **Compressed (gzip, zlib) and chunked UDP messages are not supported**: they are refused
-(logged once, counted in `logpit_rejected_total`), so set the sender's compression to none. The
-UDP and TCP listeners are unauthenticated like syslog; keep them on a trusted network, or use
-`POST /gelf` with a token.
+newline. Messages may be gzip- or zlib-compressed, which is what Docker's GELF driver and most
+libraries do by default (over HTTP use `Content-Encoding: gzip` or `deflate`). **Chunked UDP messages
+are not supported**: they are refused (logged once, counted in `logpit_rejected_total`), so keep each
+message in one datagram. The UDP and TCP listeners are unauthenticated like syslog; keep them on a
+trusted network, or use `POST /gelf` with a token.
+
+**OpenTelemetry (OTLP/HTTP)**: `POST /v1/logs` accepts the protobuf (`application/x-protobuf`) and
+JSON encodings, with or without gzip, with the write token as a bearer token. In the OpenTelemetry
+Collector:
+
+```yaml
+exporters:
+  otlphttp/logpit:
+    endpoint: http://logpit-host:8080        # the exporter adds /v1/logs
+    headers: { Authorization: "Bearer <write token>" }
+service:
+  pipelines:
+    logs: { receivers: [otlp], exporters: [otlphttp/logpit] }
+```
+
+Resource attributes are mapped as `host.name` (then `k8s.node.name`, `k8s.pod.name`,
+`service.instance.id`) to the host and `service.name` (then `k8s.container.name`,
+`process.executable.name`) to the app; every other resource attribute, the instrumentation scope
+(as `scope`), the record's attributes and the trace and span ids (`trace_id`, `span_id`) are
+filterable fields, with dots kept in the names (`f=http.status_code:500`). The severity comes from
+`severityNumber` (trace and debug 7, info 6, warn 4, error 3, fatal 2) or, without it, from the
+severity text. The body is the message (a structured body is shown as JSON), and JSON or
+`key=value` in a text body is extracted too. The time is `timeUnixNano`, else
+`observedTimeUnixNano`, else the arrival time. Answers `200` with an empty export response. OTLP over
+gRPC (port 4317) is not supported: use the HTTP exporter.
 
 ### Syslog over TLS
 
