@@ -18,6 +18,10 @@ tcp_listen = "127.0.0.1:5514"
 listen = "127.0.0.1:8080"
 # token = "change-me"        # protects /ingest and /api/*; set it before exposing the port
 max_body_bytes = 8388608
+# Tokens limited to some scopes ("read": /api/logs and /api/tail, "write": /ingest).
+# [[http.tokens]]
+# token = "shipper-secret"
+# scopes = ["write"]
 
 [silence]
 # Alert when a host stops sending logs (webhook + `logpit_host_silent` metric). Off by default.

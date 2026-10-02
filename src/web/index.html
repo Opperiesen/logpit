@@ -164,6 +164,14 @@ async function load() {
       $('token').focus();
       return;
     }
+    if (res.status === 403) {
+      $('rows').replaceChildren();
+      $('empty').textContent = 'This token is not allowed to read logs (it has no read scope). Enter a token with read access.';
+      $('empty').hidden = false;
+      $('status').textContent = 'forbidden';
+      $('token').focus();
+      return;
+    }
     if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
     const rows = await res.json();
     const body = $('rows');

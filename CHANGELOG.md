@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Token scopes: `LOGPIT_HTTP_TOKEN_WRITE` / `LOGPIT_HTTP_TOKEN_READ` (and `_FILE` variants) and
+  `[[http.tokens]]` define tokens limited to ingestion or to search/tail. A token without the needed
+  scope gets `403`. `http.token` is unchanged and keeps both scopes.
+
 - Silence alerts: per-host detection of hosts that stop sending logs, configured with `[silence]`
   or `LOGPIT_SILENCE_AFTER_SECS`. Notifies an `http://` webhook (with retries) on alert and recovery
   and exposes `logpit_host_silent{host}` on `/metrics`.

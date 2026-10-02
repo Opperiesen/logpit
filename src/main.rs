@@ -159,10 +159,10 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         sink: sink.clone(),
         db_path: db_path.clone(),
-        token: cfg.http.token.as_deref().map(Arc::from),
+        auth: Arc::new(cfg.auth()),
     };
-    if state.token.is_none() && !http.ip().is_loopback() {
-        tracing::warn!("HTTP API is exposed on {http} without http.token; set one");
+    if !state.auth.enabled() && !http.ip().is_loopback() {
+        tracing::warn!("HTTP API is exposed on {http} without any token; set http.token");
     }
 
     let mut tasks: JoinSet<anyhow::Result<()>> = JoinSet::new();

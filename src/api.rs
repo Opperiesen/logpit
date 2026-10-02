@@ -13,6 +13,7 @@ use axum::{Json, Router};
 use serde_json::Value;
 use tokio::sync::broadcast;
 
+use crate::auth::{Auth, Decision, Scope};
 use crate::ingest::{Sink, now_ms};
 use crate::metrics::Metrics;
 use crate::model::LogEntry;
@@ -27,16 +28,25 @@ const INDEX_HTML: &str = include_str!("web/index.html");
 pub struct AppState {
     pub sink: Sink,
     pub db_path: PathBuf,
-    pub token: Option<Arc<str>>,
+    pub auth: Arc<Auth>,
 }
 
 pub fn router(state: AppState, max_body_bytes: usize) -> Router {
-    let protected = Router::new()
+    let write = Router::new()
         .route("/ingest", post(ingest))
+        .route_layer(middleware::from_fn_with_state(
+            (state.clone(), Scope::Write),
+            require_scope,
+        ))
+        .layer(DefaultBodyLimit::max(max_body_bytes));
+    let read = Router::new()
         .route("/api/logs", get(search))
         .route("/api/tail", get(tail))
-        .route_layer(middleware::from_fn_with_state(state.clone(), require_token))
-        .layer(DefaultBodyLimit::max(max_body_bytes));
+        .route_layer(middleware::from_fn_with_state(
+            (state.clone(), Scope::Read),
+            require_scope,
+        ));
+    let protected = write.merge(read);
 
     Router::new()
         .route("/", get(|| async { Html(INDEX_HTML) }))
@@ -44,14 +54,6 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/metrics", get(metrics))
         .merge(protected)
         .with_state(state)
-}
-
-/// Constant-time comparison to avoid leaking token prefixes through timing.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 fn bearer(headers: &HeaderMap) -> Option<&str> {
@@ -62,14 +64,20 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
         .strip_prefix("Bearer ")
 }
 
-async fn require_token(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    if let Some(expected) = &state.token {
-        let ok = bearer(req.headers()).is_some_and(|t| ct_eq(t.as_bytes(), expected.as_bytes()));
-        if !ok {
-            return (StatusCode::UNAUTHORIZED, "missing or invalid token").into_response();
+async fn require_scope(
+    State((state, scope)): State<(AppState, Scope)>,
+    req: Request,
+    next: Next,
+) -> Response {
+    match state.auth.check(bearer(req.headers()), scope) {
+        Decision::Allowed => next.run(req).await,
+        Decision::Unauthorized => {
+            (StatusCode::UNAUTHORIZED, "missing or invalid token").into_response()
+        }
+        Decision::Forbidden => {
+            (StatusCode::FORBIDDEN, "this token lacks the required scope").into_response()
         }
     }
-    next.run(req).await
 }
 
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
@@ -374,12 +382,5 @@ mod tests {
         // Empty form values (as sent by the UI) are ignored.
         let q = parse_search(p(&[("host", ""), ("level", ""), ("since", "")])).unwrap();
         assert!(q.host.is_none() && q.max_severity.is_none() && q.since_ms.is_none());
-    }
-
-    #[test]
-    fn constant_time_compare() {
-        assert!(ct_eq(b"secret", b"secret"));
-        assert!(!ct_eq(b"secret", b"secreT"));
-        assert!(!ct_eq(b"secret", b"secre"));
     }
 }

@@ -63,8 +63,10 @@ Environment variables win over the config file. All are optional.
 
 | Variable | Default (in the image) | Meaning |
 |---|---|---|
-| `LOGPIT_HTTP_TOKEN` | *(none)* | Protects `/ingest` and `/api/*`. **Set it.** |
+| `LOGPIT_HTTP_TOKEN` | *(none)* | Full-access token (read and write) for `/ingest` and `/api/*`. **Set a token.** |
 | `LOGPIT_HTTP_TOKEN_FILE` | | Read the token from a file (container secret). Not with `LOGPIT_HTTP_TOKEN`. |
+| `LOGPIT_HTTP_TOKEN_WRITE`, `_FILE` | | Token that may only ingest (`POST /ingest`); for log shippers |
+| `LOGPIT_HTTP_TOKEN_READ`, `_FILE` | | Token that may only search and tail (`/api/logs`, `/api/tail`); for the UI and dashboards |
 | `LOGPIT_HTTP_LISTEN` | `0.0.0.0:8080` | Web UI and API address |
 | `LOGPIT_SYSLOG_UDP_LISTEN` | `0.0.0.0:5514` | Empty string disables UDP syslog |
 | `LOGPIT_SYSLOG_TCP_LISTEN` | `0.0.0.0:5514` | Empty string disables TCP syslog |
@@ -81,6 +83,22 @@ keys are rejected at startup.
 The image runs as an unprivileged user, so syslog listens on 5514 inside the
 container and you map it to 514 when publishing. With a bind mount instead of a
 named volume, make the directory writable by uid 65532.
+
+### Token scopes
+
+Give each client the least access it needs, so a compromised shipper cannot read your logs:
+
+```sh
+podman run … \
+  -e LOGPIT_HTTP_TOKEN_WRITE_FILE=/run/secrets/ship \
+  -e LOGPIT_HTTP_TOKEN_READ_FILE=/run/secrets/view …
+```
+
+A write token can only `POST /ingest`, a read token can only call `/api/logs` and `/api/tail`;
+the wrong scope gets `403` (a missing or unknown token gets `401`). `LOGPIT_HTTP_TOKEN` keeps
+both scopes, and any token turns authentication on. Further tokens can be added in the TOML
+file with `[[http.tokens]]` entries (`token`, `scopes = ["read", "write"]`). `/healthz` and
+`/metrics` stay open.
 
 ## Sending logs
 

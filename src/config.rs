@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 use serde::Deserialize;
 
+use crate::auth::Scope;
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -42,7 +44,17 @@ pub struct HttpConfig {
     pub listen: String,
     /// When set, `/ingest` and `/api/*` require `Authorization: Bearer <token>`.
     pub token: Option<String>,
+    /// Additional tokens limited to some scopes (`read`, `write`). With `token`, any
+    /// configured token turns authentication on.
+    pub tokens: Vec<TokenConfig>,
     pub max_body_bytes: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenConfig {
+    pub token: String,
+    pub scopes: Vec<Scope>,
 }
 
 /// Alerts for hosts that stop sending logs.
@@ -97,8 +109,25 @@ impl Default for HttpConfig {
         Self {
             listen: "127.0.0.1:8080".into(),
             token: None,
+            tokens: Vec::new(),
             max_body_bytes: 8 * 1024 * 1024,
         }
+    }
+}
+
+/// Reads a secret from `NAME`, or from the file named by `NAME_FILE` (e.g. a mounted
+/// container secret). Setting both is an error.
+fn env_secret(get: &dyn Fn(&str) -> Option<String>, name: &str) -> anyhow::Result<Option<String>> {
+    let file_var = format!("{name}_FILE");
+    match (get(name), get(&file_var)) {
+        (Some(_), Some(_)) => bail!("set only one of {name} and {file_var}"),
+        (Some(t), None) => Ok(Some(t)),
+        (None, Some(path)) => {
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("cannot read {file_var} {path}"))?;
+            Ok(Some(text.trim_end_matches(['\r', '\n']).to_string()))
+        }
+        (None, None) => Ok(None),
     }
 }
 
@@ -141,19 +170,36 @@ impl Config {
         if let Some(v) = get("LOGPIT_SILENCE_WEBHOOK_URL") {
             self.silence.webhook_url = v;
         }
-        match (get("LOGPIT_HTTP_TOKEN"), get("LOGPIT_HTTP_TOKEN_FILE")) {
-            (Some(_), Some(_)) => {
-                bail!("set only one of LOGPIT_HTTP_TOKEN and LOGPIT_HTTP_TOKEN_FILE")
+        if let Some(t) = env_secret(get, "LOGPIT_HTTP_TOKEN")? {
+            self.http.token = Some(t);
+        }
+        for (name, scope) in [
+            ("LOGPIT_HTTP_TOKEN_READ", Scope::Read),
+            ("LOGPIT_HTTP_TOKEN_WRITE", Scope::Write),
+        ] {
+            if let Some(token) = env_secret(get, name)? {
+                self.http.tokens.push(TokenConfig {
+                    token,
+                    scopes: vec![scope],
+                });
             }
-            (Some(t), None) => self.http.token = Some(t),
-            (None, Some(path)) => {
-                let text = std::fs::read_to_string(&path)
-                    .with_context(|| format!("cannot read LOGPIT_HTTP_TOKEN_FILE {path}"))?;
-                self.http.token = Some(text.trim_end_matches(['\r', '\n']).to_string());
-            }
-            (None, None) => {}
         }
         Ok(())
+    }
+
+    /// All configured tokens as `(token, scopes)`; `http.token` has every scope.
+    pub fn auth(&self) -> crate::auth::Auth {
+        let admin = self
+            .http
+            .token
+            .iter()
+            .map(|t| (t.clone(), vec![Scope::Read, Scope::Write]));
+        let scoped = self
+            .http
+            .tokens
+            .iter()
+            .map(|t| (t.token.clone(), t.scopes.clone()));
+        crate::auth::Auth::new(admin.chain(scoped))
     }
 
     /// Loads `path` if given (it must exist), else `./logpit.toml` if present, else defaults.
@@ -183,6 +229,18 @@ impl Config {
         }
         if matches!(&self.http.token, Some(t) if t.is_empty()) {
             bail!("http.token must not be empty (remove it to disable auth)");
+        }
+        let mut seen = std::collections::HashSet::new();
+        for t in &self.http.tokens {
+            if t.token.is_empty() {
+                bail!("http.tokens entries must not have an empty token");
+            }
+            if t.scopes.is_empty() {
+                bail!("http.tokens entries need at least one scope (read, write)");
+            }
+            if !seen.insert(t.token.as_str()) || self.http.token.as_deref() == Some(&t.token) {
+                bail!("the same token is configured twice; give each token one entry");
+            }
         }
         let si = &self.silence;
         if si.check_interval_secs == 0 {
@@ -297,6 +355,48 @@ mod tests {
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_SILENCE_AFTER_SECS", "x")]))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn scoped_tokens_from_file_and_env() {
+        let mut cfg = Config::parse(
+            "[http]\ntoken = \"admin\"\n[[http.tokens]]\ntoken = \"ship\"\nscopes = [\"write\"]",
+        )
+        .unwrap();
+        cfg.apply_env(&env(&[("LOGPIT_HTTP_TOKEN_READ", "view")]))
+            .unwrap();
+        cfg.validate().unwrap();
+        let a = cfg.auth();
+        use crate::auth::Decision::*;
+        assert_eq!(a.check(Some("admin"), Scope::Read), Allowed);
+        assert_eq!(a.check(Some("ship"), Scope::Write), Allowed);
+        assert_eq!(a.check(Some("ship"), Scope::Read), Forbidden);
+        assert_eq!(a.check(Some("view"), Scope::Read), Allowed);
+        assert_eq!(a.check(Some("view"), Scope::Write), Forbidden);
+
+        // Only scoped tokens still turn authentication on.
+        let mut only = Config::default();
+        only.apply_env(&env(&[("LOGPIT_HTTP_TOKEN_WRITE", "w")]))
+            .unwrap();
+        assert_eq!(only.auth().check(None, Scope::Read), Unauthorized);
+
+        assert!(Config::parse("[[http.tokens]]\ntoken = \"a\"\nscopes = []").is_err());
+        assert!(Config::parse("[[http.tokens]]\ntoken = \"\"\nscopes = [\"read\"]").is_err());
+        assert!(Config::parse("[[http.tokens]]\ntoken = \"a\"\nscopes = [\"admin\"]").is_err());
+        assert!(
+            Config::parse(
+                "[http]\ntoken = \"a\"\n[[http.tokens]]\ntoken = \"a\"\nscopes = [\"read\"]"
+            )
+            .is_err()
+        );
+        let mut both = Config::default();
+        assert!(
+            both.apply_env(&env(&[
+                ("LOGPIT_HTTP_TOKEN_READ", "a"),
+                ("LOGPIT_HTTP_TOKEN_READ_FILE", "b")
+            ]))
+            .is_err()
         );
     }
 
