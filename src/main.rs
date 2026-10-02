@@ -13,16 +13,27 @@ use logpit::store;
 use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
-const USAGE: &str = "usage: logpit [--config <path>] | --help | --version";
+const USAGE: &str = "usage: logpit [--config <path>] [--healthcheck] | --help | --version
 
-fn parse_args() -> anyhow::Result<Option<PathBuf>> {
+Configuration comes from the TOML file (--config, $LOGPIT_CONFIG or ./logpit.toml)
+and LOGPIT_* environment variables, which take precedence.
+--healthcheck probes the running instance's /healthz and exits 0 or 1.";
+
+struct Args {
+    config: Option<PathBuf>,
+    healthcheck: bool,
+}
+
+fn parse_args() -> anyhow::Result<Args> {
     let mut args = std::env::args().skip(1);
-    let mut config = None;
+    let mut config = std::env::var_os("LOGPIT_CONFIG").map(PathBuf::from);
+    let mut healthcheck = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--config" | "-c" => {
                 config = Some(PathBuf::from(args.next().context("--config needs a path")?));
             }
+            "--healthcheck" => healthcheck = true,
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -34,7 +45,10 @@ fn parse_args() -> anyhow::Result<Option<PathBuf>> {
             other => anyhow::bail!("unknown argument {other:?}\n{USAGE}"),
         }
     }
-    Ok(config)
+    Ok(Args {
+        config,
+        healthcheck,
+    })
 }
 
 fn parse_addr(label: &str, s: &str) -> anyhow::Result<Option<SocketAddr>> {
@@ -86,12 +100,23 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args = parse_args()?;
+
+    if args.healthcheck {
+        let cfg = Config::load(args.config.as_deref())?;
+        let listen: SocketAddr = cfg
+            .http
+            .listen
+            .parse()
+            .with_context(|| format!("invalid http.listen address {:?}", cfg.http.listen))?;
+        return logpit::health::check(logpit::health::probe_target(listen));
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
-    let config_path = parse_args()?;
-    let cfg = Config::load(config_path.as_deref())?;
+    let cfg = Config::load(args.config.as_deref())?;
 
     let udp = parse_addr("syslog.udp_listen", &cfg.syslog.udp_listen)?;
     let tcp = parse_addr("syslog.tcp_listen", &cfg.syslog.tcp_listen)?;

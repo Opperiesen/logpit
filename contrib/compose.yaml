@@ -1,0 +1,22 @@
+# docker compose / podman compose
+# 1. echo "LOGPIT_TOKEN=$(openssl rand -base64 24 | tr -d '=+/')" > .env
+# 2. docker compose up -d
+services:
+  logpit:
+    image: ghcr.io/opperiesen/logpit:0.2.0   # pin a version; bump it to upgrade
+    restart: unless-stopped
+    ports:
+      - "514:5514/udp"   # syslog
+      - "514:5514/tcp"
+      - "8080:8080"      # web UI and API
+    environment:
+      LOGPIT_HTTP_TOKEN: ${LOGPIT_TOKEN:?set LOGPIT_TOKEN in .env}
+      LOGPIT_RETENTION_DAYS: "14"
+    volumes:
+      - logpit-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  logpit-data:

@@ -1,0 +1,33 @@
+# Podman Quadlet unit: install as /etc/containers/systemd/logpit.container
+# (rootless: ~/.config/containers/systemd/), then `systemctl daemon-reload`
+# and `systemctl start logpit`. Upgrade by editing the tag and restarting.
+#
+# One-time setup of the API token as a Podman secret:
+#   openssl rand -base64 24 | tr -d '=+/\n' | podman secret create logpit-token -
+[Unit]
+Description=LogPit log aggregator
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/opperiesen/logpit:0.2.0
+ContainerName=logpit
+PublishPort=514:5514/udp
+PublishPort=514:5514/tcp
+PublishPort=8080:8080
+Volume=logpit-data:/data
+Secret=logpit-token
+Environment=LOGPIT_HTTP_TOKEN_FILE=/run/secrets/logpit-token
+Environment=LOGPIT_RETENTION_DAYS=14
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+HealthCmd=/logpit --healthcheck
+HealthInterval=30s
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
