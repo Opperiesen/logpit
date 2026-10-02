@@ -25,6 +25,8 @@ use crate::store::{self, GroupBy, HostSort, HostSortKey, Query};
 const MAX_LIMIT: usize = 1000;
 const DEFAULT_LIMIT: usize = 100;
 const MAX_TAIL_SUBSCRIBERS: usize = 32;
+const DEFAULT_CONTEXT_LINES: usize = 5;
+const MAX_CONTEXT_LINES: usize = 100;
 /// Exports that may run at the same time.
 pub const MAX_EXPORTS: usize = 2;
 /// Formatted rows are sent to the client in chunks of about this many bytes.
@@ -50,6 +52,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .layer(DefaultBodyLimit::max(max_body_bytes));
     let read = Router::new()
         .route("/api/logs", get(search))
+        .route("/api/logs/{id}/context", get(log_context))
         .route("/api/tail", get(tail))
         .route("/api/stats", get(stats))
         .route("/api/hosts", get(hosts))
@@ -453,6 +456,58 @@ async fn hosts(
     }
 }
 
+/// `lines` (default 5, at most 100) and `scope` (`host`, the default, or `all`).
+fn parse_context(params: &[(String, String)]) -> Result<(usize, bool), String> {
+    let (mut lines, mut same_host) = (DEFAULT_CONTEXT_LINES, true);
+    for (k, v) in params {
+        match (k.as_str(), v.as_str()) {
+            ("lines", "") | ("scope", "") => {}
+            ("lines", v) => {
+                lines = v
+                    .parse::<usize>()
+                    .map_err(|_| "invalid lines".to_string())?
+                    .min(MAX_CONTEXT_LINES);
+            }
+            ("scope", "host") => same_host = true,
+            ("scope", "all") => same_host = false,
+            ("scope", _) => return Err("scope must be host or all".into()),
+            _ => {}
+        }
+    }
+    Ok((lines, same_host))
+}
+
+/// An entry with the entries around it (the same host by default): the context needed to
+/// understand a line found by a search.
+async fn log_context(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let (lines, same_host) = match parse_context(&params) {
+        Ok(r) => r,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let path = state.db_path.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = store::open(&path)?;
+        store::context(&conn, id, lines, same_host).map_err(anyhow::Error::from)
+    })
+    .await;
+    match result {
+        Ok(Ok(Some(ctx))) => Json(ctx).into_response(),
+        Ok(Ok(None)) => (StatusCode::NOT_FOUND, "no such entry").into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("context failed: {e:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "context failed").into_response()
+        }
+        Err(e) => {
+            tracing::error!("context task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "context failed").into_response()
+        }
+    }
+}
+
 /// `format` (`ndjson`, the default, or `csv`) and an optional `limit` (any size, unlike search)
 /// on top of the search filters.
 fn parse_export(params: Vec<(String, String)>) -> Result<(Query, Format, Option<u64>), String> {
@@ -675,6 +730,34 @@ mod tests {
         assert!(parse_hosts(p(&[("sort", "message")])).is_err());
         assert!(parse_hosts(p(&[("order", "up")])).is_err());
         assert!(parse_hosts(p(&[("since", "x")])).is_err());
+    }
+
+    #[test]
+    fn context_params_parse_and_validate() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            parse_context(&p(&[])).unwrap(),
+            (DEFAULT_CONTEXT_LINES, true)
+        );
+        assert_eq!(
+            parse_context(&p(&[("lines", "20"), ("scope", "all")])).unwrap(),
+            (20, false)
+        );
+        assert_eq!(
+            parse_context(&p(&[("lines", "100000")])).unwrap().0,
+            MAX_CONTEXT_LINES
+        );
+        assert_eq!(
+            parse_context(&p(&[("lines", ""), ("scope", "")])).unwrap(),
+            (5, true)
+        );
+        assert!(parse_context(&p(&[("lines", "-1")])).is_err());
+        assert!(parse_context(&p(&[("lines", "many")])).is_err());
+        assert!(parse_context(&p(&[("scope", "everything")])).is_err());
     }
 
     #[test]

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Context: `GET /api/logs/{id}/context` returns an entry with up to 100 entries on each side, for the same
+  host or all hosts. In the web UI, clicking a line's timestamp opens its context below it, with buttons for
+  more lines, this host or all hosts, and close.
+
 - Ingestion rules: `[[ingest.rules]]` drop noisy entries (by host, app, severity and/or a regex) and mask
   secrets (regex replacement in the message and in field values) before anything is stored, tailed or
   exported. Invalid rules stop startup with the rule's name; `logpit_rule_hits_total{rule,action}` counts

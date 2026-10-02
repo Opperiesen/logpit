@@ -241,6 +241,28 @@ input can be interpreted as full-text syntax:
 case. The same text works in `/api/stats`, `/api/hosts`, `/api/export`, the web UI and the
 live tail (which has no index, so it matches words as substrings, a little more loosely).
 
+### Context around an entry
+
+`GET /api/logs/{id}/context` returns an entry with the entries just before and after it, which is
+how you read what led to a line found by a search. The id is the `id` of an entry returned by
+`/api/logs`.
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/logs/4312/context?lines=10'
+# {"entry": {…}, "before": [oldest … newest], "after": [oldest … newest]}
+```
+
+| Parameter | Meaning |
+|---|---|
+| `lines` | Entries on each side, default 5, at most 100 |
+| `scope` | `host` (default): only the entry's own host; `all`: every host, interleaved by time |
+
+Neighbours follow the search order (timestamp, then id). Near the start or the end of the data
+there are simply fewer of them, and an unknown id gives `404`. In the web UI, click the
+timestamp of a line to open its context under it; the panel can show more lines, switch between
+this host and all hosts, and be closed again. Lines that arrived through the live stream have no
+id yet, so they can be expanded after the next search.
+
 ### Paging
 
 A search returns at most `limit` entries, newest first. When a page is full the response has an

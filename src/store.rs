@@ -322,6 +322,64 @@ pub fn host_summary(
     rows.collect()
 }
 
+#[derive(Debug, Serialize)]
+pub struct EntryContext {
+    pub entry: Row,
+    /// The entries just before it, oldest first.
+    pub before: Vec<Row>,
+    /// The entries just after it, oldest first.
+    pub after: Vec<Row>,
+}
+
+/// An entry with up to `lines` neighbours on each side, in the order logs are searched
+/// (timestamp, then id). With `same_host` only the entry's own host is considered, which is
+/// what reading one machine's log needs. `None` when no entry has that id.
+pub fn context(
+    conn: &Connection,
+    id: i64,
+    lines: usize,
+    same_host: bool,
+) -> rusqlite::Result<Option<EntryContext>> {
+    const COLUMNS: &str = "l.id, l.ts, l.host, l.app, l.severity, l.message, l.fields";
+    let entry = conn
+        .query_row(
+            &format!("SELECT {COLUMNS} FROM logs l WHERE l.id = ?1"),
+            [id],
+            map_row,
+        )
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            e => Err(e),
+        })?;
+    let Some(entry) = entry else {
+        return Ok(None);
+    };
+    let host = if same_host { " AND l.host = ?4" } else { "" };
+    let side = |cmp: &str, order: &str| -> rusqlite::Result<Vec<Row>> {
+        let sql = format!(
+            "SELECT {COLUMNS} FROM logs l WHERE (l.ts, l.id) {cmp} (?1, ?2){host} \
+             ORDER BY l.ts {order}, l.id {order} LIMIT ?3"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let limit = i64::try_from(lines).unwrap_or(i64::MAX);
+        let rows = if same_host {
+            stmt.query_map(params![entry.ts, entry.id, limit, entry.host], map_row)?
+        } else {
+            stmt.query_map(params![entry.ts, entry.id, limit], map_row)?
+        };
+        rows.collect()
+    };
+    let mut before = side("<", "DESC")?;
+    before.reverse();
+    let after = side(">", "ASC")?;
+    Ok(Some(EntryContext {
+        entry,
+        before,
+        after,
+    }))
+}
+
 /// Smallest timestamp in the database, if any.
 pub fn min_ts(conn: &Connection) -> rusqlite::Result<Option<i64>> {
     conn.query_row("SELECT MIN(ts) FROM logs", [], |r| r.get(0))
@@ -1148,6 +1206,69 @@ mod tests {
         assert!(backup(&dir.join("missing.db"), &dir.join("x.db")).is_err());
         drop((conn, copy));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn context_returns_neighbours_in_order() {
+        let mut conn = mem();
+        let mut batch = Vec::new();
+        for i in 0..10 {
+            batch.push(entry(i * 10, "pve", 6, &format!("pve {i}")));
+            batch.push(entry(i * 10 + 5, "nas", 6, &format!("nas {i}")));
+        }
+        // Two entries with the same timestamp: the id orders them.
+        batch.push(entry(50, "pve", 3, "pve tie"));
+        insert_batch(&mut conn, &batch).unwrap();
+        let id_of = |msg: &str| {
+            search(
+                &conn,
+                &Query {
+                    text: Some(msg.into()),
+                    ..q(5)
+                },
+            )
+            .unwrap()[0]
+                .id
+        };
+        let msgs = |rows: &[Row]| rows.iter().map(|r| r.message.clone()).collect::<Vec<_>>();
+
+        let c = context(&conn, id_of("\"pve 5\""), 2, true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(c.entry.message, "pve 5");
+        assert_eq!(
+            msgs(&c.before),
+            ["pve 3", "pve 4"],
+            "oldest first, own host only"
+        );
+        assert_eq!(
+            msgs(&c.after),
+            ["pve tie", "pve 6"],
+            "same-timestamp entry follows by id"
+        );
+
+        let all = context(&conn, id_of("\"pve 5\""), 2, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            msgs(&all.before),
+            ["pve 4", "nas 4"],
+            "other hosts included"
+        );
+        assert_eq!(msgs(&all.after), ["pve tie", "nas 5"]);
+
+        // Near the edges there are simply fewer neighbours; zero lines gives just the entry.
+        let first = context(&conn, id_of("\"pve 0\""), 3, true)
+            .unwrap()
+            .unwrap();
+        assert!(first.before.is_empty());
+        assert_eq!(first.after.len(), 3);
+        let bare = context(&conn, id_of("\"pve 5\""), 0, true)
+            .unwrap()
+            .unwrap();
+        assert!(bare.before.is_empty() && bare.after.is_empty());
+
+        assert!(context(&conn, 999_999, 5, true).unwrap().is_none());
     }
 
     #[test]
