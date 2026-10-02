@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.1 - 2026-10-02
+
 - Web UI: the histogram can be stacked by severity, host or app, with a legend showing per-group
   totals; clicking a host or app in the legend filters on it.
 
