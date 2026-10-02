@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Ingestion rules: `[[ingest.rules]]` drop noisy entries (by host, app, severity and/or a regex) and mask
+  secrets (regex replacement in the message and in field values) before anything is stored, tailed or
+  exported. Invalid rules stop startup with the rule's name; `logpit_rule_hits_total{rule,action}` counts
+  what each rule did. Dropped entries still count as activity for silence alerts. Adds the `regex` crate.
+
 - Structured data in messages: JSON objects and `key=value` (logfmt) pairs found in the message text are
   extracted into fields, so they can be filtered (`f=`), grouped in statistics (`group_by=field:`),
   searched and clicked in the UI like CEF fields. The message is kept as received. On by default;

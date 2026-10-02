@@ -39,6 +39,7 @@ pub struct Sink {
     live: broadcast::Sender<Arc<LogEntry>>,
     silence: Arc<Tracker>,
     parse_structured: bool,
+    rules: Arc<crate::rules::Rules>,
 }
 
 impl Sink {
@@ -55,10 +56,21 @@ impl Sink {
             live: broadcast::channel(LIVE_CAPACITY).0,
             silence,
             parse_structured: false,
+            rules: Arc::default(),
         }
     }
 
     /// Extracts JSON and `key=value` data from messages into fields (off unless enabled).
+    /// Drop and mask rules applied to every entry before it is queued.
+    pub fn with_rules(mut self, rules: Arc<crate::rules::Rules>) -> Self {
+        self.rules = rules;
+        self
+    }
+
+    pub fn rules(&self) -> &crate::rules::Rules {
+        &self.rules
+    }
+
     pub fn with_structured_parsing(mut self, on: bool) -> Self {
         self.parse_structured = on;
         self
@@ -86,6 +98,9 @@ impl Sink {
         crate::cef::enrich(&mut entry);
         if self.parse_structured {
             crate::structured::enrich(&mut entry);
+        }
+        if !self.rules.apply(&mut entry) {
+            return;
         }
         truncate_utf8(&mut entry.message, self.max_message_bytes);
         let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));

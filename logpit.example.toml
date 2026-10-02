@@ -41,3 +41,15 @@ webhook_url = ""             # http:// only; JSON POST on each alert and recover
 
 [ingest]
 parse_structured = true      # extract JSON objects and key=value pairs from messages into fields
+# Ingestion rules, applied in order before storage (see the README):
+# [[ingest.rules]]
+# name = "cron-noise"
+# action = "drop"            # or "mask"
+# app = "cron"
+# severity = ["info", "debug"]
+#
+# [[ingest.rules]]
+# name = "secrets"
+# action = "mask"
+# pattern = '(password|token)=\S+'
+# replace = "$1=[hidden]"

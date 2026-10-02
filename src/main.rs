@@ -220,7 +220,10 @@ async fn main() -> anyhow::Result<()> {
 
     let retention_metrics = metrics.clone();
     let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone())
-        .with_structured_parsing(cfg.ingest.parse_structured);
+        .with_structured_parsing(cfg.ingest.parse_structured)
+        .with_rules(Arc::new(logpit::rules::Rules::from_config(
+            &cfg.ingest.rules,
+        )?));
     let state = AppState {
         sink: sink.clone(),
         db_path: db_path.clone(),

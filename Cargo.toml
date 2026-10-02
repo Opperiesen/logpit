@@ -15,6 +15,7 @@ axum = "0.8.9"
 bytes = "1.12.1"
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 futures-util = "0.3.34"
+regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }

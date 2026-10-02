@@ -79,12 +79,15 @@ pub struct TokenConfig {
 pub struct IngestConfig {
     /// Extract JSON objects and `key=value` pairs found in messages into structured fields.
     pub parse_structured: bool,
+    /// Rules that drop noisy entries or mask secrets, applied in order (`[[ingest.rules]]`).
+    pub rules: Vec<crate::rules::RuleConfig>,
 }
 
 impl Default for IngestConfig {
     fn default() -> Self {
         Self {
             parse_structured: true,
+            rules: Vec::new(),
         }
     }
 }
@@ -333,6 +336,7 @@ impl Config {
         if matches!(&self.http.token, Some(t) if t.is_empty()) {
             bail!("http.token must not be empty (remove it to disable auth)");
         }
+        crate::rules::Rules::from_config(&self.ingest.rules)?;
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
             bail!("syslog.tls_listen needs syslog.tls_cert and syslog.tls_key");
@@ -573,6 +577,24 @@ mod tests {
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_MAX_DB_SIZE_MB", "big")]))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn ingest_rules_config() {
+        let cfg = Config::parse(
+            "[[ingest.rules]]\nname = \"noise\"\naction = \"drop\"\napp = \"cron\"\nseverity = [\"info\", 7]\n\
+             [[ingest.rules]]\naction = \"mask\"\npattern = \"token=\\\\S+\"\nreplace = \"token=***\"",
+        )
+        .unwrap();
+        assert_eq!(cfg.ingest.rules.len(), 2);
+        assert!(Config::parse("").unwrap().ingest.rules.is_empty());
+        // Mistakes are caught when the configuration is loaded, not when the first entry arrives.
+        assert!(Config::parse("[[ingest.rules]]\naction = \"drop\"").is_err());
+        assert!(Config::parse("[[ingest.rules]]\naction = \"mask\"\npattern = \"(\"").is_err());
+        assert!(Config::parse("[[ingest.rules]]\naction = \"zap\"\nhost = \"h\"").is_err());
+        assert!(
+            Config::parse("[[ingest.rules]]\naction = \"drop\"\nhost = \"h\"\nbogus = 1").is_err()
         );
     }
 

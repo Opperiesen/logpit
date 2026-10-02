@@ -424,6 +424,55 @@ no more bare words than pairs, so a sentence containing `a=b` is not mistaken fo
 that already carry fields (parsed CEF, or sent with `fields`) are not touched. Turn the
 extraction off with `LOGPIT_PARSE_STRUCTURED=false` (or `[ingest] parse_structured = false`).
 
+## Ingestion rules
+
+Rules drop noise and mask secrets **before** an entry is stored, shown in the live tail or
+exported, so what they remove never reaches the disk. They live in the TOML file as
+`[[ingest.rules]]` tables and run in order, after structured fields have been extracted:
+
+```toml
+[[ingest.rules]]
+name = "cron-noise"            # shown in the metrics; defaults to rule-<position>
+action = "drop"
+app = "cron"
+severity = ["info", "debug"]   # names or numbers; all conditions must hold
+
+[[ingest.rules]]
+name = "healthchecks"
+action = "drop"
+pattern = "GET /healthz"       # a regular expression searched in the message
+
+[[ingest.rules]]
+name = "secrets"
+action = "mask"
+pattern = '(password|token)=\S+'
+replace = "$1=[hidden]"        # default "***"; $1 is a capture group, $$ a literal $
+
+[[ingest.rules]]
+name = "router-ips"
+action = "mask"
+host = "router"                # limit the rule to one host
+pattern = '\b\d{1,3}(\.\d{1,3}){3}\b'
+```
+
+- `host` and `app` are exact matches, `severity` is any of the listed levels, and `pattern` is a
+  [Rust regex](https://docs.rs/regex/latest/regex/#syntax) (case-sensitive; use `(?i)`; it runs in
+  linear time, so a pattern cannot be used to stall LogPit).
+- **`drop`** discards the entry when every condition given matches; it needs at least one
+  condition, so a rule cannot drop everything by mistake. Later rules do not run on a dropped
+  entry. A host whose entries are all dropped still counts as alive for
+  [silence alerts](#silence-alerts).
+- **`mask`** needs a `pattern` and rewrites what it matches in the message and in every field
+  value. A rule that masks a host's IP addresses is a rule over that host only.
+- Rules see the text as received: put masks for secrets before drops that match on that text.
+- A mistake (unknown action, bad regex, a drop with no condition, an unknown severity) stops
+  LogPit at startup with the rule's name, instead of being found on the first entry.
+- `logpit_rule_hits_total{rule="…",action="drop|mask"}` counts the entries each rule dropped or
+  changed, so a rule that never matches, or matches too much, is easy to spot.
+
+Rules apply to what LogPit receives from now on; entries already stored are not rewritten.
+They are TOML-only (there is no environment variable for a list of rules).
+
 ## Without a container
 
 Each release also publishes static binaries (`x86_64` and `aarch64`, musl) with a
