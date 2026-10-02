@@ -76,6 +76,16 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
             .with_context(|| format!("schema migration to v{target} failed"))?;
         }
     }
+    // Saved views live in an extra table that does not change the schema version, so an older
+    // LogPit can still open the database (it simply ignores the table).
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS views (
+            id         INTEGER PRIMARY KEY,
+            name       TEXT NOT NULL UNIQUE,
+            query      TEXT NOT NULL,
+            created_ts INTEGER NOT NULL
+        );",
+    )?;
     Ok(())
 }
 
@@ -480,6 +490,77 @@ pub fn field_names(
         |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)),
     )?;
     rows.collect()
+}
+
+/// A saved search: the query string of the web UI (filters, time range, chart grouping).
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct View {
+    pub id: i64,
+    pub name: String,
+    pub query: String,
+    pub created_ts: i64,
+}
+
+/// At most this many views are kept.
+pub const MAX_VIEWS: usize = 100;
+
+pub fn list_views(conn: &Connection) -> rusqlite::Result<Vec<View>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, query, created_ts FROM views ORDER BY name COLLATE NOCASE, id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(View {
+            id: r.get(0)?,
+            name: r.get(1)?,
+            query: r.get(2)?,
+            created_ts: r.get(3)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Saves a view under `name`, replacing the query of an existing view with that name. `Ok(None)`
+/// when it would be a new view beyond [`MAX_VIEWS`].
+pub fn save_view(
+    conn: &Connection,
+    name: &str,
+    query: &str,
+    now: i64,
+) -> rusqlite::Result<Option<View>> {
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM views WHERE name = ?1)",
+        [name],
+        |r| r.get(0),
+    )?;
+    if !exists {
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM views", [], |r| r.get(0))?;
+        if n as usize >= MAX_VIEWS {
+            return Ok(None);
+        }
+    }
+    conn.execute(
+        "INSERT INTO views (name, query, created_ts) VALUES (?1, ?2, ?3)
+         ON CONFLICT(name) DO UPDATE SET query = excluded.query",
+        params![name, query, now],
+    )?;
+    conn.query_row(
+        "SELECT id, name, query, created_ts FROM views WHERE name = ?1",
+        [name],
+        |r| {
+            Ok(View {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                query: r.get(2)?,
+                created_ts: r.get(3)?,
+            })
+        },
+    )
+    .map(Some)
+}
+
+/// Deletes a view; false when there was none with that id.
+pub fn delete_view(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
+    Ok(conn.execute("DELETE FROM views WHERE id = ?1", [id])? > 0)
 }
 
 /// Smallest timestamp in the database, if any.
@@ -1651,6 +1732,86 @@ mod tests {
             )
             .unwrap()
             .is_empty()
+        );
+    }
+
+    #[test]
+    fn views_are_saved_replaced_listed_and_deleted() {
+        let conn = mem();
+        assert!(list_views(&conn).unwrap().is_empty());
+        let a = save_view(&conn, "Errors on pve", "host=pve&level=3", 100)
+            .unwrap()
+            .unwrap();
+        let b = save_view(&conn, "disk", "q=disk&range=86400000", 200)
+            .unwrap()
+            .unwrap();
+        assert_ne!(a.id, b.id);
+        // Listed by name, ignoring case.
+        let c = save_view(&conn, "Alpha", "group=host", 300)
+            .unwrap()
+            .unwrap();
+        let names: Vec<String> = list_views(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|v| v.name)
+            .collect();
+        assert_eq!(names, ["Alpha", "disk", "Errors on pve"]);
+        // Saving under an existing name replaces its query and keeps the id.
+        let again = save_view(&conn, "disk", "q=disk+error", 999)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (again.id, again.query.as_str(), again.created_ts),
+            (b.id, "q=disk+error", 200)
+        );
+        assert_eq!(list_views(&conn).unwrap().len(), 3);
+        assert!(delete_view(&conn, c.id).unwrap());
+        assert!(!delete_view(&conn, c.id).unwrap(), "already gone");
+        assert!(!delete_view(&conn, 12345).unwrap());
+        assert_eq!(list_views(&conn).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn views_are_capped_but_existing_ones_can_still_be_updated() {
+        let conn = mem();
+        for i in 0..MAX_VIEWS {
+            assert!(
+                save_view(&conn, &format!("v{i}"), "q=x", 0)
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        assert!(
+            save_view(&conn, "one too many", "q=x", 0)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            save_view(&conn, "v7", "q=changed", 0).unwrap().is_some(),
+            "replacing is not adding"
+        );
+        assert_eq!(list_views(&conn).unwrap().len(), MAX_VIEWS);
+    }
+
+    #[test]
+    fn the_views_table_does_not_change_the_schema_version() {
+        let conn = mem();
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            version, SCHEMA_VERSION,
+            "an older LogPit can still open the database"
+        );
+        // An existing database without the table gets it on open, and keeps its views afterwards.
+        conn.execute("DROP TABLE views", []).unwrap();
+        migrate(&conn).unwrap();
+        save_view(&conn, "kept", "q=x", 1).unwrap();
+        migrate(&conn).unwrap();
+        assert_eq!(
+            list_views(&conn).unwrap().len(),
+            1,
+            "migrating again leaves the data alone"
         );
     }
 

@@ -11,6 +11,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
 
@@ -63,6 +64,8 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/api/stats", get(stats))
         .route("/api/hosts", get(hosts))
         .route("/api/top", get(top))
+        .route("/api/views", get(list_views).post(save_view))
+        .route("/api/views/{id}", axum::routing::delete(delete_view))
         .route("/api/fields", get(fields))
         .route("/api/export", get(export))
         .route_layer(middleware::from_fn_with_state(
@@ -584,6 +587,125 @@ async fn hosts(
     }
 }
 
+/// Query-string keys a saved view may hold: what the web UI puts in its address bar.
+const VIEW_KEYS: [&str; 9] = [
+    "q", "host", "app", "level", "f", "range", "since", "until", "group",
+];
+const MAX_VIEW_NAME_CHARS: usize = 80;
+const MAX_VIEW_QUERY_BYTES: usize = 2000;
+const MAX_VIEW_VALUE_BYTES: usize = 500;
+
+/// Checks a view before it is stored: a short name, and a query string made only of the UI's own
+/// parameters, so a saved view can never carry anything the page would not otherwise accept.
+fn validate_view(name: &str, query: &str) -> Result<(String, String), String> {
+    let name = name.trim();
+    if name.is_empty()
+        || name.chars().count() > MAX_VIEW_NAME_CHARS
+        || name.chars().any(char::is_control)
+    {
+        return Err(format!(
+            "name must be 1 to {MAX_VIEW_NAME_CHARS} characters, without control characters"
+        ));
+    }
+    let query = query.trim().trim_start_matches('?');
+    if query.len() > MAX_VIEW_QUERY_BYTES {
+        return Err(format!("query is longer than {MAX_VIEW_QUERY_BYTES} bytes"));
+    }
+    if query
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace() || c == '#')
+    {
+        return Err("query must be a URL-encoded query string".into());
+    }
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if !VIEW_KEYS.contains(&key) {
+            return Err(format!(
+                "unknown parameter {key:?}; a view may use {}",
+                VIEW_KEYS.join(", ")
+            ));
+        }
+        if value.len() > MAX_VIEW_VALUE_BYTES {
+            return Err(format!(
+                "the value of {key} is longer than {MAX_VIEW_VALUE_BYTES} bytes"
+            ));
+        }
+    }
+    Ok((name.to_string(), query.to_string()))
+}
+
+#[derive(Deserialize)]
+struct ViewInput {
+    name: String,
+    #[serde(default)]
+    query: String,
+}
+
+/// The saved views, by name.
+async fn list_views(State(state): State<AppState>) -> Response {
+    let path = state.db_path.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = store::open(&path)?;
+        store::list_views(&conn).map_err(anyhow::Error::from)
+    })
+    .await;
+    match result {
+        Ok(Ok(views)) => Json(views).into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "could not list views").into_response(),
+    }
+}
+
+/// Saves a view (`{"name": …, "query": "host=pve&level=3"}`), replacing the one with that name.
+async fn save_view(State(state): State<AppState>, Json(input): Json<ViewInput>) -> Response {
+    let (name, query) = match validate_view(&input.name, &input.query) {
+        Ok(v) => v,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let path = state.db_path.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = store::open(&path)?;
+        store::save_view(&conn, &name, &query, now_ms()).map_err(anyhow::Error::from)
+    })
+    .await;
+    match result {
+        Ok(Ok(Some(view))) => Json(view).into_response(),
+        Ok(Ok(None)) => (
+            StatusCode::CONFLICT,
+            format!(
+                "at most {} views can be saved; delete one first",
+                store::MAX_VIEWS
+            ),
+        )
+            .into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("saving a view failed: {e:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "could not save the view").into_response()
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not save the view").into_response(),
+    }
+}
+
+async fn delete_view(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    let path = state.db_path.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = store::open(&path)?;
+        store::delete_view(&conn, id).map_err(anyhow::Error::from)
+    })
+    .await;
+    match result {
+        Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Ok(false)) => (StatusCode::NOT_FOUND, "no such view").into_response(),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not delete the view",
+        )
+            .into_response(),
+    }
+}
+
 /// `field` (`host`, `app`, `severity`, a structured field name, or `field:<name>` for a field that
 /// shares a name with a built-in one) and `limit` (default 10, at most 100), on top of the
 /// search filters.
@@ -1050,6 +1172,41 @@ mod tests {
             assert!(credentials(&headers(bad)).is_none(), "{bad}");
         }
         assert!(credentials(&HeaderMap::new()).is_none());
+    }
+
+    #[test]
+    fn view_validation() {
+        let ok = |n: &str, q: &str| validate_view(n, q).unwrap();
+        assert_eq!(
+            ok("  Errors on pve ", "?host=pve&level=3&range=86400000"),
+            (
+                "Errors on pve".into(),
+                "host=pve&level=3&range=86400000".into()
+            )
+        );
+        assert_eq!(ok("all", "").1, "", "a view without filters is allowed");
+        assert_eq!(
+            ok(
+                "x",
+                "q=disk+error%20OR+timeout&f=src%3A10.0.0.1&group=host&since=1&until=2&app=a"
+            )
+            .0,
+            "x"
+        );
+        for (name, query, why) in [
+            ("", "q=x", "empty name"),
+            ("   ", "q=x", "blank name"),
+            (&"n".repeat(81), "q=x", "long name"),
+            ("bad\nname", "q=x", "control character in the name"),
+            ("v", "token=secret", "unknown parameter"),
+            ("v", "q=x&live=1", "unknown parameter among valid ones"),
+            ("v", "q=a b", "raw space"),
+            ("v", "q=x#frag", "fragment"),
+            ("v", &format!("q={}", "a".repeat(501)), "long value"),
+            ("v", &format!("q=x&{}", "f=a&".repeat(600)), "long query"),
+        ] {
+            assert!(validate_view(name, query).is_err(), "{why}");
+        }
     }
 
     #[test]

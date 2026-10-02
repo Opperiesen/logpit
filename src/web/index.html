@@ -97,6 +97,9 @@
   <input id="token" type="password" placeholder="Token (if set)" size="12" autocomplete="off">
   <label title="Stream new entries as they arrive"><input id="live" type="checkbox"> Live</label>
   <button id="go">Search</button>
+  <select id="views" title="Saved views, shared by everyone who uses this LogPit"><option value="">Views</option></select>
+  <button id="saveView" type="button" title="Save the current search, time range and chart grouping under a name">Save view</button>
+  <button id="delView" type="button" title="Delete the selected view" hidden>Delete</button>
   <span id="status"></span>
 </header>
 <div id="chartbar" hidden>
@@ -677,6 +680,85 @@ function applyUrl() {
 }
 window.addEventListener('popstate', () => { applyUrl(); suppressPush = true; load(); });
 
+// Saved views: a named search kept on the server (the same query string the address bar holds),
+// so a team shares its useful searches. Selecting one opens it; saving under an existing name
+// replaces that view.
+let savedViews = [];
+function currentQuery() { return snap ? snapQuery() : location.search.replace(/^\?/, ''); }
+
+// Two queries mean the same search when they agree after dropping empty values and the default
+// range and ordering the keys (a saved view may list its parameters in any order).
+function canonQuery(q) {
+  const p = new URLSearchParams(q);
+  if (p.get('range') === DEFAULT_RANGE) p.delete('range');
+  for (const [k, v] of [...p]) if (v === '') p.delete(k);
+  p.sort();
+  return p.toString();
+}
+
+function markCurrentView() {
+  const q = canonQuery(currentQuery());
+  const match = savedViews.find(v => canonQuery(v.query) === q);
+  $('views').value = match ? String(match.id) : '';
+  $('delView').hidden = !match;
+}
+
+async function loadViews() {
+  try {
+    const res = await fetch('/api/views', { headers: authHeaders() });
+    if (!res.ok) { $('views').hidden = $('saveView').hidden = true; return; }
+    savedViews = await res.json();
+    $('views').hidden = $('saveView').hidden = false;
+    const placeholder = document.createElement('option');
+    placeholder.value = ''; placeholder.textContent = savedViews.length ? 'Views' : 'No saved views';
+    $('views').replaceChildren(placeholder, ...savedViews.map(v => {
+      const o = document.createElement('option');
+      o.value = String(v.id); o.textContent = v.name;
+      return o;
+    }));
+    markCurrentView();
+  } catch { $('views').hidden = $('saveView').hidden = true; }
+}
+
+$('views').onchange = () => {
+  const v = savedViews.find(x => String(x.id) === $('views').value);
+  if (!v) return;
+  history.pushState(null, '', v.query ? '?' + v.query : location.pathname);
+  applyUrl();
+  load();
+};
+
+$('saveView').onclick = async () => {
+  const match = savedViews.find(v => String(v.id) === $('views').value);
+  const name = prompt('Name for this view (an existing name is replaced):', match ? match.name : '');
+  if (name === null || !name.trim()) return;
+  try {
+    const res = await fetch('/api/views', {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, query: currentQuery() }),
+    });
+    if (!res.ok) throw new Error((await res.text()).slice(0, 160) || 'HTTP ' + res.status);
+    const saved = await res.json();
+    await loadViews();
+    $('views').value = String(saved.id);
+    $('delView').hidden = false;
+    $('status').textContent = 'view "' + saved.name + '" saved';
+  } catch (e) { $('status').textContent = 'could not save the view: ' + String(e.message || e); }
+};
+
+$('delView').onclick = async () => {
+  const v = savedViews.find(x => String(x.id) === $('views').value);
+  if (!v || !confirm('Delete the view "' + v.name + '"?')) return;
+  try {
+    const res = await fetch('/api/views/' + v.id, { method: 'DELETE', headers: authHeaders() });
+    if (!res.ok && res.status !== 404) throw new Error((await res.text()).slice(0, 160) || 'HTTP ' + res.status);
+    await loadViews();
+    $('status').textContent = 'view "' + v.name + '" deleted';
+  } catch (e) { $('status').textContent = 'could not delete the view: ' + String(e.message || e); }
+};
+
+
 $('group').onchange = () => {
   try { localStorage.setItem('logpit-group', $('group').value); } catch {}
   if (snap) syncUrl(true);
@@ -749,6 +831,7 @@ async function load() {
     loadChart();
     loadHosts();
     loadTop();
+    loadViews();
     if ($('live').checked) startTail();
   } catch (e) { $('status').textContent = String(e.message || e); }
 }

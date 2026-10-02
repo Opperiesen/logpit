@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Saved views: `GET/POST /api/views` and `DELETE /api/views/{id}` keep named searches (the web UI's query
+  string) on the server, and the UI gets a *Views* menu with *Save view* and *Delete*, shared by everyone
+  who uses the instance. Stored in an extra table that leaves the schema version unchanged.
+
 - Shipper: `logpit ship` follows the systemd journal and/or log files (rotation, truncation and resume
   handled) and sends them to a LogPit server through a disk spool, so nothing is lost while the server is
   down or the shipper restarts (at-least-once). Failed batches are retried by status (token refused and

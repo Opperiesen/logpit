@@ -486,6 +486,28 @@ field, and each value gets a bar and its share; clicking a value filters on it (
 severity of error, warning or info, or `field:value`). The filter on the field being listed is
 ignored for that list, so its alternatives stay visible after you click one.
 
+### Saved views
+
+A view is a named search (filters, time range or zoomed window, chart grouping) kept on the server,
+so a team shares its useful searches. In the web UI, the *Views* menu in the header opens one,
+*Save view* stores the current search under a name (an existing name is replaced), and *Delete* removes
+the selected one. The menu shows which view matches the current search.
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:8080/api/views -d '{"name":"Disk errors on pve","query":"host=pve&q=disk+error&level=3"}'
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/views        # list, by name
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/views/3
+```
+
+`query` is the query string of the [web UI link](#web-ui-links), with `q`, `host`, `app`, `level`, `f`,
+`range`, `since`, `until` and `group` only (anything else is refused, 400), at most 2000 bytes. A name
+has at most 80 characters, and at most 100 views are kept (`409` beyond that). Listing, saving and
+deleting need the `read` scope, so the people who view the logs also manage the views; a token that
+can only ingest cannot. Views are stored in the database file (a table created on first use that does
+not change the schema version, so an older LogPit can still open the file) and are part of
+`logpit --backup`.
+
 ## Live tail
 
 ```sh
