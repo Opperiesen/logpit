@@ -1,7 +1,9 @@
-# Container defaults: listen on all interfaces, store under /data.
-# Unprivileged (uid 65532) cannot bind port 514, so syslog uses 5514;
-# map it with `-p 514:5514/udp -p 514:5514/tcp`.
-# Set http.token (mount your own config) before exposing the HTTP port.
+# Container defaults (baked into the image at /etc/logpit/logpit.toml).
+# Prefer LOGPIT_* environment variables to override them; mount your own file
+# over this path only if you need more than the variables offer.
+#
+# Syslog listens on 5514 because the image runs as a non-root user, which cannot
+# bind port 514. Map it at publish time: -p 514:5514/udp -p 514:5514/tcp
 [storage]
 path = "/data/logpit.db"
 

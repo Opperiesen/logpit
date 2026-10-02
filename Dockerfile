@@ -11,5 +11,6 @@ USER 65532:65532
 WORKDIR /data
 VOLUME /data
 EXPOSE 5514/udp 5514/tcp 8080/tcp
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD ["/logpit", "--healthcheck"]
 ENTRYPOINT ["/logpit"]
 CMD ["--config", "/etc/logpit/logpit.toml"]

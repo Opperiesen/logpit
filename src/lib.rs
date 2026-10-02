@@ -3,6 +3,7 @@
 pub mod api;
 pub mod cef;
 pub mod config;
+pub mod health;
 pub mod ingest;
 pub mod metrics;
 pub mod model;

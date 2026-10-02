@@ -82,21 +82,59 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Applies `LOGPIT_*` environment overrides (they win over the file), which is
+    /// how containers are usually configured. An empty syslog address disables
+    /// that listener. `LOGPIT_HTTP_TOKEN_FILE` reads the token from a file, e.g. a
+    /// mounted container secret.
+    pub fn apply_env(&mut self, get: &dyn Fn(&str) -> Option<String>) -> anyhow::Result<()> {
+        if let Some(v) = get("LOGPIT_STORAGE_PATH") {
+            self.storage.path = PathBuf::from(v);
+        }
+        if let Some(v) = get("LOGPIT_RETENTION_DAYS") {
+            self.storage.retention_days = v
+                .trim()
+                .parse()
+                .with_context(|| format!("invalid LOGPIT_RETENTION_DAYS {v:?}"))?;
+        }
+        if let Some(v) = get("LOGPIT_SYSLOG_UDP_LISTEN") {
+            self.syslog.udp_listen = v;
+        }
+        if let Some(v) = get("LOGPIT_SYSLOG_TCP_LISTEN") {
+            self.syslog.tcp_listen = v;
+        }
+        if let Some(v) = get("LOGPIT_HTTP_LISTEN") {
+            self.http.listen = v;
+        }
+        match (get("LOGPIT_HTTP_TOKEN"), get("LOGPIT_HTTP_TOKEN_FILE")) {
+            (Some(_), Some(_)) => {
+                bail!("set only one of LOGPIT_HTTP_TOKEN and LOGPIT_HTTP_TOKEN_FILE")
+            }
+            (Some(t), None) => self.http.token = Some(t),
+            (None, Some(path)) => {
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("cannot read LOGPIT_HTTP_TOKEN_FILE {path}"))?;
+                self.http.token = Some(text.trim_end_matches(['\r', '\n']).to_string());
+            }
+            (None, None) => {}
+        }
+        Ok(())
+    }
+
     /// Loads `path` if given (it must exist), else `./logpit.toml` if present, else defaults.
     pub fn load(path: Option<&Path>) -> anyhow::Result<Self> {
         let (path, required) = match path {
             Some(p) => (p.to_path_buf(), true),
             None => (PathBuf::from("logpit.toml"), false),
         };
-        match std::fs::read_to_string(&path) {
-            Ok(text) => Self::parse(&text).with_context(|| format!("in {}", path.display())),
-            Err(e) if !required && e.kind() == std::io::ErrorKind::NotFound => {
-                let cfg = Config::default();
-                cfg.validate()?;
-                Ok(cfg)
-            }
-            Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
-        }
+        let mut cfg = match std::fs::read_to_string(&path) {
+            Ok(text) => toml::from_str::<Config>(&text)
+                .with_context(|| format!("invalid configuration in {}", path.display()))?,
+            Err(e) if !required && e.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+        };
+        cfg.apply_env(&|k| std::env::var(k).ok())?;
+        cfg.validate()?;
+        Ok(cfg)
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -130,6 +168,64 @@ mod tests {
         assert!(Config::parse("[storage]\nbogus = 1").is_err());
         assert!(Config::parse("[storage]\nbatch_size = 0").is_err());
         assert!(Config::parse("[http]\ntoken = \"\"").is_err());
+    }
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |k| {
+            pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    #[test]
+    fn env_overrides_file_values() {
+        let mut cfg =
+            Config::parse("[http]\nlisten = \"127.0.0.1:1\"\ntoken = \"from-file\"").unwrap();
+        cfg.apply_env(&env(&[
+            ("LOGPIT_HTTP_LISTEN", "0.0.0.0:8080"),
+            ("LOGPIT_HTTP_TOKEN", "from-env"),
+            ("LOGPIT_RETENTION_DAYS", "30"),
+            ("LOGPIT_SYSLOG_TCP_LISTEN", ""),
+            ("LOGPIT_STORAGE_PATH", "/data/x.db"),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.http.listen, "0.0.0.0:8080");
+        assert_eq!(cfg.http.token.as_deref(), Some("from-env"));
+        assert_eq!(cfg.storage.retention_days, 30);
+        assert_eq!(cfg.syslog.tcp_listen, "");
+        assert_eq!(cfg.storage.path, PathBuf::from("/data/x.db"));
+        cfg.validate().unwrap();
+    }
+
+    #[test]
+    fn token_file_is_read_and_trimmed() {
+        let path = std::env::temp_dir().join(format!("logpit-token-{}", std::process::id()));
+        std::fs::write(&path, "s3cret\n").unwrap();
+        let p = path.to_string_lossy().to_string();
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[("LOGPIT_HTTP_TOKEN_FILE", &p)]))
+            .unwrap();
+        assert_eq!(cfg.http.token.as_deref(), Some("s3cret"));
+        std::fs::remove_file(&path).ok();
+
+        let mut cfg = Config::default();
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_HTTP_TOKEN_FILE", "/nonexistent/x")]))
+                .is_err()
+        );
+        assert!(
+            cfg.apply_env(&env(&[
+                ("LOGPIT_HTTP_TOKEN", "a"),
+                ("LOGPIT_HTTP_TOKEN_FILE", "b")
+            ]))
+            .is_err()
+        );
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_RETENTION_DAYS", "abc")]))
+                .is_err()
+        );
     }
 
     #[test]

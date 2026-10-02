@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Container-first distribution: configuration through `LOGPIT_*` environment variables
+  (`LOGPIT_HTTP_TOKEN_FILE` for secrets), `logpit --healthcheck` and an image
+  `HEALTHCHECK`, compose and Podman Quadlet examples, and a README that starts from the
+  container. The release workflow now smoke-tests the image (healthcheck, auth, syslog
+  ingestion, read-only filesystem, all capabilities dropped) before publishing it.
+
 ## 0.2.0 - 2026-10-02
 
 - CEF parsing: UniFi (and other CEF) events are split into structured fields, indexed for
