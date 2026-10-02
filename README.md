@@ -78,6 +78,7 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_SYSLOG_TLS_CLIENT_CA` | | PEM CA file: clients must then present a certificate issued by it |
 | `LOGPIT_STORAGE_PATH` | `/data/logpit.db` | SQLite file |
 | `LOGPIT_RETENTION_DAYS` | `14` | `0` disables purging |
+| `LOGPIT_RATE_LIMIT_PER_HOST`, `_BURST`, `_GLOBAL` | `0` (off) | Rate limits, see [Rate limiting](#rate-limiting) |
 | `LOGPIT_PARSE_STRUCTURED` | `true` | Extract JSON and `key=value` data from messages into fields |
 | `LOGPIT_MAX_DB_SIZE_MB` | `0` | Soft cap on the database size; the oldest entries are evicted beyond it. `0` = off (see below) |
 | `LOGPIT_RETENTION_BY_SEVERITY` | | Per-severity retention, e.g. `debug=2,info=7,err=90` (see below) |
@@ -560,6 +561,36 @@ pattern = '\b\d{1,3}(\.\d{1,3}){3}\b'
 
 Rules apply to what LogPit receives from now on; entries already stored are not rewritten.
 They are TOML-only (there is no environment variable for a list of rules).
+
+## Rate limiting
+
+A sender that loops, or a misconfigured debug level, can send thousands of lines a second and
+push everyone else out of the write queue. Rate limits cap that at the door, per host and/or
+overall:
+
+```toml
+[ingest.rate_limit]
+per_host_per_sec = 500   # sustained entries per second from one host (0 = no limit)
+burst = 2000             # entries a host may send at once; default 4x the rate
+global_per_sec = 5000    # sustained entries per second across all hosts (0 = no limit)
+```
+
+or `LOGPIT_RATE_LIMIT_PER_HOST`, `LOGPIT_RATE_LIMIT_BURST` and `LOGPIT_RATE_LIMIT_GLOBAL`. It is a
+token bucket: each host starts with `burst` entries of credit, which refill at the sustained rate,
+so short bursts pass and a continuous flood is cut to the rate. The global limit has a burst of
+four times its rate and is shared by all hosts; an entry is refused if either limit is exhausted,
+and a refused entry uses up neither.
+
+- Refused entries are dropped, not queued. They do not reach storage, the live tail, alerts or
+  exports, but they still count as activity for [silence alerts](#silence-alerts), so a host that
+  is merely too chatty is not reported as silent.
+- At most 4096 hosts get a bucket of their own; further host names share one, so inventing names
+  does not get around the limit.
+- `logpit_rate_limited_total` counts refused entries and `logpit_rate_limited_host_total{host}`
+  lists the ten hosts refused most. The log notes a host that exceeds its limit, at most once a
+  minute per host.
+- Limits apply to what arrives after the host name is known (the `host` of the entry), not to
+  bytes, and a single request of the HTTP API is judged entry by entry.
 
 ## Without a container
 

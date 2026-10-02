@@ -235,6 +235,9 @@ async fn main() -> anyhow::Result<()> {
 
     let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone())
         .with_alerts(alert_rules.clone(), alert_tx)
+        .with_rate_limiter(Arc::new(logpit::ratelimit::RateLimiter::new(
+            &cfg.ingest.rate_limit,
+        )))
         .with_structured_parsing(cfg.ingest.parse_structured)
         .with_rules(Arc::new(logpit::rules::Rules::from_config(
             &cfg.ingest.rules,

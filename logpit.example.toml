@@ -65,3 +65,9 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # window_secs = 600          # ... within this many seconds
 # cooldown_secs = 1800       # quiet period afterwards (default: window_secs)
 # per_host = true
+
+# Rate limits at ingestion (0 = off). A host may burst, then is held to the sustained rate.
+# [ingest.rate_limit]
+# per_host_per_sec = 500
+# burst = 2000               # default: 4x per_host_per_sec
+# global_per_sec = 5000

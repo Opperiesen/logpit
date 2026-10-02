@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Rate limiting: `[ingest.rate_limit]` (or `LOGPIT_RATE_LIMIT_*`) caps entries per second per host, with a
+  burst allowance, and across all hosts, so one runaway sender cannot drown the others. Hosts beyond 4096
+  share a bucket. Limited hosts still count as alive for silence alerts. New metrics
+  `logpit_rate_limited_total` and `logpit_rate_limited_host_total{host}`.
+
 - Pattern alerts: `[[alerts]]` notify when `count` entries matching a regex, host, app and/or severity arrive
   within `window_secs` (per host if asked), with a cooldown. They use the webhook configured under
   `[silence]` and the log, count entries after ingestion rules, and keep at most `count` timestamps per

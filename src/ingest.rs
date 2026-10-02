@@ -42,6 +42,7 @@ pub struct Sink {
     rules: Arc<crate::rules::Rules>,
     alerts: Arc<crate::alerts::AlertRules>,
     alert_tx: Option<tokio::sync::mpsc::Sender<crate::silence::Event>>,
+    limiter: Arc<crate::ratelimit::RateLimiter>,
 }
 
 impl Sink {
@@ -61,6 +62,7 @@ impl Sink {
             rules: Arc::default(),
             alerts: Arc::default(),
             alert_tx: None,
+            limiter: Arc::default(),
         }
     }
 
@@ -85,6 +87,16 @@ impl Sink {
 
     pub fn alerts(&self) -> &crate::alerts::AlertRules {
         &self.alerts
+    }
+
+    /// Per-host and global rate limits applied before an entry is processed.
+    pub fn with_rate_limiter(mut self, limiter: Arc<crate::ratelimit::RateLimiter>) -> Self {
+        self.limiter = limiter;
+        self
+    }
+
+    pub fn limiter(&self) -> &crate::ratelimit::RateLimiter {
+        &self.limiter
     }
 
     pub fn rules(&self) -> &crate::rules::Rules {
@@ -114,7 +126,12 @@ impl Sink {
     }
 
     pub fn push(&self, mut entry: LogEntry) {
-        self.silence.touch(&entry.host, now_ms());
+        let now = now_ms();
+        // A host that is being limited is still alive, so it counts for silence alerts.
+        self.silence.touch(&entry.host, now);
+        if !self.limiter.allow(&entry.host, now) {
+            return;
+        }
         crate::cef::enrich(&mut entry);
         if self.parse_structured {
             crate::structured::enrich(&mut entry);
@@ -123,7 +140,7 @@ impl Sink {
             return;
         }
         if let Some(tx) = &self.alert_tx {
-            for event in self.alerts.observe(&entry, now_ms()) {
+            for event in self.alerts.observe(&entry, now) {
                 let _ = tx.try_send(event);
             }
         }

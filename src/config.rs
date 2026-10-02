@@ -83,6 +83,8 @@ pub struct IngestConfig {
     pub parse_structured: bool,
     /// Rules that drop noisy entries or mask secrets, applied in order (`[[ingest.rules]]`).
     pub rules: Vec<crate::rules::RuleConfig>,
+    /// Per-host and global limits on how fast entries are accepted.
+    pub rate_limit: crate::ratelimit::RateLimitConfig,
 }
 
 impl Default for IngestConfig {
@@ -90,6 +92,7 @@ impl Default for IngestConfig {
         Self {
             parse_structured: true,
             rules: Vec::new(),
+            rate_limit: Default::default(),
         }
     }
 }
@@ -253,6 +256,24 @@ impl Config {
                 _ => bail!("invalid LOGPIT_PARSE_STRUCTURED {v:?} (use true or false)"),
             };
         }
+        for (name, slot) in [
+            (
+                "LOGPIT_RATE_LIMIT_PER_HOST",
+                &mut self.ingest.rate_limit.per_host_per_sec,
+            ),
+            ("LOGPIT_RATE_LIMIT_BURST", &mut self.ingest.rate_limit.burst),
+            (
+                "LOGPIT_RATE_LIMIT_GLOBAL",
+                &mut self.ingest.rate_limit.global_per_sec,
+            ),
+        ] {
+            if let Some(v) = get(name) {
+                *slot = v
+                    .trim()
+                    .parse()
+                    .with_context(|| format!("invalid {name} {v:?} (a whole number, 0 = off)"))?;
+            }
+        }
         if let Some(v) = get("LOGPIT_SYSLOG_TLS_LISTEN") {
             self.syslog.tls_listen = v;
         }
@@ -355,6 +376,7 @@ impl Config {
             bail!("http.token must not be empty (remove it to disable auth)");
         }
         crate::rules::Rules::from_config(&self.ingest.rules)?;
+        self.ingest.rate_limit.validate()?;
         crate::alerts::AlertRules::from_config(&self.alerts)?;
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
@@ -636,6 +658,47 @@ mod tests {
         assert_eq!(cfg.silence.webhook_headers, ["X-Token: abc"]);
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_SILENCE_WEBHOOK_FORMAT", "xml")]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn rate_limit_config() {
+        let cfg = Config::parse(
+            "[ingest.rate_limit]\nper_host_per_sec = 200\nburst = 1000\nglobal_per_sec = 5000",
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                cfg.ingest.rate_limit.per_host_per_sec,
+                cfg.ingest.rate_limit.burst,
+                cfg.ingest.rate_limit.global_per_sec
+            ),
+            (200, 1000, 5000)
+        );
+        assert_eq!(
+            Config::parse("").unwrap().ingest.rate_limit,
+            Default::default(),
+            "off by default"
+        );
+        assert!(Config::parse("[ingest.rate_limit]\nburst = 10").is_err());
+        assert!(Config::parse("[ingest.rate_limit]\nbogus = 1").is_err());
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[
+            ("LOGPIT_RATE_LIMIT_PER_HOST", "50"),
+            ("LOGPIT_RATE_LIMIT_GLOBAL", "1000"),
+        ]))
+        .unwrap();
+        cfg.validate().unwrap();
+        assert_eq!(
+            (
+                cfg.ingest.rate_limit.per_host_per_sec,
+                cfg.ingest.rate_limit.global_per_sec
+            ),
+            (50, 1000)
+        );
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
     }
