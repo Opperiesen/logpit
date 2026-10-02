@@ -38,3 +38,6 @@ check_interval_secs = 30
 webhook_url = ""             # http:// only; JSON POST on each alert and recovery
 # [silence.hosts]
 # pve = 120                  # per-host threshold in seconds; 0 = never alert
+
+[ingest]
+parse_structured = true      # extract JSON objects and key=value pairs from messages into fields

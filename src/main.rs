@@ -219,7 +219,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let retention_metrics = metrics.clone();
-    let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone());
+    let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone())
+        .with_structured_parsing(cfg.ingest.parse_structured);
     let state = AppState {
         sink: sink.clone(),
         db_path: db_path.clone(),

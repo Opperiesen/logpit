@@ -78,6 +78,7 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_SYSLOG_TLS_CLIENT_CA` | | PEM CA file: clients must then present a certificate issued by it |
 | `LOGPIT_STORAGE_PATH` | `/data/logpit.db` | SQLite file |
 | `LOGPIT_RETENTION_DAYS` | `14` | `0` disables purging |
+| `LOGPIT_PARSE_STRUCTURED` | `true` | Extract JSON and `key=value` data from messages into fields |
 | `LOGPIT_MAX_DB_SIZE_MB` | `0` | Soft cap on the database size; the oldest entries are evicted beyond it. `0` = off (see below) |
 | `LOGPIT_RETENTION_BY_SEVERITY` | | Per-severity retention, e.g. `debug=2,info=7,err=90` (see below) |
 | `LOGPIT_SILENCE_AFTER_SECS` | `0` | Alert when any host is silent this long; `0` disables |
@@ -391,7 +392,7 @@ supported (the image has no TLS stack): for Discord, Slack or other HTTPS servic
 at a local relay. The same state is exposed on `/metrics` as `logpit_host_silent{host="…"} 1`
 for each silent host, so Prometheus/Alertmanager can notify instead.
 
-## Structured fields (CEF)
+## Structured fields
 
 Messages that contain a CEF record (`CEF:0|Vendor|Product|…|key=value …`), whether
 sent over syslog or HTTP, are parsed on ingestion: `app` becomes the product name,
@@ -401,6 +402,27 @@ full-text index.
 
 JSON ingestion accepts the same thing through an optional `"fields": {"key": "value"}`
 object. Keys are limited to letters, digits, `_`, `.` and `-`.
+
+### JSON and `key=value` in the message
+
+Application logs are often structured text. A message that is a JSON object, or made of
+`key=value` pairs (logfmt, quoted values allowed), has its values extracted into `fields`:
+
+```
+level=warn msg="slow request" path=/login status=504   →  level, msg, path, status
+{"level":"error","http":{"status":500},"retry":true}   →  level, http.status, retry
+```
+
+Nested JSON objects are joined with dots (three levels deep); null, empty values and arrays are
+skipped; keys are made valid (anything but letters, digits, `_`, `.`, `-` becomes `_`), and
+there are at most 64 fields of 1 KiB each. The message text is kept exactly as received. Like
+CEF fields, the values are filterable (`f=level:error`, `f=http.status:500`), can be used for
+`group_by=field:level` in statistics, are matched by `q`, and are clickable in the web UI.
+
+Plain text is left alone: `key=value` data only counts when there are at least two pairs and
+no more bare words than pairs, so a sentence containing `a=b` is not mistaken for logfmt. Entries
+that already carry fields (parsed CEF, or sent with `fields`) are not touched. Turn the
+extraction off with `LOGPIT_PARSE_STRUCTURED=false` (or `[ingest] parse_structured = false`).
 
 ## Without a container
 

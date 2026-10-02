@@ -13,6 +13,7 @@ pub struct Config {
     pub syslog: SyslogConfig,
     pub http: HttpConfig,
     pub silence: SilenceConfig,
+    pub ingest: IngestConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -70,6 +71,22 @@ pub struct HttpConfig {
 pub struct TokenConfig {
     pub token: String,
     pub scopes: Vec<Scope>,
+}
+
+/// How incoming entries are processed before they are stored.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct IngestConfig {
+    /// Extract JSON objects and `key=value` pairs found in messages into structured fields.
+    pub parse_structured: bool,
+}
+
+impl Default for IngestConfig {
+    fn default() -> Self {
+        Self {
+            parse_structured: true,
+        }
+    }
 }
 
 /// Alerts for hosts that stop sending logs.
@@ -217,6 +234,13 @@ impl Config {
         }
         if let Some(v) = get("LOGPIT_SYSLOG_TCP_LISTEN") {
             self.syslog.tcp_listen = v;
+        }
+        if let Some(v) = get("LOGPIT_PARSE_STRUCTURED") {
+            self.ingest.parse_structured = match v.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" => true,
+                "0" | "false" | "no" | "off" => false,
+                _ => bail!("invalid LOGPIT_PARSE_STRUCTURED {v:?} (use true or false)"),
+            };
         }
         if let Some(v) = get("LOGPIT_SYSLOG_TLS_LISTEN") {
             self.syslog.tls_listen = v;
@@ -548,6 +572,32 @@ mod tests {
         assert_eq!(cfg.storage.max_db_size_mb, 2048);
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_MAX_DB_SIZE_MB", "big")]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn structured_parsing_config() {
+        assert!(
+            Config::parse("").unwrap().ingest.parse_structured,
+            "on by default"
+        );
+        assert!(
+            !Config::parse("[ingest]\nparse_structured = false")
+                .unwrap()
+                .ingest
+                .parse_structured
+        );
+        assert!(Config::parse("[ingest]\nbogus = 1").is_err());
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[("LOGPIT_PARSE_STRUCTURED", "off")]))
+            .unwrap();
+        assert!(!cfg.ingest.parse_structured);
+        cfg.apply_env(&env(&[("LOGPIT_PARSE_STRUCTURED", "1")]))
+            .unwrap();
+        assert!(cfg.ingest.parse_structured);
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_PARSE_STRUCTURED", "maybe")]))
                 .is_err()
         );
     }

@@ -14,5 +14,6 @@ pub mod query;
 pub mod silence;
 pub mod stats;
 pub mod store;
+pub mod structured;
 pub mod syslog;
 pub mod tls;

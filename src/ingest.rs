@@ -38,6 +38,7 @@ pub struct Sink {
     max_message_bytes: usize,
     live: broadcast::Sender<Arc<LogEntry>>,
     silence: Arc<Tracker>,
+    parse_structured: bool,
 }
 
 impl Sink {
@@ -53,7 +54,14 @@ impl Sink {
             max_message_bytes,
             live: broadcast::channel(LIVE_CAPACITY).0,
             silence,
+            parse_structured: false,
         }
+    }
+
+    /// Extracts JSON and `key=value` data from messages into fields (off unless enabled).
+    pub fn with_structured_parsing(mut self, on: bool) -> Self {
+        self.parse_structured = on;
+        self
     }
 
     /// Subscribes to entries as they are accepted (before they reach the database).
@@ -76,6 +84,9 @@ impl Sink {
     pub fn push(&self, mut entry: LogEntry) {
         self.silence.touch(&entry.host, now_ms());
         crate::cef::enrich(&mut entry);
+        if self.parse_structured {
+            crate::structured::enrich(&mut entry);
+        }
         truncate_utf8(&mut entry.message, self.max_message_bytes);
         let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));
         match self.tx.try_send(entry) {

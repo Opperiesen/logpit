@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Structured data in messages: JSON objects and `key=value` (logfmt) pairs found in the message text are
+  extracted into fields, so they can be filtered (`f=`), grouped in statistics (`group_by=field:`),
+  searched and clicked in the UI like CEF fields. The message is kept as received. On by default;
+  disable with `LOGPIT_PARSE_STRUCTURED=false`.
+
 ## 0.5.0 - 2026-10-03
 
 - Syslog over TLS (RFC 5425): `syslog.tls_listen`, `tls_cert`, `tls_key` (or the `LOGPIT_SYSLOG_TLS_*`
