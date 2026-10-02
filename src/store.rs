@@ -147,9 +147,33 @@ pub fn known_hosts(conn: &Connection, limit: usize) -> rusqlite::Result<Vec<Stri
     stmt.query_map([limit as i64], |r| r.get(0))?.collect()
 }
 
-/// Deletes entries older than `cutoff_ms`; returns the number removed.
-pub fn purge_older_than(conn: &Connection, cutoff_ms: i64) -> rusqlite::Result<usize> {
-    conn.execute("DELETE FROM logs WHERE ts < ?1", params![cutoff_ms])
+/// Deletes entries older than the cutoff of their severity (`cutoffs[severity]`, in Unix ms;
+/// `None` keeps that severity forever). Returns the number removed.
+pub fn purge(conn: &Connection, cutoffs: &[Option<i64>; 8]) -> rusqlite::Result<usize> {
+    let mut removed = 0;
+    let mut done = [false; 8];
+    for first in 0..8 {
+        let Some(cutoff) = cutoffs[first] else {
+            continue;
+        };
+        if done[first] {
+            continue;
+        }
+        // One statement per distinct cutoff, covering every severity that shares it.
+        let group: Vec<String> = (first..8)
+            .filter(|&s| cutoffs[s] == Some(cutoff))
+            .inspect(|&s| done[s] = true)
+            .map(|s| s.to_string())
+            .collect();
+        removed += conn.execute(
+            &format!(
+                "DELETE FROM logs WHERE ts < ?1 AND severity IN ({})",
+                group.join(",")
+            ),
+            params![cutoff],
+        )?;
+    }
+    Ok(removed)
 }
 
 #[derive(Debug, Default, Clone)]
@@ -425,7 +449,7 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(purge_older_than(&conn, 500).unwrap(), 1);
+        assert_eq!(purge(&conn, &[Some(500); 8]).unwrap(), 1);
         let rows = search(
             &conn,
             &Query {
@@ -436,6 +460,53 @@ mod tests {
         .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].message, "new line");
+    }
+
+    #[test]
+    fn purge_applies_each_severitys_own_cutoff() {
+        let mut conn = mem();
+        let batch: Vec<LogEntry> = (0..8)
+            .flat_map(|sev| [entry(100, "h", sev, "old"), entry(900, "h", sev, "recent")])
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        // debug (7) and info (6) keep only entries newer than 500; error (3) newer than 50;
+        // everything else is kept forever.
+        let mut cutoffs = [None; 8];
+        cutoffs[7] = Some(500);
+        cutoffs[6] = Some(500);
+        cutoffs[3] = Some(50);
+        assert_eq!(
+            purge(&conn, &cutoffs).unwrap(),
+            2,
+            "only old debug and info go"
+        );
+        let left = |sev: u8| {
+            search(
+                &conn,
+                &Query {
+                    max_severity: Some(sev),
+                    ..q(100)
+                },
+            )
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.severity == sev)
+            .count()
+        };
+        assert_eq!((left(7), left(6), left(3), left(0)), (1, 1, 2, 2));
+        // The full-text index followed the deletions.
+        let old = search(
+            &conn,
+            &Query {
+                text: Some("old".into()),
+                ..q(100)
+            },
+        )
+        .unwrap();
+        assert_eq!(old.len(), 6);
+        // Cutoffs sharing a value are applied together; with none set nothing happens.
+        assert_eq!(purge(&conn, &[None; 8]).unwrap(), 0);
+        assert_eq!(purge(&conn, &[Some(950); 8]).unwrap(), 14);
     }
 
     #[test]
@@ -516,7 +587,7 @@ mod tests {
         .unwrap();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].fields.is_none());
-        assert_eq!(purge_older_than(&conn, 100).unwrap(), 1);
+        assert_eq!(purge(&conn, &[Some(100); 8]).unwrap(), 1);
         assert!(
             search(
                 &conn,

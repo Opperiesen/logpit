@@ -61,15 +61,16 @@ fn parse_addr(label: &str, s: &str) -> anyhow::Result<Option<SocketAddr>> {
         .with_context(|| format!("invalid {label} address {s:?}"))
 }
 
-async fn retention_loop(path: PathBuf, days: u32) {
+async fn retention_loop(path: PathBuf, retention_days: [u32; 8]) {
     let mut tick = tokio::time::interval(Duration::from_secs(3600));
     loop {
         tick.tick().await;
-        let cutoff = now_ms() - i64::from(days) * 86_400_000;
+        let now = now_ms();
+        let cutoffs = retention_days.map(|d| (d > 0).then(|| now - i64::from(d) * 86_400_000));
         let path = path.clone();
         let result = tokio::task::spawn_blocking(move || {
             let conn = store::open(&path)?;
-            store::purge_older_than(&conn, cutoff).map_err(anyhow::Error::from)
+            store::purge(&conn, &cutoffs).map_err(anyhow::Error::from)
         })
         .await;
         match result {
@@ -193,9 +194,10 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    if cfg.storage.retention_days > 0 {
+    let retention = cfg.storage.retention_table()?;
+    if retention.iter().any(|&d| d > 0) {
         tasks.spawn(async move {
-            retention_loop(db_path, cfg.storage.retention_days).await;
+            retention_loop(db_path, retention).await;
             Ok(())
         });
     }

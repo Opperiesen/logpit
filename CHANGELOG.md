@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Retention by severity: `[storage.retention_by_severity]` / `LOGPIT_RETENTION_BY_SEVERITY` override
+  `retention_days` per severity (0 keeps a severity forever), e.g. 2 days of debug but 90 of errors.
+
 - Token scopes: `LOGPIT_HTTP_TOKEN_WRITE` / `LOGPIT_HTTP_TOKEN_READ` (and `_FILE` variants) and
   `[[http.tokens]]` define tokens limited to ingestion or to search/tail. A token without the needed
   scope gets `403`. `http.token` is unchanged and keeps both scopes.

@@ -21,6 +21,9 @@ pub struct StorageConfig {
     pub path: PathBuf,
     /// Entries older than this are purged. 0 disables retention.
     pub retention_days: u32,
+    /// Per-severity override of `retention_days`, by name or number (e.g. `debug = 2`,
+    /// `err = 90`); 0 keeps that severity forever.
+    pub retention_by_severity: BTreeMap<String, u32>,
     pub batch_size: usize,
     pub flush_interval_ms: u64,
     /// Capacity of the in-memory queue between ingestion and storage.
@@ -87,11 +90,32 @@ impl Default for StorageConfig {
         Self {
             path: PathBuf::from("logpit.db"),
             retention_days: 14,
+            retention_by_severity: BTreeMap::new(),
             batch_size: 500,
             flush_interval_ms: 500,
             queue_capacity: 10_000,
             max_message_bytes: 16 * 1024,
         }
+    }
+}
+
+impl StorageConfig {
+    /// Retention in days for each severity (index = severity number), 0 meaning forever.
+    pub fn retention_table(&self) -> anyhow::Result<[u32; 8]> {
+        let mut table = [self.retention_days; 8];
+        let mut set = [false; 8];
+        for (key, days) in &self.retention_by_severity {
+            let sev = usize::from(crate::model::parse_severity(key).with_context(|| {
+                format!(
+                    "unknown severity {key:?} in retention_by_severity (use emerg … debug or 0-7)"
+                )
+            })?);
+            if std::mem::replace(&mut set[sev], true) {
+                bail!("severity {key:?} appears twice in retention_by_severity");
+            }
+            table[sev] = *days;
+        }
+        Ok(table)
     }
 }
 
@@ -151,6 +175,19 @@ impl Config {
                 .trim()
                 .parse()
                 .with_context(|| format!("invalid LOGPIT_RETENTION_DAYS {v:?}"))?;
+        }
+        if let Some(v) = get("LOGPIT_RETENTION_BY_SEVERITY") {
+            for pair in v.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+                let (sev, days) = pair.split_once('=').with_context(|| {
+                    format!("invalid LOGPIT_RETENTION_BY_SEVERITY entry {pair:?} (expected severity=days)")
+                })?;
+                let days = days.trim().parse().with_context(|| {
+                    format!("invalid days in LOGPIT_RETENTION_BY_SEVERITY entry {pair:?}")
+                })?;
+                self.storage
+                    .retention_by_severity
+                    .insert(sev.trim().to_ascii_lowercase(), days);
+            }
         }
         if let Some(v) = get("LOGPIT_SYSLOG_UDP_LISTEN") {
             self.syslog.udp_listen = v;
@@ -227,6 +264,7 @@ impl Config {
         if s.max_message_bytes < 64 {
             bail!("storage.max_message_bytes must be >= 64");
         }
+        s.retention_table()?;
         if matches!(&self.http.token, Some(t) if t.is_empty()) {
             bail!("http.token must not be empty (remove it to disable auth)");
         }
@@ -397,6 +435,47 @@ mod tests {
                 ("LOGPIT_HTTP_TOKEN_READ_FILE", "b")
             ]))
             .is_err()
+        );
+    }
+
+    #[test]
+    fn retention_by_severity() {
+        let cfg = Config::parse(
+            "[storage]\nretention_days = 14\n[storage.retention_by_severity]\ndebug = 2\nerr = 90\ncrit = 0",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.storage.retention_table().unwrap(),
+            [14, 14, 0, 90, 14, 14, 14, 2]
+        );
+
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[(
+            "LOGPIT_RETENTION_BY_SEVERITY",
+            "Debug=1, info=7,6=3",
+        )]))
+        .unwrap();
+        // "info" and "6" name the same severity: rejected rather than silently picking one.
+        assert!(cfg.validate().is_err());
+
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[("LOGPIT_RETENTION_BY_SEVERITY", "debug=1, info=7")]))
+            .unwrap();
+        cfg.validate().unwrap();
+        assert_eq!(
+            cfg.storage.retention_table().unwrap(),
+            [14, 14, 14, 14, 14, 14, 7, 1]
+        );
+
+        assert!(Config::parse("[storage.retention_by_severity]\nloud = 1").is_err());
+        let mut bad = Config::default();
+        assert!(
+            bad.apply_env(&env(&[("LOGPIT_RETENTION_BY_SEVERITY", "debug")]))
+                .is_err()
+        );
+        assert!(
+            bad.apply_env(&env(&[("LOGPIT_RETENTION_BY_SEVERITY", "debug=x")]))
+                .is_err()
         );
     }
 

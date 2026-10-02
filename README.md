@@ -72,6 +72,7 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_SYSLOG_TCP_LISTEN` | `0.0.0.0:5514` | Empty string disables TCP syslog |
 | `LOGPIT_STORAGE_PATH` | `/data/logpit.db` | SQLite file |
 | `LOGPIT_RETENTION_DAYS` | `14` | `0` disables purging |
+| `LOGPIT_RETENTION_BY_SEVERITY` | | Per-severity retention, e.g. `debug=2,info=7,err=90` (see below) |
 | `LOGPIT_SILENCE_AFTER_SECS` | `0` | Alert when any host is silent this long; `0` disables |
 | `LOGPIT_SILENCE_WEBHOOK_URL` | | `http://` URL notified on alerts and recoveries |
 | `LOGPIT_CONFIG` | `/etc/logpit/logpit.toml` | TOML file with the same settings |
@@ -129,6 +130,19 @@ curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8080/ingest \
 
 UniFi: *Settings → CyberSecure → Traffic Logging → Activity Logging → SIEM Server*,
 with LogPit's address and port 514.
+
+## Retention by severity
+
+`LOGPIT_RETENTION_DAYS` applies to every entry unless a severity has its own value, so noisy
+levels can be dropped early while errors are kept longer:
+
+```sh
+-e LOGPIT_RETENTION_DAYS=14 -e LOGPIT_RETENTION_BY_SEVERITY=debug=2,info=7,err=90
+```
+
+Severities are `emerg`, `alert`, `crit`, `err`, `warn`, `notice`, `info`, `debug` (or `0`–`7`),
+and a value of `0` keeps that severity forever. In the TOML file this is the
+`[storage.retention_by_severity]` table. Purging runs at startup and then hourly.
 
 ## Searching
 

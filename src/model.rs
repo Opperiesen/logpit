@@ -16,6 +16,25 @@ pub struct LogEntry {
     pub fields: BTreeMap<String, String>,
 }
 
+/// Parses a syslog severity given as a name (`err`, `warning`, …) or number (0-7).
+pub fn parse_severity(s: &str) -> Option<u8> {
+    let s = s.trim().to_ascii_lowercase();
+    if let Ok(n) = s.parse::<u8>() {
+        return (n <= 7).then_some(n);
+    }
+    Some(match s.as_str() {
+        "emerg" | "emergency" => 0,
+        "alert" => 1,
+        "crit" | "critical" => 2,
+        "err" | "error" => 3,
+        "warn" | "warning" => 4,
+        "notice" => 5,
+        "info" => 6,
+        "debug" => 7,
+        _ => return None,
+    })
+}
+
 /// Truncates `s` to at most `max` bytes without splitting a UTF-8 character.
 pub fn truncate_utf8(s: &mut String, max: usize) {
     if s.len() <= max {
@@ -31,6 +50,15 @@ pub fn truncate_utf8(s: &mut String, max: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn severity_names_and_numbers() {
+        assert_eq!(parse_severity("Debug"), Some(7));
+        assert_eq!(parse_severity("warning"), Some(4));
+        assert_eq!(parse_severity(" 3 "), Some(3));
+        assert_eq!(parse_severity("8"), None);
+        assert_eq!(parse_severity("loud"), None);
+    }
 
     #[test]
     fn truncate_respects_char_boundaries() {

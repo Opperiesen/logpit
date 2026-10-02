@@ -8,6 +8,13 @@ flush_interval_ms = 500
 queue_capacity = 10000       # entries beyond this are dropped and counted, never buffered unbounded
 max_message_bytes = 16384    # longer messages are truncated
 
+# Per-severity override of retention_days (emerg, alert, crit, err, warn, notice, info, debug
+# or 0-7); 0 keeps that severity forever.
+# [storage.retention_by_severity]
+# debug = 2
+# info = 7
+# err = 90
+
 [syslog]
 # Empty string disables a listener. Use "0.0.0.0:514" to receive from other machines
 # (ports below 1024 need root or CAP_NET_BIND_SERVICE).
