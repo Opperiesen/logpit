@@ -100,7 +100,8 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
         state.sink.metrics().render()
             + &state.sink.silence().render_metrics()
-            + &state.sink.rules().render_metrics(),
+            + &state.sink.rules().render_metrics()
+            + &state.sink.alerts().render_metrics(),
     )
 }
 

@@ -40,6 +40,8 @@ pub struct Sink {
     silence: Arc<Tracker>,
     parse_structured: bool,
     rules: Arc<crate::rules::Rules>,
+    alerts: Arc<crate::alerts::AlertRules>,
+    alert_tx: Option<tokio::sync::mpsc::Sender<crate::silence::Event>>,
 }
 
 impl Sink {
@@ -57,6 +59,8 @@ impl Sink {
             silence,
             parse_structured: false,
             rules: Arc::default(),
+            alerts: Arc::default(),
+            alert_tx: None,
         }
     }
 
@@ -65,6 +69,22 @@ impl Sink {
     pub fn with_rules(mut self, rules: Arc<crate::rules::Rules>) -> Self {
         self.rules = rules;
         self
+    }
+
+    /// Pattern alerts; due notifications are sent on `tx` (never blocking ingestion: when the
+    /// channel is full a notification is skipped).
+    pub fn with_alerts(
+        mut self,
+        alerts: Arc<crate::alerts::AlertRules>,
+        tx: tokio::sync::mpsc::Sender<crate::silence::Event>,
+    ) -> Self {
+        self.alerts = alerts;
+        self.alert_tx = Some(tx);
+        self
+    }
+
+    pub fn alerts(&self) -> &crate::alerts::AlertRules {
+        &self.alerts
     }
 
     pub fn rules(&self) -> &crate::rules::Rules {
@@ -101,6 +121,11 @@ impl Sink {
         }
         if !self.rules.apply(&mut entry) {
             return;
+        }
+        if let Some(tx) = &self.alert_tx {
+            for event in self.alerts.observe(&entry, now_ms()) {
+                let _ = tx.try_send(event);
+            }
         }
         truncate_utf8(&mut entry.message, self.max_message_bytes);
         let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));

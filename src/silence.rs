@@ -63,6 +63,15 @@ pub enum Event {
     Recovered {
         host: String,
     },
+    /// A pattern alert reached its threshold (see the `alerts` module).
+    Pattern {
+        rule: String,
+        host: Option<String>,
+        count: usize,
+        window_secs: u64,
+        /// The entry's message that tipped the alert over, for context.
+        sample: String,
+    },
 }
 
 impl Event {
@@ -88,6 +97,33 @@ impl Event {
                 "host": host,
                 "message": format!("{host} is sending logs again"),
             }),
+            Event::Pattern {
+                rule,
+                host,
+                count,
+                window_secs,
+                sample,
+            } => {
+                // The sample comes from a log line: one line, clipped.
+                let sample: String = sample.split_whitespace().collect::<Vec<_>>().join(" ");
+                let sample: String = sample.chars().take(200).collect();
+                let on = host
+                    .as_ref()
+                    .map(|h| format!(" on {h}"))
+                    .unwrap_or_default();
+                json!({
+                    "event": "log_alert",
+                    "rule": rule,
+                    "host": host,
+                    "count": count,
+                    "window_secs": window_secs,
+                    "sample": sample,
+                    "message": format!(
+                        "Alert {rule}: {count} matching entries within {}{on}. Last: {sample}",
+                        fmt_secs(i64::try_from(*window_secs).unwrap_or(i64::MAX))
+                    ),
+                })
+            }
         }
     }
 }
@@ -250,6 +286,7 @@ pub async fn run(
             match event {
                 Event::Silent { .. } => tracing::warn!("silence alert: {message}"),
                 Event::Recovered { .. } => tracing::info!("silence recovered: {message}"),
+                Event::Pattern { .. } => tracing::warn!("{message}"),
             }
             if let Some(hook) = webhook.clone() {
                 tokio::spawn(async move { hook.send(&event).await });

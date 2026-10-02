@@ -14,6 +14,8 @@ pub struct Config {
     pub http: HttpConfig,
     pub silence: SilenceConfig,
     pub ingest: IngestConfig,
+    /// Pattern alerts (`[[alerts]]`), notified through the webhook configured under `[silence]`.
+    pub alerts: Vec<crate::alerts::AlertConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -353,6 +355,7 @@ impl Config {
             bail!("http.token must not be empty (remove it to disable auth)");
         }
         crate::rules::Rules::from_config(&self.ingest.rules)?;
+        crate::alerts::AlertRules::from_config(&self.alerts)?;
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
             bail!("syslog.tls_listen needs syslog.tls_cert and syslog.tls_key");
@@ -635,6 +638,24 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_SILENCE_WEBHOOK_FORMAT", "xml")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn alerts_config() {
+        let cfg = Config::parse(
+            "[[alerts]]\nname = \"disk\"\npattern = \"disk\"\nseverity = [\"err\"]\ncount = 5\nwindow_secs = 600\nper_host = true\n\
+             [[alerts]]\ncount = 1000\nwindow_secs = 60",
+        )
+        .unwrap();
+        assert_eq!(cfg.alerts.len(), 2);
+        assert!(cfg.alerts[0].per_host && cfg.alerts[1].name.is_none());
+        assert!(Config::parse("").unwrap().alerts.is_empty());
+        // Missing required keys, invalid values and unknown keys are rejected at load time.
+        assert!(Config::parse("[[alerts]]\ncount = 5").is_err());
+        assert!(Config::parse("[[alerts]]\nwindow_secs = 5").is_err());
+        assert!(Config::parse("[[alerts]]\ncount = 0\nwindow_secs = 5").is_err());
+        assert!(Config::parse("[[alerts]]\ncount = 1\nwindow_secs = 5\npattern = \"(\"").is_err());
+        assert!(Config::parse("[[alerts]]\ncount = 1\nwindow_secs = 5\nbogus = 1").is_err());
     }
 
     #[test]

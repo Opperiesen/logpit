@@ -220,7 +220,21 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let retention_metrics = metrics.clone();
+    // One webhook serves silence alerts and pattern alerts; pattern alerts reach it through a
+    // channel so that ingestion never waits for a notification.
+    let webhook = match cfg.silence.webhook_url.as_str() {
+        "" => None,
+        url => Some(Webhook::new(
+            url,
+            cfg.silence.webhook_format,
+            &cfg.silence.webhook_headers,
+        )?),
+    };
+    let alert_rules = Arc::new(logpit::alerts::AlertRules::from_config(&cfg.alerts)?);
+    let (alert_tx, mut alert_rx) = tokio::sync::mpsc::channel::<silence::Event>(256);
+
     let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone())
+        .with_alerts(alert_rules.clone(), alert_tx)
         .with_structured_parsing(cfg.ingest.parse_structured)
         .with_rules(Arc::new(logpit::rules::Rules::from_config(
             &cfg.ingest.rules,
@@ -254,15 +268,23 @@ async fn main() -> anyhow::Result<()> {
     let app = api::router(state, cfg.http.max_body_bytes);
     tasks.spawn(async move { axum::serve(listener, app).await.map_err(Into::into) });
 
+    if !alert_rules.is_empty() {
+        let hook = webhook.clone();
+        tasks.spawn(async move {
+            while let Some(event) = alert_rx.recv().await {
+                tracing::warn!(
+                    "{}",
+                    event.payload()["message"].as_str().unwrap_or_default()
+                );
+                if let Some(hook) = hook.clone() {
+                    tokio::spawn(async move { hook.send(&event).await });
+                }
+            }
+            Ok(())
+        });
+    }
+
     if silence_rules.enabled() {
-        let webhook = match cfg.silence.webhook_url.as_str() {
-            "" => None,
-            url => Some(Webhook::new(
-                url,
-                cfg.silence.webhook_format,
-                &cfg.silence.webhook_headers,
-            )?),
-        };
         let interval = Duration::from_secs(cfg.silence.check_interval_secs);
         tasks.spawn(async move {
             silence::run(tracker, silence_rules, interval, webhook).await;

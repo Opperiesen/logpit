@@ -104,6 +104,9 @@ pub fn render(format: WebhookFormat, event: &Event) -> Rendered {
                     "default",
                     "white_check_mark",
                 ),
+                Event::Pattern { rule, .. } => {
+                    (format!("LogPit: {rule}"), "high", "rotating_light")
+                }
             };
             Rendered {
                 content_type: "text/plain; charset=utf-8",

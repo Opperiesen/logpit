@@ -1,5 +1,6 @@
 //! LogPit: a small, self-contained log aggregator.
 
+pub mod alerts;
 pub mod api;
 pub mod auth;
 pub mod cef;

@@ -440,6 +440,46 @@ in ntfy headers). Redirects are not followed, so give the final URL.
 The same state is exposed on `/metrics` as `logpit_host_silent{host="…"} 1` for each silent host,
 so Prometheus/Alertmanager can notify instead.
 
+## Pattern alerts
+
+Silence alerts watch for logs that stop; pattern alerts watch for logs that pile up, such as five
+disk errors in ten minutes, or a host that suddenly logs a thousand lines a minute. Each
+`[[alerts]]` table counts the matching entries as they arrive and notifies when `count` of them
+fall within `window_secs`:
+
+```toml
+[[alerts]]
+name = "disk-errors"
+pattern = "(?i)disk|smart"        # regex on the message (optional)
+severity = ["err", "crit"]         # names or numbers (optional)
+host = "pve"                       # exact match (optional)
+app = "kernel"                     # exact match (optional)
+count = 5
+window_secs = 600
+cooldown_secs = 1800               # quiet period after a notification; default window_secs
+per_host = true                    # count and notify per host instead of overall
+
+[[alerts]]
+name = "flood"                     # no condition: every entry counts
+count = 1000
+window_secs = 60
+per_host = true
+```
+
+- Notifications go to the same [webhook](#alert-webhook) as silence alerts (configured under
+  `[silence]`, with any `webhook_format`), and are always written to the log. The message names the
+  rule, the count, the window, the host (with `per_host`) and the last matching line, clipped to one
+  line. `"event":"log_alert"` in the JSON format.
+- Entries are counted as LogPit receives them, **after** ingestion rules, so dropped noise does
+  not count and masked secrets never appear in a notification.
+- After a notification the alert clears its matches and waits for the cooldown. Matches that arrive
+  during the cooldown still count: a problem that goes on is reported again as soon as the cooldown
+  ends and a new match arrives.
+- Memory is bounded: an alert keeps at most `count` timestamps per host (`count` up to 10,000),
+  and `per_host` tracks at most 1024 hosts per alert.
+- Mistakes (a bad regex, `count = 0`, a duplicate name…) stop LogPit at startup with the alert's
+  name. `logpit_alerts_fired_total{rule="…"}` counts the notifications.
+
 ## Structured fields
 
 Messages that contain a CEF record (`CEF:0|Vendor|Product|…|key=value …`), whether

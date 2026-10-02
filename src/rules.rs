@@ -26,7 +26,7 @@ pub enum Action {
 }
 
 /// A severity given as a name (`debug`, `err`, …) or a number (0-7).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum SeveritySpec {
     Number(i64),
@@ -69,7 +69,7 @@ pub struct Rules {
     rules: Vec<Rule>,
 }
 
-fn severity_set(specs: &[SeveritySpec]) -> anyhow::Result<Option<[bool; 8]>> {
+pub(crate) fn severity_set(specs: &[SeveritySpec]) -> anyhow::Result<Option<[bool; 8]>> {
     if specs.is_empty() {
         return Ok(None);
     }

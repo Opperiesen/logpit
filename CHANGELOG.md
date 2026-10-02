@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Pattern alerts: `[[alerts]]` notify when `count` entries matching a regex, host, app and/or severity arrive
+  within `window_secs` (per host if asked), with a cooldown. They use the webhook configured under
+  `[silence]` and the log, count entries after ingestion rules, and keep at most `count` timestamps per
+  host. New metric `logpit_alerts_fired_total{rule}`.
+
 ## 0.6.0 - 2026-10-03
 
 - Alert webhooks: `https://` URLs are supported (certificates are verified against the built-in Mozilla

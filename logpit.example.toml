@@ -55,3 +55,13 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # action = "mask"
 # pattern = '(password|token)=\S+'
 # replace = "$1=[hidden]"
+
+# Pattern alerts: notify through the [silence] webhook when matching entries pile up.
+# [[alerts]]
+# name = "disk-errors"
+# pattern = "(?i)disk"
+# severity = ["err", "crit"]
+# count = 5                  # this many matches ...
+# window_secs = 600          # ... within this many seconds
+# cooldown_secs = 1800       # quiet period afterwards (default: window_secs)
+# per_host = true
