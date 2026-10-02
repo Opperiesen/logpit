@@ -10,7 +10,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
-Image=ghcr.io/opperiesen/logpit:0.4.8
+Image=ghcr.io/opperiesen/logpit:0.4.9
 ContainerName=logpit
 PublishPort=514:5514/udp
 PublishPort=514:5514/tcp

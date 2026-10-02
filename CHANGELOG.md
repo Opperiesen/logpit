@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.9 - 2026-10-03
+
 - Search text: `q` now supports `OR`, `-word` / `NOT word` exclusions, `"phrases"` and `prefix*`
   (everything is still compiled to quoted FTS5 strings, so input is never interpreted as FTS syntax).
   Plain words keep working as before. It applies to search, stats, hosts, export and the live tail.
