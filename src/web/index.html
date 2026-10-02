@@ -37,6 +37,16 @@
   #chart rect { fill:currentColor; }
   #chart .hit { fill:transparent; cursor:zoom-in; } #chart .hit:hover { fill:var(--accent); fill-opacity:.15; }
   #chart .hit.flat { cursor:default; }
+  #hosts { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
+  #hosts summary { cursor:pointer; padding:6px 0; color:var(--muted); }
+  #hostsTable { width:auto; min-width:min(100%, 520px); margin:0 0 8px; }
+  #hostsTable th { text-align:left; font-weight:600; color:var(--muted); padding:2px 14px 2px 0; border-bottom:1px solid var(--line); }
+  #hostsTable th.n, #hostsTable td.n { text-align:right; }
+  #hostsTable td { padding:2px 14px 2px 0; border-bottom:1px solid var(--line); white-space:nowrap; }
+  #hostsTable td.name { cursor:pointer; } #hostsTable td.name:hover { color:var(--accent); }
+  #hostsTable tr.active td.name { font-weight:700; }
+  #hostsTable td.zero { color:var(--muted); opacity:.6; }
+  .badge { background:#d1242f; color:#fff; border-radius:4px; padding:0 5px; margin-left:6px; font:600 11px system-ui, sans-serif; }
   #empty { padding:24px 16px; color:var(--muted); }
 </style>
 </head>
@@ -72,6 +82,13 @@
   <div id="legend"></div>
 </div>
 <svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" hidden></svg>
+<details id="hosts">
+  <summary>Hosts <span id="hostsCount"></span></summary>
+  <table id="hostsTable">
+    <thead><tr><th>Host</th><th class="n">Entries</th><th class="n">Errors</th><th class="n">Warnings</th><th>Last seen</th></tr></thead>
+    <tbody id="hostsBody"></tbody>
+  </table>
+</details>
 <table><tbody id="rows"></tbody></table>
 <div id="empty" hidden></div>
 <script>
@@ -134,7 +151,7 @@ function stopTail() {
 async function refreshChart() {
   if (document.hidden || chartBusy) return;
   chartBusy = true;
-  try { await loadChart(); } finally { chartBusy = false; }
+  try { await Promise.all([loadChart(), loadHosts()]); } finally { chartBusy = false; }
 }
 
 function handleEvent(raw) {
@@ -304,6 +321,52 @@ async function loadChart() {
   } catch { hide(); }
 }
 
+// Per-host summary of the current filters (all hosts, even when one is selected).
+function ago(ms) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+async function loadHosts() {
+  if (!snap || !$('hosts').open) return;
+  const p = chartParams();
+  p.delete('host');
+  p.set('limit', '200');
+  try {
+    const res = await fetch('/api/hosts?' + p, { headers: authHeaders() });
+    if (!res.ok) return;
+    const rows = await res.json();
+    $('hostsCount').textContent = '(' + rows.length + ')';
+    $('hostsBody').replaceChildren(...rows.map(h => {
+      const tr = document.createElement('tr');
+      if (h.host === snap.host) tr.className = 'active';
+      const name = td('name', h.host);
+      name.title = 'Filter on host ' + h.host;
+      name.onclick = () => { $('host').value = h.host; load(); };
+      if (h.silent) {
+        const b = document.createElement('span');
+        b.className = 'badge';
+        b.textContent = 'silent';
+        b.title = 'No logs received within the silence threshold';
+        name.append(b);
+      }
+      const num = (v, cls) => td('n' + (v ? (cls ? ' ' + cls : '') : ' zero'), v.toLocaleString());
+      const seen = td('', ago(h.last_ts));
+      seen.title = new Date(h.last_ts).toLocaleString();
+      tr.append(name, num(h.count), num(h.errors, 's3'), num(h.warnings, 's4'), seen);
+      return tr;
+    }));
+  } catch {}
+}
+try { $('hosts').open = localStorage.getItem('logpit-hosts-open') === '1'; } catch {}
+$('hosts').addEventListener('toggle', () => {
+  try { localStorage.setItem('logpit-hosts-open', $('hosts').open ? '1' : '0'); } catch {}
+  loadHosts();
+});
+
 $('group').onchange = () => {
   try { localStorage.setItem('logpit-group', $('group').value); } catch {}
   loadChart();
@@ -345,6 +408,7 @@ async function load() {
     $('empty').hidden = rows.length > 0;
     $('status').textContent = rows.length + ' entries';
     loadChart();
+    loadHosts();
     if ($('live').checked) startTail();
   } catch (e) { $('status').textContent = String(e.message || e); }
 }

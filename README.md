@@ -14,7 +14,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   key/value fields, which are indexed for search and filterable by exact match.
 - **Storage**: SQLite (WAL) with FTS5 full-text search, batched writes,
   automatic retention.
-- **Search**: `GET /api/logs`, volume statistics per time bucket (`GET /api/stats`), a live tail (`GET /api/tail`, server-sent events) and a
+- **Search**: `GET /api/logs`, volume statistics per time bucket (`GET /api/stats`) and per host (`GET /api/hosts`), a live tail (`GET /api/tail`, server-sent events) and a
   minimal built-in web UI at `/` with a *Live* toggle.
 - **Robustness**: bounded queue with drop counters (no unbounded memory),
   message size limits, TCP connection limits and idle timeouts, graceful
@@ -204,6 +204,16 @@ summed into `other`:
 ```
 
 It needs the `read` scope. Free text (`q`) uses the same full-text index as search.
+
+### Hosts
+
+`GET /api/hosts` summarizes the matching entries per host, busiest first: `count`, `errors`
+(severity 0-3), `warnings` (severity 4) and `last_ts` (Unix ms of the host's latest entry), plus
+`silent` when [silence alerts](#silence-alerts) are enabled and tracking that host. It takes the
+filters of `/api/logs` and `limit` (default 100) for the number of hosts, and needs the `read`
+scope. The web UI shows it in the collapsible *Hosts* panel below the chart: it follows the
+current filters and time range, lists every host even when one is selected, refreshes with the
+chart in Live mode, and clicking a host filters the log table on it.
 
 ## Live tail
 

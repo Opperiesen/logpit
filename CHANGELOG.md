@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Per-host summary: `GET /api/hosts` returns entries, errors, warnings, last activity and silence state
+  per host for the current filters, and the web UI shows it in a collapsible *Hosts* panel (click a host
+  to filter on it).
+
 ## 0.4.3 - 2026-10-02
 
 - Web UI: clicking a histogram bar zooms to its time bucket. The window is fixed and shown as an extra

@@ -195,6 +195,14 @@ impl Tracker {
         events
     }
 
+    /// Whether the alert is firing for `host`; `None` when alerts are off or the host is untracked.
+    pub fn is_silent(&self, host: &str) -> Option<bool> {
+        if !self.enabled {
+            return None;
+        }
+        self.lock().get(host).map(|s| s.alerted)
+    }
+
     /// Prometheus text for the currently silent hosts.
     pub fn render_metrics(&self) -> String {
         if !self.enabled {
@@ -372,6 +380,18 @@ mod tests {
             vec![Event::Recovered { host: "pve".into() }]
         );
         assert!(!t.render_metrics().contains("host=\"pve\""));
+    }
+
+    #[test]
+    fn is_silent_reports_alert_state() {
+        let r = rules(60, &[]);
+        let t = Tracker::new(true);
+        t.touch("pve", 0);
+        assert_eq!(t.is_silent("pve"), Some(false));
+        assert_eq!(t.is_silent("unknown"), None);
+        t.evaluate(&r, 61_000);
+        assert_eq!(t.is_silent("pve"), Some(true));
+        assert_eq!(Tracker::new(false).is_silent("pve"), None);
     }
 
     #[test]

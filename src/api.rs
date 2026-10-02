@@ -44,6 +44,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/api/logs", get(search))
         .route("/api/tail", get(tail))
         .route("/api/stats", get(stats))
+        .route("/api/hosts", get(hosts))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Read),
             require_scope,
@@ -350,6 +351,40 @@ async fn stats(
         Err(e) => {
             tracing::error!("stats task failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "stats failed").into_response()
+        }
+    }
+}
+
+/// Per-host totals (entries, errors, warnings, last activity, silence state) over the entries
+/// matching the search filters. `limit` caps the number of hosts.
+async fn hosts(
+    State(state): State<AppState>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let query = match parse_search(params) {
+        Ok(q) => q,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let path = state.db_path.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = store::open(&path)?;
+        store::host_summary(&conn, &query).map_err(anyhow::Error::from)
+    })
+    .await;
+    match result {
+        Ok(Ok(mut rows)) => {
+            for r in &mut rows {
+                r.silent = state.sink.silence().is_silent(&r.host);
+            }
+            Json(rows).into_response()
+        }
+        Ok(Err(e)) => {
+            tracing::error!("host summary failed: {e:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "host summary failed").into_response()
+        }
+        Err(e) => {
+            tracing::error!("host summary task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "host summary failed").into_response()
         }
     }
 }

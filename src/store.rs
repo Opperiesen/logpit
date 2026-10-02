@@ -230,6 +230,48 @@ pub fn stats(
     rows.collect()
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+pub struct HostSummary {
+    pub host: String,
+    pub count: u64,
+    /// Entries of severity 0-3 (emergency to error).
+    pub errors: u64,
+    /// Entries of severity 4 (warning).
+    pub warnings: u64,
+    /// Timestamp of the host's most recent matching entry, Unix ms.
+    pub last_ts: i64,
+    /// Whether the silence alert is firing for this host; absent when alerts are off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub silent: Option<bool>,
+}
+
+/// Per-host totals over the entries matching `q`, busiest first, at most `q.limit` hosts.
+pub fn host_summary(conn: &Connection, q: &Query) -> rusqlite::Result<Vec<HostSummary>> {
+    let mut filter = Filter::new(q)?;
+    let sql = format!(
+        "SELECT l.host, COUNT(*) AS n, COALESCE(SUM(l.severity <= 3), 0), \
+         COALESCE(SUM(l.severity = 4), 0), MAX(l.ts) FROM logs l{} \
+         GROUP BY l.host ORDER BY n DESC, l.host LIMIT ?",
+        filter.sql()
+    );
+    filter.args.push(Box::new(q.limit as i64));
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(
+        params_from_iter(filter.args.iter().map(|a| a.as_ref())),
+        |r| {
+            Ok(HostSummary {
+                host: r.get(0)?,
+                count: r.get::<_, i64>(1)? as u64,
+                errors: r.get::<_, i64>(2)? as u64,
+                warnings: r.get::<_, i64>(3)? as u64,
+                last_ts: r.get(4)?,
+                silent: None,
+            })
+        },
+    )?;
+    rows.collect()
+}
+
 /// Smallest timestamp in the database, if any.
 pub fn min_ts(conn: &Connection) -> rusqlite::Result<Option<i64>> {
     conn.query_row("SELECT MIN(ts) FROM logs", [], |r| r.get(0))
@@ -652,6 +694,64 @@ mod tests {
 
         assert_eq!(min_ts(&conn).unwrap(), Some(100));
         assert_eq!(min_ts(&mem()).unwrap(), None);
+    }
+
+    #[test]
+    fn host_summary_counts_per_host() {
+        let mut conn = mem();
+        let batch = vec![
+            entry(100, "pve", 6, "boot"),
+            entry(200, "pve", 3, "disk error"),
+            entry(300, "pve", 4, "slow"),
+            entry(150, "nas", 2, "raid degraded"),
+            entry(400, "pve", 7, "debug line"),
+            entry(50, "ups", 6, "ok"),
+        ];
+        insert_batch(&mut conn, &batch).unwrap();
+
+        let all = host_summary(&conn, &q(10)).unwrap();
+        let row = |h: &str| all.iter().find(|r| r.host == h).unwrap();
+        assert_eq!(
+            all.iter().map(|r| r.host.as_str()).collect::<Vec<_>>(),
+            ["pve", "nas", "ups"]
+        );
+        assert_eq!(
+            (
+                row("pve").count,
+                row("pve").errors,
+                row("pve").warnings,
+                row("pve").last_ts
+            ),
+            (4, 1, 1, 400)
+        );
+        assert_eq!(
+            (row("nas").count, row("nas").errors, row("nas").warnings),
+            (1, 1, 0)
+        );
+        assert_eq!(
+            (row("ups").errors, row("ups").warnings, row("ups").last_ts),
+            (0, 0, 50)
+        );
+
+        // Filters apply as in search (time window and full-text), and limit caps the hosts.
+        let recent = Query {
+            since_ms: Some(180),
+            ..q(10)
+        };
+        let r = host_summary(&conn, &recent).unwrap();
+        assert_eq!(
+            r.iter()
+                .map(|r| (r.host.as_str(), r.count))
+                .collect::<Vec<_>>(),
+            [("pve", 3)]
+        );
+        let text = Query {
+            text: Some("error".into()),
+            ..q(10)
+        };
+        assert_eq!(host_summary(&conn, &text).unwrap().len(), 1);
+        assert_eq!(host_summary(&conn, &q(2)).unwrap().len(), 2);
+        assert!(host_summary(&mem(), &q(10)).unwrap().is_empty());
     }
 
     #[test]
