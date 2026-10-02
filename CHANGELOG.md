@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.4 - 2026-10-02
+
 - Per-host summary: `GET /api/hosts` returns entries, errors, warnings, last activity and silence state
   per host for the current filters, and the web UI shows it in a collapsible *Hosts* panel (click a host
   to filter on it).
