@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Web UI: the last search (filters, time range or zoomed window, chart grouping) is kept in the URL, so
+  views can be shared and bookmarked and survive a reload. Each search is a history entry, so Back undoes
+  it, including a zoom. The token is never put in the URL.
+
 ## 0.4.6 - 2026-10-02
 
 - `GET /api/hosts` accepts `sort` and `order`, and applies `limit` after sorting. The *Hosts* panel now

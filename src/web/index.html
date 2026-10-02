@@ -227,12 +227,15 @@ function chartParams() {
 // entry in the range selector (choose another range to leave it). Live is switched off.
 let zoomWindow = null;
 const MIN_ZOOM_MS = 10000;
-function zoomTo(since, until) {
+function setZoomWindow(since, until) {
   zoomWindow = { since, until };
   let opt = $('range-custom');
   if (!opt) { opt = document.createElement('option'); opt.id = 'range-custom'; opt.value = 'custom'; $('range').append(opt); }
   opt.textContent = new Date(since).toLocaleString() + ' → ' + new Date(until).toLocaleString();
   $('range').value = 'custom';
+}
+function zoomTo(since, until) {
+  setZoomWindow(since, until);
   $('live').checked = false;
   load();
 }
@@ -411,8 +414,45 @@ $('hosts').addEventListener('toggle', () => {
   loadHosts();
 });
 
+// The last search is mirrored in the URL (never the token), so a link restores the same view:
+// filters, time range or zoomed window, and the chart grouping. Each new search is a history
+// entry, so Back undoes it (including a zoom).
+const DEFAULT_RANGE = '3600000';
+let suppressPush = false; // set while restoring from the URL, so that does not add history entries
+function snapQuery() {
+  const p = new URLSearchParams();
+  for (const k of SNAP_KEYS) if (snap[k]) p.set(k, snap[k]);
+  if (snap.range === 'custom') { p.set('since', String(snap.since)); p.set('until', String(snap.until)); }
+  else if (snap.range === '') p.set('range', 'all');
+  else if (snap.range !== DEFAULT_RANGE) p.set('range', snap.range);
+  if ($('group').value !== 'severity') p.set('group', $('group').value);
+  return p.toString();
+}
+function syncUrl(forceReplace) {
+  const qs = snapQuery(), cur = location.search.replace(/^\?/, '');
+  const url = qs ? '?' + qs : location.pathname;
+  if (suppressPush || forceReplace) { suppressPush = false; history.replaceState(null, '', url); }
+  else if (qs !== cur) history.pushState(null, '', url);
+}
+function applyUrl() {
+  const p = new URLSearchParams(location.search);
+  for (const k of SNAP_KEYS) $(k).value = p.get(k) || '';
+  const since = Number(p.get('since')), until = Number(p.get('until'));
+  if (p.has('since') && p.has('until') && Number.isFinite(since) && Number.isFinite(until) && since <= until) {
+    setZoomWindow(since, until);
+  } else {
+    leaveZoom();
+    const r = p.get('range');
+    $('range').value = r === 'all' ? '' : [...$('range').options].some(o => o.value === r) ? r : DEFAULT_RANGE;
+  }
+  const g = p.get('group');
+  if (['severity', 'host', 'app'].includes(g)) $('group').value = g;
+}
+window.addEventListener('popstate', () => { applyUrl(); suppressPush = true; load(); });
+
 $('group').onchange = () => {
   try { localStorage.setItem('logpit-group', $('group').value); } catch {}
+  if (snap) syncUrl(true);
   loadChart();
 };
 
@@ -420,6 +460,7 @@ async function load() {
   stopTail();
   takeSnapshot();
   if (snap.range === 'custom') $('live').checked = false;
+  syncUrl();
   const p = new URLSearchParams({ limit: '500' });
   for (const k of ['q', 'host', 'app', 'level', 'f']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
   applyWindow(p, snap);
@@ -463,6 +504,8 @@ for (const id of ['q', 'host', 'app', 'f']) $(id).addEventListener('keydown', e 
 $('level').onchange = load;
 $('range').onchange = () => { if ($('range').value !== 'custom') leaveZoom(); load(); };
 $('live').onchange = () => { if ($('live').checked) load(); else { stopTail(); load(); } };
+applyUrl();
+suppressPush = true; // the first load canonicalizes the URL instead of adding an entry
 load();
 </script>
 </body>

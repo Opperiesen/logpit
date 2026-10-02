@@ -176,6 +176,22 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `since`, `until` | Unix timestamps in milliseconds |
 | `limit` | 1–1000, default 100 |
 
+## Web UI links
+
+The address bar always reflects the last search, so a link reproduces the same view and the
+browser's Back and Forward buttons step through your searches (including zooms):
+
+```
+http://logpit-host:8080/?q=disk&host=pve&level=3&range=86400000&group=host
+http://logpit-host:8080/?since=1700000000000&until=1700000299999   # a zoomed window
+```
+
+Parameters: `q`, `host`, `app`, `level`, `f` (`key:value`), `range` (a window in milliseconds
+ending now, or `all`; the default is one hour), `since` and `until` (a fixed window in Unix
+milliseconds, which take precedence over `range`) and `group` (`host` or `app` to stack the
+chart by; the default is severity). Unknown or invalid values fall back to the defaults. The
+token is never put in the URL: whoever opens a link still enters their own.
+
 ## Statistics
 
 ```sh
