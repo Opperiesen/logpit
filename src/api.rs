@@ -25,6 +25,9 @@ use crate::store::{self, GroupBy, HostSort, HostSortKey, Query};
 const MAX_LIMIT: usize = 1000;
 const DEFAULT_LIMIT: usize = 100;
 const MAX_TAIL_SUBSCRIBERS: usize = 32;
+const DEFAULT_TOP_VALUES: usize = 10;
+const MAX_TOP_VALUES: usize = 100;
+const MAX_FIELD_NAMES: usize = 200;
 const DEFAULT_CONTEXT_LINES: usize = 5;
 const MAX_CONTEXT_LINES: usize = 100;
 /// Exports that may run at the same time.
@@ -59,6 +62,8 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/api/tail", get(tail))
         .route("/api/stats", get(stats))
         .route("/api/hosts", get(hosts))
+        .route("/api/top", get(top))
+        .route("/api/fields", get(fields))
         .route("/api/export", get(export))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Read),
@@ -579,6 +584,155 @@ async fn hosts(
     }
 }
 
+/// `field` (`host`, `app`, `severity`, a structured field name, or `field:<name>` for a field that
+/// shares a name with a built-in one) and `limit` (default 10, at most 100), on top of the
+/// search filters.
+fn parse_top(params: Vec<(String, String)>) -> Result<(Query, GroupBy, usize), String> {
+    let mut group = None;
+    let mut limit = DEFAULT_TOP_VALUES;
+    let mut rest = Vec::new();
+    for (k, v) in params {
+        match k.as_str() {
+            "field" if !v.is_empty() => {
+                group = Some(match v.as_str() {
+                    "host" => GroupBy::Host,
+                    "app" => GroupBy::App,
+                    "severity" => GroupBy::Severity,
+                    other => {
+                        let name = other.strip_prefix("field:").unwrap_or(other);
+                        if !crate::store::valid_field_key(name) {
+                            return Err("invalid field name".into());
+                        }
+                        GroupBy::Field(name.to_string())
+                    }
+                });
+            }
+            "limit" if !v.is_empty() => {
+                limit = v
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or("invalid limit")?
+                    .min(MAX_TOP_VALUES);
+            }
+            "field" | "limit" => {}
+            _ => rest.push((k, v)),
+        }
+    }
+    let group = group.ok_or("field is required")?;
+    Ok((parse_search(rest)?, group, limit))
+}
+
+#[derive(serde::Serialize)]
+struct TopResponse {
+    field: String,
+    #[serde(flatten)]
+    top: store::TopValues,
+    /// Entries with a value that are not among the listed ones.
+    other: u64,
+}
+
+/// The most frequent values of a field among the entries matching the filters, for questions
+/// like "which source addresses were blocked most?".
+async fn top(
+    State(state): State<AppState>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let (query, group, limit) = match parse_top(params) {
+        Ok(r) => r,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let path = state.db_path.clone();
+    let for_db = group.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = store::open(&path)?;
+        store::top_values(&conn, &query, &for_db, limit).map_err(anyhow::Error::from)
+    })
+    .await;
+    match result {
+        Ok(Ok(mut top)) => {
+            if group == GroupBy::Severity {
+                for v in &mut top.values {
+                    if let Ok(n) = v.value.parse::<u8>() {
+                        v.value = crate::model::severity_name(n).to_string();
+                    }
+                }
+            }
+            let listed: u64 = top.values.iter().map(|v| v.count).sum();
+            let field = match &group {
+                GroupBy::Host => "host".to_string(),
+                GroupBy::App => "app".to_string(),
+                GroupBy::Severity => "severity".to_string(),
+                GroupBy::Field(name) => name.clone(),
+                GroupBy::None => String::new(),
+            };
+            let other = top.with_field.saturating_sub(listed);
+            Json(TopResponse { field, top, other }).into_response()
+        }
+        Ok(Err(e)) => {
+            tracing::error!("top values failed: {e:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "top values failed").into_response()
+        }
+        Err(e) => {
+            tracing::error!("top values task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "top values failed").into_response()
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct FieldName {
+    key: String,
+    count: u64,
+}
+
+/// The structured fields present in the entries matching the filters, most common first, to
+/// know what `/api/top` and `f=` can use. `limit` defaults to 50 (at most 200).
+async fn fields(
+    State(state): State<AppState>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let mut limit = 50usize;
+    let mut rest = Vec::new();
+    for (k, v) in params {
+        match (k.as_str(), v.as_str()) {
+            ("limit", v) if !v.is_empty() => match v.parse::<usize>().ok().filter(|n| *n > 0) {
+                Some(n) => limit = n.min(MAX_FIELD_NAMES),
+                None => return (StatusCode::BAD_REQUEST, "invalid limit").into_response(),
+            },
+            ("limit", _) => {}
+            _ => rest.push((k, v)),
+        }
+    }
+    let query = match parse_search(rest) {
+        Ok(q) => q,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let path = state.db_path.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = store::open(&path)?;
+        store::field_names(&conn, &query, limit).map_err(anyhow::Error::from)
+    })
+    .await;
+    match result {
+        Ok(Ok(names)) => Json(
+            names
+                .into_iter()
+                .map(|(key, count)| FieldName { key, count })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("field names failed: {e:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "field names failed").into_response()
+        }
+        Err(e) => {
+            tracing::error!("field names task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "field names failed").into_response()
+        }
+    }
+}
+
 /// `lines` (default 5, at most 100) and `scope` (`host`, the default, or `all`).
 fn parse_context(params: &[(String, String)]) -> Result<(usize, bool), String> {
     let (mut lines, mut same_host) = (DEFAULT_CONTEXT_LINES, true);
@@ -896,6 +1050,45 @@ mod tests {
             assert!(credentials(&headers(bad)).is_none(), "{bad}");
         }
         assert!(credentials(&HeaderMap::new()).is_none());
+    }
+
+    #[test]
+    fn top_params_parse_and_validate() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let (q, g, l) = parse_top(p(&[("field", "src"), ("host", "fw")])).unwrap();
+        assert_eq!(
+            (q.host.as_deref(), g, l),
+            (Some("fw"), GroupBy::Field("src".into()), DEFAULT_TOP_VALUES)
+        );
+        assert_eq!(parse_top(p(&[("field", "host")])).unwrap().1, GroupBy::Host);
+        assert_eq!(
+            parse_top(p(&[("field", "severity")])).unwrap().1,
+            GroupBy::Severity
+        );
+        // A custom field with a built-in name needs the prefix.
+        assert_eq!(
+            parse_top(p(&[("field", "field:host")])).unwrap().1,
+            GroupBy::Field("host".into())
+        );
+        assert_eq!(
+            parse_top(p(&[("field", "a"), ("limit", "5000")]))
+                .unwrap()
+                .2,
+            MAX_TOP_VALUES
+        );
+        assert_eq!(
+            parse_top(p(&[("field", "a"), ("limit", "")])).unwrap().2,
+            DEFAULT_TOP_VALUES
+        );
+        assert!(parse_top(p(&[])).is_err(), "field is required");
+        assert!(parse_top(p(&[("field", "")])).is_err());
+        assert!(parse_top(p(&[("field", "a b")])).is_err());
+        assert!(parse_top(p(&[("field", "a"), ("limit", "0")])).is_err());
+        assert!(parse_top(p(&[("field", "a"), ("since", "x")])).is_err());
     }
 
     #[test]

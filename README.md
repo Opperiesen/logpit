@@ -427,6 +427,32 @@ It reads the database of the usual configuration (`LOGPIT_STORAGE_PATH` or the c
 overwrites an existing file, does not migrate the schema, and leaves a file you can restore by
 putting it back at the storage path while LogPit is stopped.
 
+### Top values
+
+`GET /api/top?field=<field>` lists the most frequent values of a field among the entries matching
+the filters, which answers questions like *which source addresses were blocked most?* or *which
+status codes is this app returning?*:
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8080/api/top?field=src&f=act:block&host=fw1&since=1700000000000&limit=10'
+# {"field":"src","matching":115,"with_field":115,"distinct":23,
+#  "values":[{"value":"203.0.113.5","count":49}, …],"other":43}
+```
+
+`field` is `host`, `app`, `severity`, or the name of a [structured field](#structured-fields) (CEF,
+or extracted from JSON and `key=value` messages); use `field:<name>` for a field that shares a name
+with a built-in one. It takes the filters of `/api/logs`, and `limit` (default 10, at most 100).
+`with_field` is how many matching entries have a value, `distinct` how many different values there
+are, and `other` the entries whose value is not among those listed. `GET /api/fields` lists the
+field names present in the matching entries with how many entries carry each (`limit` up to 200), to
+know what can be asked. Both need the `read` scope.
+
+In the web UI the *Top values* panel, below *Hosts*, does the same for the current results: pick a
+field, and each value gets a bar and its share; clicking a value filters on it (a host, an app, a
+severity of error, warning or info, or `field:value`). The filter on the field being listed is
+ignored for that list, so its alternatives stay visible after you click one.
+
 ## Live tail
 
 ```sh

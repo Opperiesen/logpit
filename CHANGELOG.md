@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Top values: `GET /api/top?field=` returns the most frequent values of a host, app, severity or structured
+  field (CEF, logfmt, JSON) among the entries matching the filters, with how many entries have it, how many
+  distinct values there are and how many fall outside the list. `GET /api/fields` lists the fields present.
+  The web UI gets a *Top values* panel with a field selector, bars, and click-to-filter.
+
 ## 0.7.0 - 2026-10-03
 
 - Loki and GELF input: `POST /loki/api/v1/push` accepts Loki's JSON and snappy-compressed protobuf (Promtail,

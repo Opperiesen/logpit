@@ -187,16 +187,9 @@ pub enum GroupBy {
     Field(String),
 }
 
-/// Counts of entries matching `q` per time bucket (`ts` floored to a multiple of
-/// `bucket_ms`) and, optionally, per group. Returns `(bucket_start, group, count)`, with an
-/// empty group when not grouping; empty buckets are not returned.
-pub fn stats(
-    conn: &Connection,
-    q: &Query,
-    bucket_ms: i64,
-    group: &GroupBy,
-) -> rusqlite::Result<Vec<(i64, String, u64)>> {
-    let group_expr = match group {
+/// SQL for the value an entry is grouped under; empty text when it has none.
+fn group_sql(group: &GroupBy) -> rusqlite::Result<String> {
+    Ok(match group {
         GroupBy::None => "''".to_string(),
         GroupBy::Host => "l.host".to_string(),
         GroupBy::App => "l.app".to_string(),
@@ -208,7 +201,19 @@ pub fn stats(
             // The key is restricted to a safe charset, so it can be inlined as a literal.
             format!("COALESCE(json_extract(l.fields, '$.\"{key}\"'), '')")
         }
-    };
+    })
+}
+
+/// Counts of entries matching `q` per time bucket (`ts` floored to a multiple of
+/// `bucket_ms`) and, optionally, per group. Returns `(bucket_start, group, count)`, with an
+/// empty group when not grouping; empty buckets are not returned.
+pub fn stats(
+    conn: &Connection,
+    q: &Query,
+    bucket_ms: i64,
+    group: &GroupBy,
+) -> rusqlite::Result<Vec<(i64, String, u64)>> {
+    let group_expr = group_sql(group)?;
     let filter = Filter::new(q)?;
     // bucket_ms is an i64 formatted by us, never user text.
     let sql = format!(
@@ -378,6 +383,103 @@ pub fn context(
         before,
         after,
     }))
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct TopValues {
+    /// Entries matching the filters.
+    pub matching: u64,
+    /// Of those, the ones that have a value for the field.
+    pub with_field: u64,
+    /// Distinct values of the field among them.
+    pub distinct: u64,
+    /// The most frequent values, most frequent first (ties by value).
+    pub values: Vec<TopValue>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct TopValue {
+    pub value: String,
+    pub count: u64,
+}
+
+/// The `limit` most frequent values of `group` among the entries matching `q`.
+pub fn top_values(
+    conn: &Connection,
+    q: &Query,
+    group: &GroupBy,
+    limit: usize,
+) -> rusqlite::Result<TopValues> {
+    let expr = group_sql(group)?;
+    let top = {
+        let mut filter = Filter::new(q)?;
+        let sql = format!(
+            "SELECT {expr} AS v, COUNT(*) AS n FROM logs l{} GROUP BY v HAVING v != '' \
+             ORDER BY n DESC, v LIMIT ?",
+            filter.sql()
+        );
+        filter
+            .args
+            .push(Box::new(i64::try_from(limit).unwrap_or(i64::MAX)));
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            params_from_iter(filter.args.iter().map(|a| a.as_ref())),
+            |r| {
+                Ok(TopValue {
+                    value: r.get(0)?,
+                    count: r.get::<_, i64>(1)? as u64,
+                })
+            },
+        )?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let filter = Filter::new(q)?;
+    let sql = format!(
+        "SELECT COUNT(*), COALESCE(SUM(v != ''), 0), COUNT(DISTINCT NULLIF(v, '')) \
+         FROM (SELECT {expr} AS v FROM logs l{})",
+        filter.sql()
+    );
+    let (matching, with_field, distinct) = conn.query_row(
+        &sql,
+        params_from_iter(filter.args.iter().map(|a| a.as_ref())),
+        |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        },
+    )?;
+    Ok(TopValues {
+        matching: matching as u64,
+        with_field: with_field as u64,
+        distinct: distinct as u64,
+        values: top,
+    })
+}
+
+/// The structured field names present in the entries matching `q`, with how many entries carry
+/// each, most common first.
+pub fn field_names(
+    conn: &Connection,
+    q: &Query,
+    limit: usize,
+) -> rusqlite::Result<Vec<(String, u64)>> {
+    let mut filter = Filter::new(q)?;
+    let sql = format!(
+        "SELECT j.key, COUNT(*) AS n FROM logs l, json_each(l.fields) AS j{} \
+         GROUP BY j.key ORDER BY n DESC, j.key LIMIT ?",
+        filter.sql()
+    );
+    filter
+        .args
+        .push(Box::new(i64::try_from(limit).unwrap_or(i64::MAX)));
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(
+        params_from_iter(filter.args.iter().map(|a| a.as_ref())),
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)),
+    )?;
+    rows.collect()
 }
 
 /// Smallest timestamp in the database, if any.
@@ -1269,6 +1371,109 @@ mod tests {
         assert!(bare.before.is_empty() && bare.after.is_empty());
 
         assert!(context(&conn, 999_999, 5, true).unwrap().is_none());
+    }
+
+    #[test]
+    fn top_values_and_field_names() {
+        let mut conn = mem();
+        let mut batch = Vec::new();
+        for (i, (host, sev, src)) in [
+            ("fw", 4, Some("10.0.0.1")),
+            ("fw", 4, Some("10.0.0.1")),
+            ("fw", 4, Some("10.0.0.1")),
+            ("fw", 4, Some("10.0.0.2")),
+            ("fw", 4, Some("10.0.0.2")),
+            ("fw", 4, Some("10.0.0.3")),
+            ("nas", 3, None),
+            ("nas", 6, Some("10.0.0.9")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut e = entry(i as i64, host, sev, "blocked packet");
+            if let Some(src) = src {
+                e.fields.insert("src".into(), src.into());
+                e.fields.insert("act".into(), "block".into());
+            }
+            batch.push(e);
+        }
+        insert_batch(&mut conn, &batch).unwrap();
+
+        let src = top_values(&conn, &q(0), &GroupBy::Field("src".into()), 2).unwrap();
+        assert_eq!((src.matching, src.with_field, src.distinct), (8, 7, 4));
+        let vals: Vec<(&str, u64)> = src
+            .values
+            .iter()
+            .map(|v| (v.value.as_str(), v.count))
+            .collect();
+        assert_eq!(
+            vals,
+            [("10.0.0.1", 3), ("10.0.0.2", 2)],
+            "limit applies, most frequent first"
+        );
+
+        // Ties are ordered by value; entries without the field are not a value.
+        let all = top_values(&conn, &q(0), &GroupBy::Field("src".into()), 10).unwrap();
+        assert_eq!(
+            all.values
+                .iter()
+                .map(|v| v.value.as_str())
+                .collect::<Vec<_>>(),
+            ["10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.9"]
+        );
+
+        // Built-in dimensions, and filters narrowing the population.
+        let hosts = top_values(&conn, &q(0), &GroupBy::Host, 5).unwrap();
+        assert_eq!(
+            hosts.values[0],
+            TopValue {
+                value: "fw".into(),
+                count: 6
+            }
+        );
+        let sev = top_values(&conn, &q(0), &GroupBy::Severity, 5).unwrap();
+        assert_eq!(
+            sev.values[0],
+            TopValue {
+                value: "4".into(),
+                count: 6
+            }
+        );
+        let only_fw = Query {
+            host: Some("fw".into()),
+            ..q(0)
+        };
+        let r = top_values(&conn, &only_fw, &GroupBy::Field("src".into()), 5).unwrap();
+        assert_eq!((r.matching, r.with_field, r.distinct), (6, 6, 3));
+        let none = top_values(&conn, &q(0), &GroupBy::Field("missing".into()), 5).unwrap();
+        assert_eq!(
+            (none.with_field, none.distinct, none.values.len()),
+            (0, 0, 0)
+        );
+        assert!(top_values(&conn, &q(0), &GroupBy::Field("a b".into()), 5).is_err());
+
+        let names = field_names(&conn, &q(0), 10).unwrap();
+        assert_eq!(names, [("act".to_string(), 7), ("src".to_string(), 7)]);
+        let narrowed = field_names(
+            &conn,
+            &Query {
+                host: Some("nas".into()),
+                ..q(0)
+            },
+            10,
+        )
+        .unwrap();
+        assert_eq!(narrowed, [("act".to_string(), 1), ("src".to_string(), 1)]);
+        let text = field_names(
+            &conn,
+            &Query {
+                text: Some("blocked".into()),
+                ..q(0)
+            },
+            1,
+        )
+        .unwrap();
+        assert_eq!(text.len(), 1, "limit applies to the names too");
     }
 
     #[test]

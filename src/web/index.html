@@ -48,6 +48,16 @@
   #chart rect { fill:currentColor; }
   #chart .hit { fill:transparent; cursor:zoom-in; } #chart .hit:hover { fill:var(--accent); fill-opacity:.15; }
   #chart .hit.flat { cursor:default; }
+  #top { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
+  #top summary { cursor:pointer; padding:6px 0; color:var(--muted); }
+  #top .topctl { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-bottom:6px; color:var(--muted); }
+  #top select { padding:2px 6px; font-size:12px; }
+  .toprow { display:grid; grid-template-columns:minmax(8em, 22em) minmax(80px, 1fr) 11em; gap:0 10px; align-items:center; padding:1px 0; max-width:60em; }
+  .toprow .v { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; cursor:pointer; }
+  .toprow .v:hover { color:var(--accent); }
+  .toprow .bar { height:10px; background:color-mix(in srgb, var(--accent) 55%, transparent); border-radius:2px; min-width:1px; }
+  .toprow .n { text-align:right; color:var(--muted); } .toprow .n b { color:var(--fg); font-weight:600; }
+  #topList:empty::after { content:'No values for this field in the current results.'; color:var(--muted); }
   #hosts { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
   #hosts summary { cursor:pointer; padding:6px 0; color:var(--muted); }
   #hostsTable { width:auto; min-width:min(100%, 520px); margin:0 0 8px; }
@@ -106,6 +116,11 @@
     <thead><tr><th data-sort="host">Host</th><th class="n" data-sort="count">Entries</th><th class="n" data-sort="errors">Errors</th><th class="n" data-sort="warnings">Warnings</th><th data-sort="last_ts">Last seen</th></tr></thead>
     <tbody id="hostsBody"></tbody>
   </table>
+</details>
+<details id="top">
+  <summary>Top values <span id="topMeta"></span></summary>
+  <div class="topctl"><label>Field <select id="topField"></select></label><span id="topNote"></span></div>
+  <div id="topList"></div>
 </details>
 <table><tbody id="rows"></tbody></table>
 <div id="morebar" hidden><button id="more" type="button">Load more</button></div>
@@ -238,7 +253,7 @@ function stopTail() {
 async function refreshChart() {
   if (document.hidden || chartBusy) return;
   chartBusy = true;
-  try { await Promise.all([loadChart(), loadHosts()]); } finally { chartBusy = false; }
+  try { await Promise.all([loadChart(), loadHosts(), loadTop()]); } finally { chartBusy = false; }
 }
 
 function handleEvent(raw) {
@@ -446,6 +461,98 @@ async function exportLogs(format) {
 $('expNdjson').onclick = () => exportLogs('ndjson');
 $('expCsv').onclick = () => exportLogs('csv');
 
+// Top values of one field among the current results (a field chosen from what the results carry).
+const TOP_BUILTIN = ['host', 'app', 'severity'];
+let topReq = 0;
+try { $('top').open = localStorage.getItem('logpit-top-open') === '1'; } catch {}
+$('top').addEventListener('toggle', () => {
+  try { localStorage.setItem('logpit-top-open', $('top').open ? '1' : '0'); } catch {}
+  loadTop();
+});
+$('topField').onchange = () => {
+  try { localStorage.setItem('logpit-top-field', $('topField').value); } catch {}
+  loadTop();
+};
+
+// The filters of the last search, without the one on the dimension being listed, so that its
+// alternatives stay visible after you have filtered on one of them.
+function topParams(field) {
+  const p = chartParams();
+  if (field === 'host') p.delete('host');
+  if (field === 'app') p.delete('app');
+  const f = p.get('f');
+  if (f && f.split(':')[0] === field) p.delete('f');
+  return p;
+}
+
+function filterOnTop(field, value) {
+  if (field === 'host') $('host').value = value;
+  else if (field === 'app') $('app').value = value;
+  else if (field === 'severity') {
+    const level = String(LEVELS.indexOf(value));
+    if (![...$('level').options].some(o => o.value === level)) return; // only err, warn and info are offered
+    $('level').value = level;
+  } else $('f').value = field + ':' + value;
+  load();
+}
+
+async function loadTop() {
+  if (!snap || !$('top').open) return;
+  const req = ++topReq;
+  try {
+    const fp = chartParams();
+    fp.set('limit', '100');
+    const fr = await fetch('/api/fields?' + fp, { headers: authHeaders() });
+    if (!fr.ok || req !== topReq) return;
+    const names = (await fr.json()).map(f => f.key).filter(k => !TOP_BUILTIN.includes(k));
+    const sel = $('topField');
+    let wanted = sel.value;
+    try { wanted = wanted || localStorage.getItem('logpit-top-field') || ''; } catch {}
+    const options = [...TOP_BUILTIN, ...names];
+    if (!options.includes(wanted)) wanted = names[0] || 'host';
+    sel.replaceChildren(...options.map(k => {
+      const o = document.createElement('option');
+      o.value = k; o.textContent = k + (TOP_BUILTIN.includes(k) ? '' : ' (field)');
+      return o;
+    }));
+    sel.value = wanted;
+
+    const p = topParams(wanted);
+    p.set('field', wanted);
+    p.set('limit', '10');
+    const res = await fetch('/api/top?' + p, { headers: authHeaders() });
+    if (!res.ok || req !== topReq) return;
+    const d = await res.json();
+    const max = Math.max(1, ...d.values.map(v => v.count));
+    $('topMeta').textContent = '(' + wanted + ')';
+    $('topNote').textContent = d.with_field.toLocaleString() + ' of ' + d.matching.toLocaleString() + ' entries have it · ' + d.distinct.toLocaleString() + ' distinct values';
+    $('topList').replaceChildren(...d.values.map(v => {
+      const row = document.createElement('div');
+      row.className = 'toprow';
+      const val = document.createElement('span');
+      val.className = 'v'; val.textContent = v.value; val.title = 'Filter on ' + wanted + ' = ' + v.value;
+      val.onclick = () => filterOnTop(wanted, v.value);
+      const bar = document.createElement('div');
+      bar.className = 'bar'; bar.style.width = (100 * v.count / max) + '%';
+      const n = document.createElement('span');
+      n.className = 'n';
+      const b = document.createElement('b'); b.textContent = v.count.toLocaleString();
+      n.append(b, document.createTextNode(' · ' + (100 * v.count / Math.max(1, d.with_field)).toFixed(1) + '%'));
+      row.append(val, bar, n);
+      return row;
+    }));
+    if (d.other > 0) {
+      const more = document.createElement('div');
+      more.className = 'toprow';
+      const t = document.createElement('span'); t.className = 'v'; t.style.cursor = 'default'; t.style.color = 'var(--muted)';
+      t.textContent = 'other (' + (d.distinct - d.values.length).toLocaleString() + ' values)';
+      const n = document.createElement('span'); n.className = 'n'; n.style.gridColumn = '3'; n.textContent = d.other.toLocaleString();
+      more.append(t, document.createElement('span'), n);
+      $('topList').append(more);
+    }
+  } catch {}
+}
+
 // Per-host summary of the current filters (all hosts, even when one is selected).
 function ago(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -641,6 +748,7 @@ async function load() {
     $('status').textContent = rows.length + ' entries' + (nextCursor ? ' (more available)' : '');
     loadChart();
     loadHosts();
+    loadTop();
     if ($('live').checked) startTail();
   } catch (e) { $('status').textContent = String(e.message || e); }
 }
