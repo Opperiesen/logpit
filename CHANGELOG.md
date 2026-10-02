@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Live tail: `GET /api/tail` streams newly ingested entries as server-sent events, with the same
+  filters as search. The web UI's *Live* toggle now uses it instead of polling.
+
 - Quadlet example: `HealthCmd` must use the exec form (`CMD /logpit --healthcheck`); the shell form
   made Podman report the container as unhealthy because the image has no shell.
 

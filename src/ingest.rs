@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use tokio::net::{TcpListener, UdpSocket};
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, broadcast};
 use tokio::time::timeout;
 use tokio_util::codec::{FramedRead, LinesCodec};
 
@@ -18,6 +18,8 @@ use crate::syslog;
 const MAX_TCP_CONNECTIONS: usize = 256;
 const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_LINE_BYTES: usize = 64 * 1024;
+/// Entries a live-tail subscriber may fall behind before it starts losing some.
+const LIVE_CAPACITY: usize = 1024;
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -29,6 +31,7 @@ pub struct Sink {
     tx: SyncSender<LogEntry>,
     metrics: Arc<Metrics>,
     max_message_bytes: usize,
+    live: broadcast::Sender<Arc<LogEntry>>,
 }
 
 impl Sink {
@@ -37,7 +40,17 @@ impl Sink {
             tx,
             metrics,
             max_message_bytes,
+            live: broadcast::channel(LIVE_CAPACITY).0,
         }
+    }
+
+    /// Subscribes to entries as they are accepted (before they reach the database).
+    pub fn subscribe(&self) -> broadcast::Receiver<Arc<LogEntry>> {
+        self.live.subscribe()
+    }
+
+    pub fn live_subscribers(&self) -> usize {
+        self.live.receiver_count()
     }
 
     pub fn metrics(&self) -> &Metrics {
@@ -47,8 +60,14 @@ impl Sink {
     pub fn push(&self, mut entry: LogEntry) {
         crate::cef::enrich(&mut entry);
         truncate_utf8(&mut entry.message, self.max_message_bytes);
+        let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));
         match self.tx.try_send(entry) {
-            Ok(()) => Metrics::inc(&self.metrics.received, 1),
+            Ok(()) => {
+                Metrics::inc(&self.metrics.received, 1);
+                if let Some(entry) = live {
+                    let _ = self.live.send(entry);
+                }
+            }
             Err(TrySendError::Full(_)) => Metrics::inc(&self.metrics.dropped, 1),
             Err(TrySendError::Disconnected(_)) => {
                 tracing::error!("write queue closed; dropping entry");

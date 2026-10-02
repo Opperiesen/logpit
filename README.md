@@ -14,7 +14,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   key/value fields, which are indexed for search and filterable by exact match.
 - **Storage**: SQLite (WAL) with FTS5 full-text search, batched writes,
   automatic retention.
-- **Search**: `GET /api/logs` and a minimal built-in web UI at `/`.
+- **Search**: `GET /api/logs`, a live tail (`GET /api/tail`, server-sent events) and a
+  minimal built-in web UI at `/` with a *Live* toggle.
 - **Robustness**: bounded queue with drop counters (no unbounded memory),
   message size limits, TCP connection limits and idle timeouts, graceful
   shutdown that flushes pending writes, parser tested against malformed input.
@@ -123,6 +124,18 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `f` | `key:value` exact match on a structured field; repeat to combine (e.g. `f=act:blocked&f=proto:TCP`) |
 | `since`, `until` | Unix timestamps in milliseconds |
 | `limit` | 1–1000, default 100 |
+
+## Live tail
+
+```sh
+curl -N -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/tail?host=pve&level=4'
+```
+
+Streams new entries as server-sent events (one JSON object per `data:` line). It accepts
+the `q`, `host`, `app`, `level` and `f` filters of `/api/logs`; `since`, `until` and `limit`
+are ignored. Unlike search, `q` here is a case-insensitive substring match on the message
+and field values. Only entries ingested after the connection opens are sent. A slow client
+gets a `lagged` event with the number of skipped entries; at most 32 clients may tail at once.
 
 ## Structured fields (CEF)
 
