@@ -14,6 +14,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   key/value fields, which are indexed for search and filterable by exact match.
 - **Storage**: SQLite (WAL) with FTS5 full-text search, batched writes,
   automatic retention.
+- **Export and backup**: stream matching entries as NDJSON or CSV, and take consistent database
+  backups while LogPit runs.
 - **Search**: `GET /api/logs`, volume statistics per time bucket (`GET /api/stats`) and per host (`GET /api/hosts`), a live tail (`GET /api/tail`, server-sent events) and a
   minimal built-in web UI at `/` with a *Live* toggle.
 - **Robustness**: bounded queue with drop counters (no unbounded memory),
@@ -53,9 +55,9 @@ Ready-to-use files live in [`contrib/`](contrib/):
 
 Change the image tag and recreate the container; the data volume is kept. Read the
 [changelog](CHANGELOG.md) first: some releases migrate the database schema, and a
-migrated database cannot be opened by older versions, so **back up the volume
-before upgrading** (copy `logpit.db` and `logpit.db-wal` from `/data`). Rolling
-back means restoring that backup and the previous tag.
+migrated database cannot be opened by older versions, so **back up the database
+before upgrading** (see [Export and backup](#export-and-backup)). Rolling back means
+restoring that backup and the previous tag.
 
 ## Configuration
 
@@ -235,6 +237,42 @@ current filters and time range, lists every host even when one is selected, refr
 chart in Live mode, and clicking a host filters the log table on it. Click a column header to sort by it (again to reverse; Enter or Space works with the
 keyboard); the choice is remembered, and the server does the sorting, so the 200 hosts shown
 are the first 200 in that order.
+
+## Export and backup
+
+**Export** streams the entries matching the search filters, oldest first, as a download:
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" -o logpit.ndjson \
+  'http://localhost:8080/api/export?host=pve&level=4&since=1700000000000'
+curl -H "Authorization: Bearer $TOKEN" -o logpit.csv 'http://localhost:8080/api/export?format=csv'
+```
+
+It takes the filters of `/api/logs`, `format` (`ndjson`, the default, or `csv`) and an optional
+`limit` (any size; without it the whole match is exported). Rows are read and sent
+incrementally, so memory does not grow with the size of the export. It needs the `read` scope,
+and at most 2 exports run at once (others get `503`). NDJSON lines use the same keys as
+`POST /ingest` (`ts`, `host`, `app`, `severity`, `message`, `fields`), so an export can be loaded
+into another instance with `curl --data-binary @logpit.ndjson …/ingest`. CSV has the columns
+`id,ts,time,host,app,severity,message,fields` (`time` is ISO 8601 UTC, `fields` is JSON); log
+text is untrusted, so be careful opening a CSV in a spreadsheet, which may interpret cells
+starting with `=`, `+`, `-` or `@` as formulas. The *Export* buttons in the web UI download the
+current view, up to 100,000 entries (the browser has to hold the file in memory); use the API
+for more.
+
+**Backup** writes a consistent copy of the database to a new file, safely while LogPit is
+running (it uses SQLite's `VACUUM INTO` and checks the result):
+
+```sh
+podman exec logpit /logpit --backup /data/backup-$(date +%F).db
+podman cp logpit:/data/backup-$(date +%F).db .
+# without a container
+logpit --config logpit.toml --backup /var/backups/logpit-$(date +%F).db
+```
+
+It reads the database of the usual configuration (`LOGPIT_STORAGE_PATH` or the config file), never
+overwrites an existing file, does not migrate the schema, and leaves a file you can restore by
+putting it back at the storage path while LogPit is stopped.
 
 ## Live tail
 

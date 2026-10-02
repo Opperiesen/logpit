@@ -27,6 +27,8 @@
   .s0,.s1,.s2,.s3 { color:#d1242f; } .s4 { color:#bf8700; } .s5 { color:#0969da; } .s6 { color:var(--muted); } .s7 { color:var(--muted); opacity:.7; }
   :root { --c0:#4e79a7; --c1:#f28e2b; --c2:#59a14f; --c3:#b07aa1; --c4:#76b7b2; --c5:#edc948; --c6:#ff9da7; --c7:#9c755f; --c8:#af7aa1; --c9:#86bc86; --other:#8b949e; }
   #chartbar { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; padding:6px 16px; font-size:12px; color:var(--muted); }
+  #chartbar .exp { margin-left:auto; display:flex; align-items:center; gap:6px; }
+  #chartbar .exp button { padding:1px 8px; font-size:11px; }
   #chartbar select { padding:2px 6px; font-size:12px; }
   #legend { display:flex; flex-wrap:wrap; gap:2px 12px; }
   .lg { display:inline-flex; align-items:center; gap:5px; }
@@ -82,6 +84,10 @@
     <select id="group"><option value="severity">severity</option><option value="host">host</option><option value="app">app</option></select>
   </label>
   <div id="legend"></div>
+  <span class="exp">Export
+    <button id="expNdjson" type="button" title="Download the matching entries as NDJSON (up to 100,000)">NDJSON</button>
+    <button id="expCsv" type="button" title="Download the matching entries as CSV (up to 100,000)">CSV</button>
+  </span>
 </div>
 <svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" hidden></svg>
 <details id="hosts">
@@ -325,6 +331,41 @@ async function loadChart() {
     bar.hidden = false;
   } catch { hide(); }
 }
+
+// Download the entries of the last search (its filters and time window) through /api/export.
+// The browser cannot stream a download that needs an Authorization header, so the file is
+// collected in memory first; hence the cap. Use the API directly for larger exports.
+const EXPORT_LIMIT = 100000;
+async function exportLogs(format) {
+  if (!snap) return;
+  const buttons = [$('expNdjson'), $('expCsv')];
+  const p = new URLSearchParams();
+  for (const k of SNAP_KEYS) if (snap[k]) p.set(k, snap[k]);
+  applyWindow(p, snap);
+  p.set('format', format);
+  p.set('limit', String(EXPORT_LIMIT));
+  buttons.forEach(b => b.disabled = true);
+  $('status').textContent = 'exporting…';
+  try {
+    const res = await fetch('/api/export?' + p, { headers: authHeaders() });
+    if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'logpit-export.' + (format === 'csv' ? 'csv' : 'ndjson');
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    $('status').textContent = 'exported ' + (blob.size / 1e6).toFixed(1) + ' MB (up to ' + EXPORT_LIMIT.toLocaleString() + ' entries)';
+  } catch (e) {
+    $('status').textContent = 'export failed: ' + String(e.message || e);
+  } finally {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+$('expNdjson').onclick = () => exportLogs('ndjson');
+$('expCsv').onclick = () => exportLogs('csv');
 
 // Per-host summary of the current filters (all hosts, even when one is selected).
 function ago(ms) {

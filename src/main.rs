@@ -15,27 +15,36 @@ use logpit::store;
 use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
-const USAGE: &str = "usage: logpit [--config <path>] [--healthcheck] | --help | --version
+const USAGE: &str =
+    "usage: logpit [--config <path>] [--healthcheck] [--backup <file>] | --help | --version
 
 Configuration comes from the TOML file (--config, $LOGPIT_CONFIG or ./logpit.toml)
 and LOGPIT_* environment variables, which take precedence.
---healthcheck probes the running instance's /healthz and exits 0 or 1.";
+--healthcheck probes the running instance's /healthz and exits 0 or 1.
+--backup writes a consistent copy of the database to a new file (safe while LogPit runs).";
 
 struct Args {
     config: Option<PathBuf>,
     healthcheck: bool,
+    backup: Option<PathBuf>,
 }
 
 fn parse_args() -> anyhow::Result<Args> {
     let mut args = std::env::args().skip(1);
     let mut config = std::env::var_os("LOGPIT_CONFIG").map(PathBuf::from);
     let mut healthcheck = false;
+    let mut backup = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--config" | "-c" => {
                 config = Some(PathBuf::from(args.next().context("--config needs a path")?));
             }
             "--healthcheck" => healthcheck = true,
+            "--backup" => {
+                backup = Some(PathBuf::from(
+                    args.next().context("--backup needs a file path")?,
+                ));
+            }
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -50,6 +59,7 @@ fn parse_args() -> anyhow::Result<Args> {
     Ok(Args {
         config,
         healthcheck,
+        backup,
     })
 }
 
@@ -149,6 +159,13 @@ async fn main() -> anyhow::Result<()> {
         return logpit::health::check(logpit::health::probe_target(listen));
     }
 
+    if let Some(dest) = &args.backup {
+        let cfg = Config::load(args.config.as_deref())?;
+        let size = store::backup(&cfg.storage.path, dest)?;
+        println!("backup written to {} ({size} bytes)", dest.display());
+        return Ok(());
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
@@ -197,6 +214,7 @@ async fn main() -> anyhow::Result<()> {
         sink: sink.clone(),
         db_path: db_path.clone(),
         auth: Arc::new(cfg.auth()),
+        exports: Arc::new(tokio::sync::Semaphore::new(api::MAX_EXPORTS)),
     };
     if !state.auth.enabled() && !http.ip().is_loopback() {
         tracing::warn!("HTTP API is exposed on {http} without any token; set http.token");

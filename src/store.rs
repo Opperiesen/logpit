@@ -523,20 +523,84 @@ pub fn search(conn: &Connection, q: &Query) -> rusqlite::Result<Vec<Row>> {
     let args = filter.args;
 
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(args.iter().map(|a| a.as_ref())), |r| {
-        Ok(Row {
-            id: r.get(0)?,
-            ts: r.get(1)?,
-            host: r.get(2)?,
-            app: r.get(3)?,
-            severity: r.get(4)?,
-            message: r.get(5)?,
-            fields: r
-                .get::<_, Option<String>>(6)?
-                .and_then(|text| serde_json::from_str(&text).ok()),
-        })
-    })?;
+    let rows = stmt.query_map(params_from_iter(args.iter().map(|a| a.as_ref())), map_row)?;
     rows.collect()
+}
+
+fn map_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Row> {
+    Ok(Row {
+        id: r.get(0)?,
+        ts: r.get(1)?,
+        host: r.get(2)?,
+        app: r.get(3)?,
+        severity: r.get(4)?,
+        message: r.get(5)?,
+        fields: r
+            .get::<_, Option<String>>(6)?
+            .and_then(|text| serde_json::from_str(&text).ok()),
+    })
+}
+
+/// Visits the entries matching `q` oldest first, without loading them all in memory, stopping
+/// early when `each` returns false or after `limit` entries. Returns how many were visited.
+pub fn export_rows(
+    conn: &Connection,
+    q: &Query,
+    limit: Option<u64>,
+    each: &mut dyn FnMut(Row) -> bool,
+) -> rusqlite::Result<u64> {
+    let mut filter = Filter::new(q)?;
+    let mut sql = String::from(
+        "SELECT l.id, l.ts, l.host, l.app, l.severity, l.message, l.fields FROM logs l",
+    );
+    sql.push_str(&filter.sql());
+    sql.push_str(" ORDER BY l.ts, l.id");
+    if let Some(n) = limit {
+        sql.push_str(" LIMIT ?");
+        filter
+            .args
+            .push(Box::new(i64::try_from(n).unwrap_or(i64::MAX)));
+    }
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query(params_from_iter(filter.args.iter().map(|a| a.as_ref())))?;
+    let mut n = 0;
+    while let Some(r) = rows.next()? {
+        n += 1;
+        if !each(map_row(r)?) {
+            break;
+        }
+    }
+    Ok(n)
+}
+
+/// Writes a consistent copy of the database at `db` to the new file `dest` (`VACUUM INTO`),
+/// which is safe while LogPit is running, then checks the copy. Returns its size in bytes.
+/// The schema is not migrated and an existing `dest` is never overwritten.
+pub fn backup(db: &Path, dest: &Path) -> anyhow::Result<u64> {
+    use rusqlite::OpenFlags;
+    if !db.exists() {
+        anyhow::bail!("database {} does not exist", db.display());
+    }
+    if dest.exists() {
+        anyhow::bail!("{} already exists; choose a new file name", dest.display());
+    }
+    let dest_str = dest
+        .to_str()
+        .with_context(|| format!("backup path {} is not valid UTF-8", dest.display()))?;
+    let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .with_context(|| format!("cannot open database {}", db.display()))?;
+    conn.busy_timeout(Duration::from_secs(30))?;
+    conn.execute("VACUUM INTO ?1", [dest_str])
+        .with_context(|| format!("cannot write backup to {}", dest.display()))?;
+    let copy = Connection::open_with_flags(dest, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let verdict: String = copy.pragma_query_value(None, "quick_check", |r| r.get(0))?;
+    if verdict != "ok" {
+        anyhow::bail!(
+            "backup written to {} failed its integrity check: {verdict}",
+            dest.display()
+        );
+    }
+    Ok(std::fs::metadata(dest)?.len())
 }
 
 #[cfg(test)]
@@ -869,6 +933,92 @@ mod tests {
                 desc: true
             }
         );
+    }
+
+    #[test]
+    fn export_visits_matching_rows_oldest_first() {
+        let mut conn = mem();
+        let batch = vec![
+            entry(300, "pve", 6, "third"),
+            entry(100, "nas", 6, "first"),
+            entry(200, "pve", 3, "second disk error"),
+            entry(400, "pve", 6, "fourth"),
+        ];
+        insert_batch(&mut conn, &batch).unwrap();
+        let collect = |q: &Query, limit| {
+            let mut got = Vec::new();
+            let n = export_rows(&conn, q, limit, &mut |r| {
+                got.push(r.message);
+                true
+            })
+            .unwrap();
+            (n, got)
+        };
+        assert_eq!(
+            collect(&q(0), None).1,
+            ["first", "second disk error", "third", "fourth"]
+        );
+        assert_eq!(collect(&q(0), Some(2)).1, ["first", "second disk error"]);
+        let pve = Query {
+            host: Some("pve".into()),
+            ..q(0)
+        };
+        assert_eq!(collect(&pve, None).0, 3);
+        let text = Query {
+            text: Some("disk".into()),
+            ..q(0)
+        };
+        assert_eq!(collect(&text, None).1, ["second disk error"]);
+        // The visitor can stop the scan.
+        let mut seen = 0;
+        export_rows(&conn, &q(0), None, &mut |_| {
+            seen += 1;
+            false
+        })
+        .unwrap();
+        assert_eq!(seen, 1);
+    }
+
+    #[test]
+    fn backup_copies_a_live_database_and_refuses_to_overwrite() {
+        let dir = std::env::temp_dir().join(format!("logpit-backup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (src, dest) = (dir.join("src.db"), dir.join("copy.db"));
+        let mut conn = open(&src).unwrap();
+        insert_batch(
+            &mut conn,
+            &[
+                entry(1, "pve", 6, "keep me"),
+                entry(2, "nas", 3, "disk error"),
+            ],
+        )
+        .unwrap();
+
+        // The source stays open (as it would under a running server) while it is copied.
+        let size = backup(&src, &dest).unwrap();
+        assert!(size > 0);
+        let copy = open(&dest).unwrap();
+        let rows = search(
+            &copy,
+            &Query {
+                text: Some("keep".into()),
+                ..q(10)
+            },
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        let version: i64 = copy
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        assert!(
+            backup(&src, &dest).is_err(),
+            "an existing file is never overwritten"
+        );
+        assert!(backup(&dir.join("missing.db"), &dir.join("x.db")).is_err());
+        drop((conn, copy));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

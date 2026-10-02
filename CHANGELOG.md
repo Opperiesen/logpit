@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Export: `GET /api/export` streams the entries matching the search filters as NDJSON (re-ingestable
+  through `/ingest`) or CSV, oldest first, with an optional `limit`. The web UI gets *Export* buttons
+  (up to 100,000 entries).
+- Backup: `logpit --backup <file>` writes a consistent, verified copy of the database with
+  `VACUUM INTO`, safe while LogPit is running. The upgrade instructions now use it.
+
 ## 0.4.7 - 2026-10-02
 
 - Web UI: the last search (filters, time range or zoomed window, chart grouping) is kept in the URL, so

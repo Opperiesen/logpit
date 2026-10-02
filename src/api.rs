@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Query as QueryParams, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
@@ -14,6 +15,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use crate::auth::{Auth, Decision, Scope};
+use crate::export::Format;
 use crate::ingest::{Sink, now_ms};
 use crate::metrics::Metrics;
 use crate::model::LogEntry;
@@ -23,6 +25,10 @@ use crate::store::{self, GroupBy, HostSort, HostSortKey, Query};
 const MAX_LIMIT: usize = 1000;
 const DEFAULT_LIMIT: usize = 100;
 const MAX_TAIL_SUBSCRIBERS: usize = 32;
+/// Exports that may run at the same time.
+pub const MAX_EXPORTS: usize = 2;
+/// Formatted rows are sent to the client in chunks of about this many bytes.
+const EXPORT_CHUNK_BYTES: usize = 64 * 1024;
 const INDEX_HTML: &str = include_str!("web/index.html");
 
 #[derive(Clone)]
@@ -30,6 +36,8 @@ pub struct AppState {
     pub sink: Sink,
     pub db_path: PathBuf,
     pub auth: Arc<Auth>,
+    /// Bounds concurrent exports, which each hold a database read transaction open.
+    pub exports: Arc<tokio::sync::Semaphore>,
 }
 
 pub fn router(state: AppState, max_body_bytes: usize) -> Router {
@@ -45,6 +53,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/api/tail", get(tail))
         .route("/api/stats", get(stats))
         .route("/api/hosts", get(hosts))
+        .route("/api/export", get(export))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Read),
             require_scope,
@@ -421,6 +430,94 @@ async fn hosts(
     }
 }
 
+/// `format` (`ndjson`, the default, or `csv`) and an optional `limit` (any size, unlike search)
+/// on top of the search filters.
+fn parse_export(params: Vec<(String, String)>) -> Result<(Query, Format, Option<u64>), String> {
+    let mut format = Format::Ndjson;
+    let mut limit = None;
+    let mut rest = Vec::new();
+    for (k, v) in params {
+        match k.as_str() {
+            "format" => format = Format::parse(&v).ok_or("format must be ndjson or csv")?,
+            "limit" if !v.is_empty() => {
+                limit = Some(
+                    v.parse::<u64>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or("invalid limit")?,
+                );
+            }
+            // Search's own limit (capped at 1000) does not apply to exports.
+            "limit" => {}
+            _ => rest.push((k, v)),
+        }
+    }
+    Ok((parse_search(rest)?, format, limit))
+}
+
+/// Streams the entries matching the search filters, oldest first, as an NDJSON or CSV download.
+/// Rows are read and sent incrementally, so memory use does not depend on the export size.
+async fn export(
+    State(state): State<AppState>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let (query, format, limit) = match parse_export(params) {
+        Ok(r) => r,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let Ok(permit) = state.exports.clone().try_acquire_owned() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many exports running; retry shortly",
+        )
+            .into_response();
+    };
+    let path = state.db_path.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(4);
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let run = || -> anyhow::Result<()> {
+            let conn = store::open(&path)?;
+            let mut buf = String::from(format.header());
+            let mut open = true;
+            store::export_rows(&conn, &query, limit, &mut |row| {
+                format.write_row(&mut buf, &row);
+                if buf.len() >= EXPORT_CHUNK_BYTES {
+                    // A send error means the client went away: stop reading.
+                    open = tx
+                        .blocking_send(Ok(Bytes::from(std::mem::take(&mut buf))))
+                        .is_ok();
+                }
+                open
+            })?;
+            if open && !buf.is_empty() {
+                let _ = tx.blocking_send(Ok(Bytes::from(buf)));
+            }
+            Ok(())
+        };
+        if let Err(e) = run() {
+            tracing::error!("export failed: {e:#}");
+            // The status line is already sent; abort the body so the client sees a truncated
+            // download rather than a complete-looking one.
+            let _ = tx.blocking_send(Err(std::io::Error::other("export failed")));
+        }
+    });
+    let body = Body::from_stream(futures_util::stream::poll_fn(move |cx| rx.poll_recv(cx)));
+    let disposition = format!(
+        "attachment; filename=\"logpit-export.{}\"",
+        format.extension()
+    );
+    (
+        [
+            (header::CONTENT_TYPE, format.content_type().to_string()),
+            (header::CONTENT_DISPOSITION, disposition),
+            (header::CACHE_CONTROL, "no-store".to_string()),
+        ],
+        body,
+    )
+        .into_response()
+}
+
 /// Server-sent events stream of newly ingested entries matching the search filters
 /// (`q`, `host`, `app`, `level`, `f`). A `lagged` event reports entries skipped when
 /// the client reads too slowly.
@@ -555,6 +652,29 @@ mod tests {
         assert!(parse_hosts(p(&[("sort", "message")])).is_err());
         assert!(parse_hosts(p(&[("order", "up")])).is_err());
         assert!(parse_hosts(p(&[("since", "x")])).is_err());
+    }
+
+    #[test]
+    fn export_params_parse_and_validate() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let (q, f, l) = parse_export(p(&[("host", "pve")])).unwrap();
+        assert_eq!(
+            (q.host.as_deref(), f, l),
+            (Some("pve"), Format::Ndjson, None)
+        );
+        // Unlike search, a limit above 1000 is accepted and not clamped.
+        let (_, f, l) = parse_export(p(&[("format", "csv"), ("limit", "5000000")])).unwrap();
+        assert_eq!((f, l), (Format::Csv, Some(5_000_000)));
+        let (_, _, l) = parse_export(p(&[("limit", "")])).unwrap();
+        assert_eq!(l, None);
+        assert!(parse_export(p(&[("format", "xml")])).is_err());
+        assert!(parse_export(p(&[("limit", "0")])).is_err());
+        assert!(parse_export(p(&[("limit", "many")])).is_err());
+        assert!(parse_export(p(&[("since", "x")])).is_err());
     }
 
     #[test]
