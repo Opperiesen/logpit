@@ -131,6 +131,12 @@ impl LiveSettings {
         if old.syslog.tcp_listen != new.syslog.tcp_listen {
             out.push("syslog.tcp_listen");
         }
+        if old.gelf.udp_listen != new.gelf.udp_listen {
+            out.push("gelf.udp_listen");
+        }
+        if old.gelf.tcp_listen != new.gelf.tcp_listen {
+            out.push("gelf.tcp_listen");
+        }
         // The TLS listener cannot be started or stopped by a reload, only its certificates change.
         let tls_wanted = tls_configured(new);
         if old.syslog.tls_listen != new.syslog.tls_listen || (tls_wanted != self.tls.is_some()) {

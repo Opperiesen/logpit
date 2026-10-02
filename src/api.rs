@@ -46,6 +46,8 @@ pub struct AppState {
 pub fn router(state: AppState, max_body_bytes: usize) -> Router {
     let write = Router::new()
         .route("/ingest", post(ingest))
+        .route("/loki/api/v1/push", post(loki_push))
+        .route("/gelf", post(gelf_ingest))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Write),
             require_scope,
@@ -72,12 +74,41 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .with_state(state)
 }
 
-fn bearer(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(header::AUTHORIZATION)?
-        .to_str()
-        .ok()?
-        .strip_prefix("Bearer ")
+/// Standard base64 (RFC 4648, padding optional); `None` for anything else.
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in text.trim_end_matches('=').bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
+/// The token a client presented: `Authorization: Bearer <token>`, or `Basic` credentials whose
+/// password is the token (the user name is ignored), which is how Promtail, Grafana Alloy and
+/// other Loki clients authenticate.
+fn credentials(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    if let Some(token) = value.strip_prefix("Bearer ") {
+        return Some(token.to_string());
+    }
+    let decoded = base64_decode(value.strip_prefix("Basic ")?.trim())?;
+    let text = String::from_utf8(decoded).ok()?;
+    Some(text.split_once(':')?.1.to_string())
 }
 
 async fn require_scope(
@@ -89,7 +120,7 @@ async fn require_scope(
         .settings
         .auth
         .get()
-        .check(bearer(req.headers()), scope)
+        .check(credentials(req.headers()).as_deref(), scope)
     {
         Decision::Allowed => next.run(req).await,
         Decision::Unauthorized => {
@@ -172,6 +203,90 @@ pub fn entry_from_json(v: &Value, now: i64) -> Option<LogEntry> {
 struct IngestResult {
     accepted: usize,
     rejected: usize,
+}
+
+/// Loki's push API: JSON, or snappy-compressed protobuf (what Promtail and Grafana Alloy send).
+/// Labels become the host, app, level and fields; JSON or `key=value` data inside a line is
+/// extracted as well when structured parsing is on. Answers 204 like Loki.
+async fn loki_push(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    let text = |name: header::HeaderName| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase()
+    };
+    let (content_type, encoding) = (text(header::CONTENT_TYPE), text(header::CONTENT_ENCODING));
+    if !matches!(encoding.as_str(), "" | "identity" | "snappy") {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            format!(
+                "unsupported Content-Encoding {encoding:?}: send JSON or snappy-compressed protobuf"
+            ),
+        )
+            .into_response();
+    }
+    let is_json = content_type.contains("json");
+    let sink = state.sink.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
+        let streams = if is_json {
+            crate::loki::decode_json(&body)
+        } else {
+            let plain = crate::snappy::decompress(&body, crate::loki::MAX_DECOMPRESSED_BYTES)
+                .map_err(|e| e.to_string())?;
+            crate::loki::decode_protobuf(&plain)
+        }
+        .map_err(str::to_string)?;
+        let extract = sink
+            .settings()
+            .structured
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let now = now_ms();
+        let mut lines = 0;
+        for stream in &streams {
+            for line in &stream.lines {
+                let found = if extract {
+                    crate::structured::extract(&line.line)
+                } else {
+                    Vec::new()
+                };
+                sink.push(crate::loki::to_entry(&stream.labels, line, found, now));
+                lines += 1;
+            }
+        }
+        Ok(lines)
+    })
+    .await;
+    match result {
+        Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Err(msg)) => {
+            Metrics::inc(&state.sink.metrics().rejected, 1);
+            (StatusCode::BAD_REQUEST, msg).into_response()
+        }
+        Err(e) => {
+            tracing::error!("loki push task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "push failed").into_response()
+        }
+    }
+}
+
+/// GELF over HTTP: one JSON message per request. Answers 202 like Graylog.
+async fn gelf_ingest(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    let encoding = headers
+        .get(header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !matches!(encoding, "" | "identity") {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "compressed GELF is not supported",
+        )
+            .into_response();
+    }
+    match state.sink.push_gelf(&body) {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
+    }
 }
 
 /// Accepts NDJSON (one object per line) or a single JSON array of objects.
@@ -738,6 +853,49 @@ mod tests {
         assert!(parse_hosts(p(&[("sort", "message")])).is_err());
         assert!(parse_hosts(p(&[("order", "up")])).is_err());
         assert!(parse_hosts(p(&[("since", "x")])).is_err());
+    }
+
+    #[test]
+    fn base64_and_credentials() {
+        assert_eq!(base64_decode("dXNlcjpwYXNz").unwrap(), b"user:pass");
+        assert_eq!(base64_decode("dXNlcjpwYXNzMQ==").unwrap(), b"user:pass1");
+        assert_eq!(
+            base64_decode("dXNlcjpwYXNzMQ").unwrap(),
+            b"user:pass1",
+            "padding is optional"
+        );
+        assert_eq!(base64_decode("").unwrap(), b"");
+        assert!(base64_decode("not base64!").is_none());
+        let headers = |v: &str| {
+            let mut h = HeaderMap::new();
+            h.insert(header::AUTHORIZATION, v.parse().unwrap());
+            h
+        };
+        assert_eq!(credentials(&headers("Bearer tok")).as_deref(), Some("tok"));
+        // Basic: the password is the token, whatever the user name (even an empty one).
+        assert_eq!(
+            credentials(&headers("Basic dXNlcjp0b2s=")).as_deref(),
+            Some("tok")
+        );
+        assert_eq!(
+            credentials(&headers("Basic OnRvaw==")).as_deref(),
+            Some("tok")
+        );
+        // A password containing a colon keeps it.
+        assert_eq!(
+            credentials(&headers("Basic dTpwOnE=")).as_deref(),
+            Some("p:q")
+        );
+        for bad in [
+            "Basic !!!",
+            "Basic dXNlcg==",
+            "Digest abc",
+            "bearer tok",
+            "Token tok",
+        ] {
+            assert!(credentials(&headers(bad)).is_none(), "{bad}");
+        }
+        assert!(credentials(&HeaderMap::new()).is_none());
     }
 
     #[test]

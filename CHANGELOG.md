@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Loki and GELF input: `POST /loki/api/v1/push` accepts Loki's JSON and snappy-compressed protobuf (Promtail,
+  Grafana Alloy, Vector…), authenticating with the write token as bearer token or basic-auth password;
+  labels map to host, app, level and fields. GELF is accepted at `POST /gelf` and on optional UDP and TCP
+  listeners (`[gelf]` / `LOGPIT_GELF_*`); compressed and chunked GELF is refused with an explanation.
+  Snappy and protobuf are decoded by small built-in readers, with no new dependency.
+
 - Reload on `SIGHUP`: ingestion rules, alerts, rate limits, structured parsing, silence thresholds and
   webhook, API tokens and secret files, and the syslog TLS certificate files are applied without a restart
   or dropping connections. The reload is all-or-nothing (a typo, bad regex or unreadable certificate leaves

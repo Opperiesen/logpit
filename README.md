@@ -7,7 +7,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 
 ## Features
 
-- **Ingestion**: syslog over UDP, TCP and TLS (RFC 5424 and RFC 3164, newline or octet-counted
+- **Ingestion**: the Loki push API (Promtail, Alloy…), GELF, syslog over UDP, TCP and TLS (RFC 5424 and RFC 3164, newline or octet-counted
   framing, optional client certificates), and HTTP
   (`POST /ingest`) accepting NDJSON or a JSON array, including raw
   `journalctl -o json` output.
@@ -73,6 +73,7 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_HTTP_LISTEN` | `0.0.0.0:8080` | Web UI and API address |
 | `LOGPIT_SYSLOG_UDP_LISTEN` | `0.0.0.0:5514` | Empty string disables UDP syslog |
 | `LOGPIT_SYSLOG_TCP_LISTEN` | `0.0.0.0:5514` | Empty string disables TCP syslog |
+| `LOGPIT_GELF_UDP_LISTEN`, `LOGPIT_GELF_TCP_LISTEN` | *(off)* | GELF listeners, e.g. `0.0.0.0:12201` (see [Loki and GELF](#loki-and-gelf)) |
 | `LOGPIT_SYSLOG_TLS_LISTEN` | *(off)* | Address of the syslog-over-TLS listener, e.g. `0.0.0.0:6514`; needs the next two |
 | `LOGPIT_SYSLOG_TLS_CERT`, `LOGPIT_SYSLOG_TLS_KEY` | | PEM certificate chain and private key for the TLS listener |
 | `LOGPIT_SYSLOG_TLS_CLIENT_CA` | | PEM CA file: clients must then present a certificate issued by it |
@@ -117,6 +118,58 @@ Syslog (rsyslog, on any Linux host or router):
 ```
 *.* @@logpit-host:514      # TCP; use a single @ for UDP
 ```
+
+### Loki and GELF
+
+Existing log shippers can send to LogPit without a script.
+
+**Loki push API** (`POST /loki/api/v1/push`, JSON or snappy-compressed protobuf, so Promtail,
+Grafana Alloy, Vector, Fluent Bit and Docker's Loki driver work). It needs the `write` token as a
+bearer token, or as the **password** of HTTP basic auth (the user name is ignored), which is how
+Loki clients usually authenticate:
+
+```yaml
+# Promtail
+clients:
+  - url: http://logpit-host:8080/loki/api/v1/push
+    basic_auth: { username: promtail, password: <write token> }
+```
+
+```
+// Grafana Alloy
+loki.write "logpit" {
+  endpoint {
+    url        = "http://logpit-host:8080/loki/api/v1/push"
+    basic_auth { username = "alloy"  password = sys.env("LOGPIT_WRITE_TOKEN") }
+  }
+}
+```
+
+Labels become LogPit's fields: the first of `host`, `hostname`, `nodename`, `node_name`,
+`instance` is the host; the first of `app`, `service_name`, `service`, `job`, `container`, `unit`,
+`syslog_identifier` is the app; `level`, `severity`, `detected_level` or `log_level` sets the severity
+(`debug`, `info`, `warn`, `error`, `fatal`… or 0-7; info by default); every other label, and
+Loki's structured metadata, is kept as a filterable field. JSON or `key=value` inside a line is
+extracted too (see [structured fields](#structured-fields)), with labels winning on a clash. A
+missing host is `unknown`. Answers `204`. Gzip-compressed bodies, tenants (`X-Scope-OrgID` is
+ignored) and Loki's query API are not supported: this is an input only.
+
+**GELF** (Graylog's JSON format): `POST /gelf` on the HTTP port (needs the write token, answers
+`202`), plus optional listeners:
+
+```sh
+-e LOGPIT_GELF_UDP_LISTEN=0.0.0.0:12201 -e LOGPIT_GELF_TCP_LISTEN=0.0.0.0:12202
+docker run --log-driver gelf --log-opt gelf-address=udp://logpit-host:12201 \
+  --log-opt gelf-compression-type=none …
+```
+
+`host`, `level` (0-7), `timestamp` (seconds, fractions allowed), `short_message` (required) and
+`full_message` (appended on a new line) map to the entry, `_app`/`_facility`… name the app, and
+other `_custom` fields become fields (`_id` is reserved). TCP messages end with a NUL byte or a
+newline. **Compressed (gzip, zlib) and chunked UDP messages are not supported**: they are refused
+(logged once, counted in `logpit_rejected_total`), so set the sender's compression to none. The
+UDP and TCP listeners are unauthenticated like syslog; keep them on a trusted network, or use
+`POST /gelf` with a token.
 
 ### Syslog over TLS
 

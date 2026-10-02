@@ -150,6 +150,20 @@ impl Sink {
         }
     }
 
+    /// Parses a GELF message and enqueues it; the error says why it was refused.
+    pub fn push_gelf(&self, data: &[u8]) -> Result<(), &'static str> {
+        match crate::gelf::parse(data, now_ms()) {
+            Ok(entry) => {
+                self.push(entry);
+                Ok(())
+            }
+            Err(e) => {
+                Metrics::inc(&self.metrics.rejected, 1);
+                Err(e)
+            }
+        }
+    }
+
     /// Parses a raw syslog message and enqueues it.
     pub fn push_syslog(&self, raw: &str, peer: &str) {
         match syslog::parse(raw, peer, now_ms()) {
@@ -175,6 +189,60 @@ pub async fn run_udp(addr: SocketAddr, sink: Sink) -> anyhow::Result<()> {
             }
         }
     }
+}
+
+/// GELF over UDP: one message per datagram.
+pub async fn run_gelf_udp(addr: SocketAddr, sink: Sink) -> anyhow::Result<()> {
+    let socket = UdpSocket::bind(addr).await?;
+    tracing::info!("GELF UDP listening on {addr}");
+    let mut buf = vec![0u8; 65_536];
+    let mut warned = false;
+    loop {
+        match socket.recv_from(&mut buf).await {
+            Ok((n, peer)) => {
+                if let Err(e) = sink.push_gelf(&buf[..n]) {
+                    // A sender using compression would otherwise fail silently: say so once.
+                    if !warned {
+                        warned = true;
+                        tracing::warn!(
+                            "GELF datagram from {} refused: {e} (further refusals are only counted)",
+                            peer.ip()
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("GELF UDP receive error: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+}
+
+/// GELF over TCP: messages separated by a NUL byte or a newline.
+pub async fn run_gelf_tcp(addr: SocketAddr, sink: Sink) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(addr).await?;
+    tracing::info!("GELF TCP listening on {addr}");
+    accept_loop(listener, "GELF TCP", move |stream, peer| {
+        let sink = sink.clone();
+        async move {
+            let mut frames = FramedRead::new(stream, crate::gelf::GelfFrames::new(MAX_LINE_BYTES));
+            loop {
+                match timeout(TCP_IDLE_TIMEOUT, frames.next()).await {
+                    Ok(Some(Ok(message))) => {
+                        let _ = sink.push_gelf(&message);
+                    }
+                    Ok(Some(Err(e))) => {
+                        tracing::warn!("closing GELF connection from {peer}: {e}");
+                        Metrics::inc(&sink.metrics().rejected, 1);
+                        return;
+                    }
+                    Ok(None) | Err(_) => return,
+                }
+            }
+        }
+    })
+    .await
 }
 
 pub async fn run_tcp(addr: SocketAddr, sink: Sink) -> anyhow::Result<()> {

@@ -71,3 +71,9 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # per_host_per_sec = 500
 # burst = 2000               # default: 4x per_host_per_sec
 # global_per_sec = 5000
+
+# GELF listeners (Graylog JSON format; empty = off). POST /gelf on the HTTP port is always available,
+# as is the Loki push API at /loki/api/v1/push.
+# [gelf]
+# udp_listen = "0.0.0.0:12201"
+# tcp_listen = "0.0.0.0:12202"

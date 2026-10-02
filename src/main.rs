@@ -248,6 +248,8 @@ async fn main() -> anyhow::Result<()> {
     let udp = parse_addr("syslog.udp_listen", &cfg.syslog.udp_listen)?;
     let tcp = parse_addr("syslog.tcp_listen", &cfg.syslog.tcp_listen)?;
     let tls = parse_addr("syslog.tls_listen", &cfg.syslog.tls_listen)?;
+    let gelf_udp = parse_addr("gelf.udp_listen", &cfg.gelf.udp_listen)?;
+    let gelf_tcp = parse_addr("gelf.tcp_listen", &cfg.gelf.tcp_listen)?;
     let http: SocketAddr = cfg
         .http
         .listen
@@ -310,6 +312,12 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Some(addr) = tcp {
         tasks.spawn(ingest::run_tcp(addr, sink.clone()));
+    }
+    if let Some(addr) = gelf_udp {
+        tasks.spawn(ingest::run_gelf_udp(addr, sink.clone()));
+    }
+    if let Some(addr) = gelf_tcp {
+        tasks.spawn(ingest::run_gelf_tcp(addr, sink.clone()));
     }
     if let (Some(addr), Some(acceptor)) = (tls, settings.tls.clone()) {
         tasks.spawn(ingest::run_tls(addr, sink.clone(), acceptor));

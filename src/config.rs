@@ -16,6 +16,7 @@ pub struct Config {
     pub ingest: IngestConfig,
     /// Pattern alerts (`[[alerts]]`), notified through the webhook configured under `[silence]`.
     pub alerts: Vec<crate::alerts::AlertConfig>,
+    pub gelf: GelfConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -73,6 +74,16 @@ pub struct HttpConfig {
 pub struct TokenConfig {
     pub token: String,
     pub scopes: Vec<Scope>,
+}
+
+/// GELF listeners (Graylog's JSON log format). `POST /gelf` on the HTTP port is always available.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct GelfConfig {
+    /// UDP listen address; empty string (the default) disables it.
+    pub udp_listen: String,
+    /// TCP listen address (messages separated by NUL or newline); empty string disables it.
+    pub tcp_listen: String,
 }
 
 /// How incoming entries are processed before they are stored.
@@ -273,6 +284,12 @@ impl Config {
                     .parse()
                     .with_context(|| format!("invalid {name} {v:?} (a whole number, 0 = off)"))?;
             }
+        }
+        if let Some(v) = get("LOGPIT_GELF_UDP_LISTEN") {
+            self.gelf.udp_listen = v;
+        }
+        if let Some(v) = get("LOGPIT_GELF_TCP_LISTEN") {
+            self.gelf.tcp_listen = v;
         }
         if let Some(v) = get("LOGPIT_SYSLOG_TLS_LISTEN") {
             self.syslog.tls_listen = v;
@@ -660,6 +677,27 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_SILENCE_WEBHOOK_FORMAT", "xml")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn gelf_config() {
+        let cfg =
+            Config::parse("[gelf]\nudp_listen = \"0.0.0.0:12201\"\ntcp_listen = \"0.0.0.0:12202\"")
+                .unwrap();
+        assert_eq!(
+            (cfg.gelf.udp_listen.as_str(), cfg.gelf.tcp_listen.as_str()),
+            ("0.0.0.0:12201", "0.0.0.0:12202")
+        );
+        let off = Config::parse("").unwrap();
+        assert!(
+            off.gelf.udp_listen.is_empty() && off.gelf.tcp_listen.is_empty(),
+            "off by default"
+        );
+        assert!(Config::parse("[gelf]\nbogus = 1").is_err());
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[("LOGPIT_GELF_UDP_LISTEN", "127.0.0.1:12201")]))
+            .unwrap();
+        assert_eq!(cfg.gelf.udp_listen, "127.0.0.1:12201");
     }
 
     #[test]
