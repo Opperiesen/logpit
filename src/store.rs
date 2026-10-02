@@ -14,7 +14,7 @@ use serde::Serialize;
 use crate::metrics::Metrics;
 use crate::model::LogEntry;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const MIGRATION_1: &str = "
 CREATE TABLE logs (
@@ -36,6 +36,22 @@ CREATE TRIGGER logs_ad AFTER DELETE ON logs BEGIN
 END;
 ";
 
+/// v2: structured `fields` (JSON object) stored per entry and indexed for full-text search.
+const MIGRATION_2: &str = "
+ALTER TABLE logs ADD COLUMN fields TEXT;
+DROP TRIGGER logs_ai;
+DROP TRIGGER logs_ad;
+DROP TABLE logs_fts;
+CREATE VIRTUAL TABLE logs_fts USING fts5(message, fields, content='logs', content_rowid='id');
+CREATE TRIGGER logs_ai AFTER INSERT ON logs BEGIN
+    INSERT INTO logs_fts(rowid, message, fields) VALUES (new.id, new.message, new.fields);
+END;
+CREATE TRIGGER logs_ad AFTER DELETE ON logs BEGIN
+    INSERT INTO logs_fts(logs_fts, rowid, message, fields) VALUES ('delete', old.id, old.message, old.fields);
+END;
+INSERT INTO logs_fts(logs_fts) VALUES ('rebuild');
+";
+
 /// Opens (creating and migrating if needed) the database at `path`.
 pub fn open(path: &Path) -> anyhow::Result<Connection> {
     let conn = Connection::open(path)
@@ -52,11 +68,13 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
     if version > SCHEMA_VERSION {
         anyhow::bail!("database schema v{version} is newer than this build (v{SCHEMA_VERSION})");
     }
-    if version < 1 {
-        conn.execute_batch(&format!(
-            "BEGIN; {MIGRATION_1} PRAGMA user_version = 1; COMMIT;"
-        ))
-        .context("schema migration failed")?;
+    for (target, sql) in [(1, MIGRATION_1), (2, MIGRATION_2)] {
+        if version < target {
+            conn.execute_batch(&format!(
+                "BEGIN; {sql} PRAGMA user_version = {target}; COMMIT;"
+            ))
+            .with_context(|| format!("schema migration to v{target} failed"))?;
+        }
     }
     Ok(())
 }
@@ -66,10 +84,14 @@ pub fn insert_batch(conn: &mut Connection, entries: &[LogEntry]) -> rusqlite::Re
     let tx = conn.transaction()?;
     {
         let mut stmt = tx.prepare_cached(
-            "INSERT INTO logs (ts, host, app, severity, message) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO logs (ts, host, app, severity, message, fields) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
         for e in entries {
-            stmt.execute(params![e.ts, e.host, e.app, e.severity, e.message])?;
+            let fields = (!e.fields.is_empty())
+                .then(|| serde_json::to_string(&e.fields))
+                .transpose()
+                .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+            stmt.execute(params![e.ts, e.host, e.app, e.severity, e.message, fields])?;
         }
     }
     tx.commit()
@@ -133,7 +155,18 @@ pub struct Query {
     pub max_severity: Option<u8>,
     pub since_ms: Option<i64>,
     pub until_ms: Option<i64>,
+    /// Exact-match filters on structured fields, as `(key, value)`; all must match.
+    pub fields: Vec<(String, String)>,
     pub limit: usize,
+}
+
+/// Field keys are restricted to a safe charset so they can be used in a JSON path.
+pub fn valid_field_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 64
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
 }
 
 #[derive(Debug, Serialize)]
@@ -144,6 +177,8 @@ pub struct Row {
     pub app: String,
     pub severity: u8,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields: Option<serde_json::Value>,
 }
 
 /// Turns free text into an FTS5 query where every word is a quoted literal, so
@@ -157,8 +192,9 @@ pub fn fts_query(text: &str) -> Option<String> {
 }
 
 pub fn search(conn: &Connection, q: &Query) -> rusqlite::Result<Vec<Row>> {
-    let mut sql =
-        String::from("SELECT l.id, l.ts, l.host, l.app, l.severity, l.message FROM logs l");
+    let mut sql = String::from(
+        "SELECT l.id, l.ts, l.host, l.app, l.severity, l.message, l.fields FROM logs l",
+    );
     let mut args: Vec<Box<dyn ToSql>> = Vec::new();
     let mut conds: Vec<&str> = Vec::new();
 
@@ -187,6 +223,14 @@ pub fn search(conn: &Connection, q: &Query) -> rusqlite::Result<Vec<Row>> {
         conds.push("l.ts <= ?");
         args.push(Box::new(t));
     }
+    for (key, value) in &q.fields {
+        if !valid_field_key(key) {
+            return Err(rusqlite::Error::InvalidParameterName(key.clone()));
+        }
+        conds.push("json_extract(l.fields, ?) = ?");
+        args.push(Box::new(format!("$.\"{key}\"")));
+        args.push(Box::new(value.clone()));
+    }
     if !conds.is_empty() {
         sql.push_str(" WHERE ");
         sql.push_str(&conds.join(" AND "));
@@ -203,6 +247,9 @@ pub fn search(conn: &Connection, q: &Query) -> rusqlite::Result<Vec<Row>> {
             app: r.get(3)?,
             severity: r.get(4)?,
             message: r.get(5)?,
+            fields: r
+                .get::<_, Option<String>>(6)?
+                .and_then(|text| serde_json::from_str(&text).ok()),
         })
     })?;
     rows.collect()
@@ -219,6 +266,7 @@ mod tests {
             app: "app".into(),
             severity: sev,
             message: msg.into(),
+            ..Default::default()
         }
     }
 
@@ -326,6 +374,98 @@ mod tests {
         .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].message, "new line");
+    }
+
+    #[test]
+    fn fields_are_stored_searchable_and_filterable() {
+        let mut conn = mem();
+        let mut e = entry(1, "router", 6, "Blocked by Firewall");
+        e.fields.insert("src".into(), "192.168.1.241".into());
+        e.fields.insert("act".into(), "blocked".into());
+        let mut other = entry(2, "router", 6, "Network Accessed");
+        other.fields.insert("act".into(), "allowed".into());
+        insert_batch(&mut conn, &[e, other, entry(3, "pve", 6, "plain")]).unwrap();
+
+        let rows = search(
+            &conn,
+            &Query {
+                fields: vec![("act".into(), "blocked".into())],
+                ..q(10)
+            },
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].fields.as_ref().unwrap()["src"], "192.168.1.241");
+
+        // Field values are part of the full-text index.
+        let by_text = Query {
+            text: Some("192.168.1.241".into()),
+            ..q(10)
+        };
+        assert_eq!(search(&conn, &by_text).unwrap().len(), 1);
+
+        // Entries without fields serialize without a `fields` key and don't match filters.
+        let all = search(&conn, &q(10)).unwrap();
+        assert!(
+            all.iter()
+                .find(|r| r.host == "pve")
+                .unwrap()
+                .fields
+                .is_none()
+        );
+
+        // Hostile keys are refused instead of reaching the JSON path.
+        let bad = Query {
+            fields: vec![("a\"] OR 1=1 --".into(), "x".into())],
+            ..q(10)
+        };
+        assert!(search(&conn, &bad).is_err());
+        assert!(
+            valid_field_key("UNIFIcategory")
+                && valid_field_key("cef_name")
+                && !valid_field_key("a b")
+        );
+    }
+
+    #[test]
+    fn migrating_a_v1_database_keeps_and_reindexes_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(&format!(
+            "BEGIN; {MIGRATION_1} PRAGMA user_version = 1; COMMIT;"
+        ))
+        .unwrap();
+        conn.execute(
+            "INSERT INTO logs (ts, host, app, severity, message) VALUES (1, 'h', 'a', 6, 'legacy entry')",
+            [],
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        let v: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+        let rows = search(
+            &conn,
+            &Query {
+                text: Some("legacy".into()),
+                ..q(10)
+            },
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].fields.is_none());
+        assert_eq!(purge_older_than(&conn, 100).unwrap(), 1);
+        assert!(
+            search(
+                &conn,
+                &Query {
+                    text: Some("legacy".into()),
+                    ..q(10)
+                }
+            )
+            .unwrap()
+            .is_empty()
+        );
     }
 
     #[test]

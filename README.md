@@ -11,6 +11,8 @@ ELK for homelabs and small servers (Proxmox, routers, LXC containers…).
   `journalctl -o json` output.
 - **Storage**: SQLite (WAL) with FTS5 full-text search, batched writes,
   automatic retention.
+- **Structured fields**: CEF events (e.g. UniFi's SIEM export) are parsed into
+  key/value fields, which are indexed for search and filterable by exact match.
 - **Search**: `GET /api/logs` and a minimal built-in web UI at `/`.
 - **Robustness**: bounded queue with drop counters (no unbounded memory),
   message size limits, TCP connection limits and idle timeouts, graceful
@@ -67,8 +69,21 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `q` | Words that must all appear in the message (always treated as literals) |
 | `host`, `app` | Exact match |
 | `level` | Maximum severity number: 0 emergency … 3 error … 6 info … 7 debug |
+| `f` | `key:value` exact match on a structured field; repeat to combine (e.g. `f=act:blocked&f=proto:TCP`) |
 | `since`, `until` | Unix timestamps in milliseconds |
 | `limit` | 1–1000, default 100 |
+
+## Structured fields (CEF)
+
+Messages that contain a CEF record (`CEF:0|Vendor|Product|…|key=value …`), whether
+sent over syslog or HTTP, are parsed on ingestion: `app` becomes the product name,
+`message` becomes the event name (plus its `msg` text), and everything else is kept
+in `fields` (`cef_vendor`, `cef_name`, `src`, `act`, …). Field values are part of the
+full-text index. Configure UniFi under *Settings → CyberSecure → Traffic Logging →
+Activity Logging → SIEM Server* with LogPit's address and port.
+
+JSON ingestion accepts the same thing through an optional `"fields": {"key": "value"}`
+object. Keys are limited to letters, digits, `_`, `.` and `-`.
 
 ## Configuration
 
@@ -80,6 +95,8 @@ startup. A systemd unit is provided in [`contrib/`](contrib/logpit.service).
 - RFC 3164 timestamps carry no year or zone, so reception time is used.
 - TCP syslog supports newline-delimited framing only (no octet counting).
 - Retention is age-based only; there is no size cap yet.
+- Entries stored before CEF support keep their raw message; only new ones are parsed.
+- The v0.2 database schema cannot be opened by older builds (back up before upgrading).
 - Single node, no alerting, no multi-user accounts, no built-in TLS
   (use a reverse proxy).
 

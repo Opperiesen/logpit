@@ -71,6 +71,7 @@ fn parse_5424(body: &str, severity: u8, peer: &str, now_ms: i64) -> Option<LogEn
         app: nil_or(app, ""),
         severity,
         message: message.to_string(),
+        ..Default::default()
     })
 }
 
@@ -146,6 +147,7 @@ fn parse_3164(s: &str, severity: u8, peer: &str, now_ms: i64) -> Option<LogEntry
         app,
         severity,
         message: message.to_string(),
+        ..Default::default()
     })
 }
 
