@@ -22,7 +22,9 @@ Environment=LOGPIT_RETENTION_DAYS=14
 ReadOnly=true
 NoNewPrivileges=true
 DropCapability=ALL
-HealthCmd=/logpit --healthcheck
+# `CMD` selects the exec form: the image has no shell, so the default shell form
+# (and a JSON array) fails and Podman would report the container as unhealthy.
+HealthCmd=CMD /logpit --healthcheck
 HealthInterval=30s
 
 [Service]
