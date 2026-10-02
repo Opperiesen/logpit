@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Quadlet example: `HealthCmd` must use the exec form (`CMD /logpit --healthcheck`); the shell form
+  made Podman report the container as unhealthy because the image has no shell.
+
 ## 0.2.1 - 2026-10-02
 
 - Container-first distribution: configuration through `LOGPIT_*` environment variables
