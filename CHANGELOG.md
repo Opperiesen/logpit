@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-10-02
+
 - CEF parsing: UniFi (and other CEF) events are split into structured fields, indexed for
   full-text search and filterable with `f=key:value`. Schema migration to v2 (rebuilds the
   search index); older builds cannot open a migrated database.
