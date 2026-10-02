@@ -48,7 +48,8 @@ jobs:
           "$bin" --version
       - name: Package
         run: |
-          name=logpit-${GITHUB_REF_NAME:-dev}-${{ matrix.arch }}-linux-musl
+          ref=${GITHUB_REF_NAME//\//-}
+          name=logpit-${ref:-dev}-${{ matrix.arch }}-linux-musl
           mkdir -p "dist/$name"
           cp target/${{ matrix.target }}/release/logpit LICENSE README.md CHANGELOG.md logpit.example.toml "dist/$name/"
           cp contrib/logpit.service "dist/$name/"
@@ -138,7 +139,11 @@ jobs:
       - id: meta
         run: |
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          # Branch names (dry runs) can contain characters that are invalid in image tags.
+          case "$GITHUB_REF" in
+            refs/tags/v*) echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "version=dryrun" >> "$GITHUB_OUTPUT" ;;
+          esac
       - uses: docker/build-push-action@v6
         with:
           context: .

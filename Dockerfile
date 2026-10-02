@@ -6,7 +6,7 @@ FROM scratch
 ARG TARGETARCH
 COPY docker-bin/docker-bin-${TARGETARCH}/logpit /logpit
 COPY contrib/docker.toml /etc/logpit/logpit.toml
-COPY --from=prep /data /data
+COPY --from=prep --chown=65532:65532 /data /data
 USER 65532:65532
 WORKDIR /data
 VOLUME /data
