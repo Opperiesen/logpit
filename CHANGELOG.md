@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-10-03
+
 - Alert webhooks: `https://` URLs are supported (certificates are verified against the built-in Mozilla
   root list), with `webhook_format` (`json`, `slack`, `discord`, `ntfy`, `text`) and `webhook_headers`
   for tokens. Host names are clipped and escaped for the target (no `<!channel>`/mention pings, no header
