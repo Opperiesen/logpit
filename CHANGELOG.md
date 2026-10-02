@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-10-03
+
 - Syslog over TLS (RFC 5425): `syslog.tls_listen`, `tls_cert`, `tls_key` (or the `LOGPIT_SYSLOG_TLS_*`
   variables) enable a TLS 1.2/1.3 listener, and `tls_client_ca` requires client certificates. Built on
   rustls with the `ring` provider (no OpenSSL; the binary grows by about 1 MB). Certificates are loaded at
