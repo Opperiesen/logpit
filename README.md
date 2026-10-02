@@ -592,6 +592,42 @@ and a refused entry uses up neither.
 - Limits apply to what arrives after the host name is known (the `host` of the entry), not to
   bytes, and a single request of the HTTP API is judged entry by entry.
 
+## Reloading the configuration
+
+Send `SIGHUP` and LogPit re-reads its configuration file and the files it points to, without
+restarting and without dropping the connections it is serving:
+
+```sh
+systemctl reload logpit              # with contrib/logpit.service
+podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
+kill -HUP "$(pidof logpit)"
+```
+
+**Applied by a reload**: `[[ingest.rules]]`, `[[alerts]]`, `[ingest.rate_limit]`,
+`ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
+(`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
+key and client CA files. The last two are read again on every reload, so renewing a certificate or
+rotating a token in place (same paths) takes effect without touching the configuration text. TLS
+connections already open keep the certificate they started with; new ones get the new one.
+
+**Needs a restart**: `storage.*`, the syslog and HTTP listen addresses, `http.max_body_bytes`, and
+turning the TLS listener on or off. The reload still goes ahead and says in the log which of these
+differ, until you restart.
+
+- **All or nothing.** The new file is fully parsed, every rule and alert compiled, the webhook
+  checked and the certificates loaded before anything is replaced. If any step fails (a TOML typo, a
+  bad regex, an unreadable certificate) the error is logged, `logpit_config_reload_failures_total`
+  goes up, and the running settings stay exactly as they were.
+- **Unchanged parts are kept.** A rule list, alert list or rate-limit setting that did not change
+  is not rebuilt, so its counters, alert windows and rate-limit buckets carry over. A changed one
+  starts fresh.
+- Environment variables are fixed for the life of the process: a `LOGPIT_*` variable still wins over
+  the file after a reload, and changing one needs a restart (use the `*_FILE` variants to rotate
+  secrets). `logpit_config_reloads_total` counts successful reloads.
+- Switching silence alerts on at runtime starts watching hosts from then on (hosts named in
+  `[silence.hosts]` immediately); hosts that were silent before the reload are not known.
+- There is no HTTP endpoint for reloading: it needs access to the process, not to the API.
+
 ## Without a container
 
 Each release also publishes static binaries (`x86_64` and `aarch64`, musl) with a

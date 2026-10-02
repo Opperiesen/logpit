@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::auth::Scope;
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub storage: StorageConfig,
@@ -18,7 +18,7 @@ pub struct Config {
     pub alerts: Vec<crate::alerts::AlertConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct StorageConfig {
     pub path: PathBuf,
@@ -38,7 +38,7 @@ pub struct StorageConfig {
     pub max_message_bytes: usize,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct SyslogConfig {
     /// UDP listen address; empty string disables the listener.
@@ -56,7 +56,7 @@ pub struct SyslogConfig {
     pub tls_client_ca: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct HttpConfig {
     pub listen: String,
@@ -68,7 +68,7 @@ pub struct HttpConfig {
     pub max_body_bytes: usize,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TokenConfig {
     pub token: String,
@@ -76,7 +76,7 @@ pub struct TokenConfig {
 }
 
 /// How incoming entries are processed before they are stored.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct IngestConfig {
     /// Extract JSON objects and `key=value` pairs found in messages into structured fields.
@@ -98,7 +98,7 @@ impl Default for IngestConfig {
 }
 
 /// Alerts for hosts that stop sending logs.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct SilenceConfig {
     /// Alert when any host has sent nothing for this many seconds. 0 disables the default.

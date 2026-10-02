@@ -14,7 +14,7 @@ use axum::{Json, Router};
 use serde_json::Value;
 use tokio::sync::broadcast;
 
-use crate::auth::{Auth, Decision, Scope};
+use crate::auth::{Decision, Scope};
 use crate::export::Format;
 use crate::ingest::{Sink, now_ms};
 use crate::metrics::Metrics;
@@ -37,7 +37,8 @@ const INDEX_HTML: &str = include_str!("web/index.html");
 pub struct AppState {
     pub sink: Sink,
     pub db_path: PathBuf,
-    pub auth: Arc<Auth>,
+    /// Settings that a reload replaces while running; the API reads the tokens from here.
+    pub settings: Arc<crate::live::LiveSettings>,
     /// Bounds concurrent exports, which each hold a database read transaction open.
     pub exports: Arc<tokio::sync::Semaphore>,
 }
@@ -84,7 +85,12 @@ async fn require_scope(
     req: Request,
     next: Next,
 ) -> Response {
-    match state.auth.check(bearer(req.headers()), scope) {
+    match state
+        .settings
+        .auth
+        .get()
+        .check(bearer(req.headers()), scope)
+    {
         Decision::Allowed => next.run(req).await,
         Decision::Unauthorized => {
             (StatusCode::UNAUTHORIZED, "missing or invalid token").into_response()

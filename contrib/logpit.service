@@ -4,6 +4,8 @@ After=network.target
 
 [Service]
 ExecStart=/usr/local/bin/logpit --config /etc/logpit/logpit.toml
+# `systemctl reload logpit` re-reads the configuration without a restart (see the README).
+ExecReload=/bin/kill -HUP $MAINPID
 WorkingDirectory=/var/lib/logpit
 StateDirectory=logpit
 DynamicUser=yes

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Reload on `SIGHUP`: ingestion rules, alerts, rate limits, structured parsing, silence thresholds and
+  webhook, API tokens and secret files, and the syslog TLS certificate files are applied without a restart
+  or dropping connections. The reload is all-or-nothing (a typo, bad regex or unreadable certificate leaves
+  the running settings untouched), unchanged parts keep their state, and settings that need a restart
+  (storage, listen addresses) are reported. `contrib/logpit.service` gets `ExecReload`. New metrics
+  `logpit_config_reloads_total` and `logpit_config_reload_failures_total`.
+
 - Rate limiting: `[ingest.rate_limit]` (or `LOGPIT_RATE_LIMIT_*`) caps entries per second per host, with a
   burst allowance, and across all hosts, so one runaway sender cannot drown the others. Hosts beyond 4096
   share a bucket. Limited hosts still count as alive for silence alerts. New metrics

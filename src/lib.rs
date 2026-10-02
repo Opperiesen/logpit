@@ -9,6 +9,7 @@ pub mod export;
 pub mod framing;
 pub mod health;
 pub mod ingest;
+pub mod live;
 pub mod metrics;
 pub mod model;
 pub mod query;

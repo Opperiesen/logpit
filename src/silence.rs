@@ -4,7 +4,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use serde_json::json;
 
@@ -144,16 +143,26 @@ struct HostState {
 /// Last-seen times per host. Cheap to update from the ingestion path; a no-op when
 /// silence alerts are disabled.
 pub struct Tracker {
-    enabled: bool,
+    enabled: std::sync::atomic::AtomicBool,
     hosts: Mutex<HashMap<String, HostState>>,
 }
 
 impl Tracker {
     pub fn new(enabled: bool) -> Self {
         Self {
-            enabled,
+            enabled: std::sync::atomic::AtomicBool::new(enabled),
             hosts: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn enabled(&self) -> bool {
+        self.enabled.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Turns tracking on or off (a reload can change the thresholds). Switching it on starts
+    /// from the hosts seen from now on.
+    pub fn set_enabled(&self, on: bool) {
+        self.enabled.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, HostState>> {
@@ -162,7 +171,7 @@ impl Tracker {
 
     /// Records that `host` just sent a log.
     pub fn touch(&self, host: &str, now: i64) {
-        if !self.enabled {
+        if !self.enabled() {
             return;
         }
         let mut hosts = self.lock();
@@ -183,7 +192,7 @@ impl Tracker {
     /// threshold of grace after a restart.
     pub fn seed<'a>(&self, hosts: impl IntoIterator<Item = &'a str>, now: i64) {
         for h in hosts {
-            if self.enabled {
+            if self.enabled() {
                 let mut map = self.lock();
                 if map.len() < MAX_TRACKED_HOSTS {
                     map.entry(h.to_owned()).or_insert(HostState {
@@ -228,7 +237,7 @@ impl Tracker {
 
     /// Whether the alert is firing for `host`; `None` when alerts are off or the host is untracked.
     pub fn is_silent(&self, host: &str) -> Option<bool> {
-        if !self.enabled {
+        if !self.enabled() {
             return None;
         }
         self.lock().get(host).map(|s| s.alerted)
@@ -236,7 +245,7 @@ impl Tracker {
 
     /// Prometheus text for the currently silent hosts.
     pub fn render_metrics(&self) -> String {
-        if !self.enabled {
+        if !self.enabled() {
             return String::new();
         }
         let hosts = self.lock();
@@ -268,17 +277,18 @@ impl Tracker {
     }
 }
 
-/// Periodically evaluates silence rules, logging and notifying on each transition.
+/// Periodically evaluates silence rules, logging and notifying on each transition. The thresholds,
+/// the check period and the webhook are read again on every round, so a reload applies at once.
 pub async fn run(
     tracker: std::sync::Arc<Tracker>,
-    rules: Rules,
-    interval: Duration,
-    webhook: Option<crate::webhook::Webhook>,
+    live: std::sync::Arc<crate::live::LiveSettings>,
 ) {
-    let mut tick = tokio::time::interval(interval);
     loop {
-        tick.tick().await;
-        for event in tracker.evaluate(&rules, now_ms()) {
+        let settings = live.silence.get();
+        tokio::time::sleep(settings.interval).await;
+        // The settings may have been replaced while sleeping; use the current ones.
+        let settings = live.silence.get();
+        for event in tracker.evaluate(&settings.rules, now_ms()) {
             let message = event.payload()["message"]
                 .as_str()
                 .unwrap_or_default()
@@ -288,7 +298,7 @@ pub async fn run(
                 Event::Recovered { .. } => tracing::info!("silence recovered: {message}"),
                 Event::Pattern { .. } => tracing::warn!("{message}"),
             }
-            if let Some(hook) = webhook.clone() {
+            if let Some(hook) = settings.webhook.clone() {
                 tokio::spawn(async move { hook.send(&event).await });
             }
         }

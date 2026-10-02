@@ -33,7 +33,7 @@ pub enum SeveritySpec {
     Name(String),
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct RuleConfig {
     /// Label in logs and metrics; defaults to `rule-<position>`.

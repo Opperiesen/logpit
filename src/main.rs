@@ -9,10 +9,10 @@ use anyhow::Context;
 use logpit::api::{self, AppState};
 use logpit::config::Config;
 use logpit::ingest::{self, Sink, now_ms};
+use logpit::live::LiveSettings;
 use logpit::metrics::Metrics;
-use logpit::silence::{self, MAX_TRACKED_HOSTS, Rules, Tracker};
+use logpit::silence::{self, MAX_TRACKED_HOSTS, Tracker};
 use logpit::store;
-use logpit::webhook::Webhook;
 use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
@@ -146,6 +146,78 @@ async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
+/// Reloads the configuration each time the process receives SIGHUP. A file that does not load, or
+/// a rule or certificate that does not build, is reported and the running settings stay as they are.
+#[cfg(unix)]
+async fn reload_on_sighup(
+    path: Option<PathBuf>,
+    mut current: Config,
+    settings: Arc<LiveSettings>,
+    tracker: Arc<Tracker>,
+    metrics: Arc<Metrics>,
+) {
+    use std::sync::atomic::Ordering;
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut hup = match signal(SignalKind::hangup()) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("cannot listen for SIGHUP, configuration reload is unavailable: {e}");
+            return;
+        }
+    };
+    while hup.recv().await.is_some() {
+        tracing::info!("SIGHUP received, reloading the configuration");
+        let outcome = Config::load(path.as_deref()).and_then(|new| {
+            let report = settings.reload(&current, &new)?;
+            Ok((new, report))
+        });
+        match outcome {
+            Ok((new, report)) => {
+                // Silence tracking follows the new thresholds, and starts watching hosts that the
+                // new file names explicitly.
+                let silence = settings.silence.get();
+                tracker.set_enabled(silence.rules.enabled());
+                if silence.rules.enabled() {
+                    tracker.seed(silence.rules.configured_hosts(), now_ms());
+                }
+                if report.applied.is_empty() {
+                    tracing::info!("configuration reloaded: nothing changed");
+                } else {
+                    tracing::info!("configuration reloaded: {}", report.applied.join(", "));
+                }
+                if !report.restart_required.is_empty() {
+                    tracing::warn!(
+                        "these settings changed but only take effect after a restart: {}",
+                        report.restart_required.join(", ")
+                    );
+                }
+                metrics.reloads.fetch_add(1, Ordering::Relaxed);
+                // Remember what the running process is configured with, to diff against next time.
+                // Settings that need a restart keep their running values in `current`.
+                current = Config {
+                    storage: current.storage.clone(),
+                    syslog: logpit::config::SyslogConfig {
+                        udp_listen: current.syslog.udp_listen.clone(),
+                        tcp_listen: current.syslog.tcp_listen.clone(),
+                        tls_listen: current.syslog.tls_listen.clone(),
+                        ..new.syslog.clone()
+                    },
+                    http: logpit::config::HttpConfig {
+                        listen: current.http.listen.clone(),
+                        max_body_bytes: current.http.max_body_bytes,
+                        ..new.http.clone()
+                    },
+                    ..new
+                };
+            }
+            Err(e) => {
+                tracing::error!("reload failed, keeping the running configuration: {e:#}");
+                metrics.reload_failures.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = parse_args()?;
@@ -176,20 +248,14 @@ async fn main() -> anyhow::Result<()> {
     let udp = parse_addr("syslog.udp_listen", &cfg.syslog.udp_listen)?;
     let tcp = parse_addr("syslog.tcp_listen", &cfg.syslog.tcp_listen)?;
     let tls = parse_addr("syslog.tls_listen", &cfg.syslog.tls_listen)?;
-    // Load the certificates before anything else starts, so a bad path or key fails fast.
-    let tls_acceptor = match (tls, &cfg.syslog.tls_cert, &cfg.syslog.tls_key) {
-        (Some(_), Some(cert), Some(key)) => Some(logpit::tls::build_acceptor(
-            cert,
-            key,
-            cfg.syslog.tls_client_ca.as_deref(),
-        )?),
-        _ => None,
-    };
     let http: SocketAddr = cfg
         .http
         .listen
         .parse()
         .with_context(|| format!("invalid http.listen address {:?}", cfg.http.listen))?;
+    // Everything a reload can replace (rules, alerts, limits, tokens, silence thresholds and the
+    // webhook, TLS certificates) is built here, so a bad rule or certificate fails fast.
+    let settings = Arc::new(LiveSettings::from_config(&cfg)?);
 
     let db_path = cfg.storage.path.clone();
     let conn = store::open(&db_path)?;
@@ -206,49 +272,35 @@ async fn main() -> anyhow::Result<()> {
             .spawn(move || store::run_writer(conn, rx, batch, flush, metrics))?
     };
 
-    let silence_rules = Rules::from_config(&cfg.silence);
-    let tracker = Arc::new(Tracker::new(silence_rules.enabled()));
-    if silence_rules.enabled() {
+    let silence_rules = settings.silence.get();
+    let tracker = Arc::new(Tracker::new(silence_rules.rules.enabled()));
+    if silence_rules.rules.enabled() {
         let known = store::known_hosts(&seed_conn, MAX_TRACKED_HOSTS)?;
         tracker.seed(
             known
                 .iter()
                 .map(String::as_str)
-                .chain(silence_rules.configured_hosts()),
+                .chain(silence_rules.rules.configured_hosts()),
             now_ms(),
         );
     }
+    drop(silence_rules);
 
     let retention_metrics = metrics.clone();
-    // One webhook serves silence alerts and pattern alerts; pattern alerts reach it through a
-    // channel so that ingestion never waits for a notification.
-    let webhook = match cfg.silence.webhook_url.as_str() {
-        "" => None,
-        url => Some(Webhook::new(
-            url,
-            cfg.silence.webhook_format,
-            &cfg.silence.webhook_headers,
-        )?),
-    };
-    let alert_rules = Arc::new(logpit::alerts::AlertRules::from_config(&cfg.alerts)?);
+    let reload_metrics = metrics.clone();
+    // Pattern alerts reach the notifier through a channel, so ingestion never waits for a webhook.
     let (alert_tx, mut alert_rx) = tokio::sync::mpsc::channel::<silence::Event>(256);
 
     let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone())
-        .with_alerts(alert_rules.clone(), alert_tx)
-        .with_rate_limiter(Arc::new(logpit::ratelimit::RateLimiter::new(
-            &cfg.ingest.rate_limit,
-        )))
-        .with_structured_parsing(cfg.ingest.parse_structured)
-        .with_rules(Arc::new(logpit::rules::Rules::from_config(
-            &cfg.ingest.rules,
-        )?));
+        .with_settings(settings.clone())
+        .with_alert_channel(alert_tx);
     let state = AppState {
         sink: sink.clone(),
         db_path: db_path.clone(),
-        auth: Arc::new(cfg.auth()),
+        settings: settings.clone(),
         exports: Arc::new(tokio::sync::Semaphore::new(api::MAX_EXPORTS)),
     };
-    if !state.auth.enabled() && !http.ip().is_loopback() {
+    if !settings.auth.get().enabled() && !http.ip().is_loopback() {
         tracing::warn!("HTTP API is exposed on {http} without any token; set http.token");
     }
 
@@ -259,7 +311,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(addr) = tcp {
         tasks.spawn(ingest::run_tcp(addr, sink.clone()));
     }
-    if let (Some(addr), Some(acceptor)) = (tls, tls_acceptor) {
+    if let (Some(addr), Some(acceptor)) = (tls, settings.tls.clone()) {
         tasks.spawn(ingest::run_tls(addr, sink.clone(), acceptor));
     }
     drop(sink);
@@ -271,29 +323,40 @@ async fn main() -> anyhow::Result<()> {
     let app = api::router(state, cfg.http.max_body_bytes);
     tasks.spawn(async move { axum::serve(listener, app).await.map_err(Into::into) });
 
-    if !alert_rules.is_empty() {
-        let hook = webhook.clone();
+    // Both notifiers read their webhook from the settings each time, so a reload can add, change
+    // or remove alerts and the webhook without restarting them.
+    {
+        let settings = settings.clone();
         tasks.spawn(async move {
             while let Some(event) = alert_rx.recv().await {
                 tracing::warn!(
                     "{}",
                     event.payload()["message"].as_str().unwrap_or_default()
                 );
-                if let Some(hook) = hook.clone() {
+                if let Some(hook) = settings.silence.get().webhook.clone() {
                     tokio::spawn(async move { hook.send(&event).await });
                 }
             }
             Ok(())
         });
     }
-
-    if silence_rules.enabled() {
-        let interval = Duration::from_secs(cfg.silence.check_interval_secs);
+    {
+        let (tracker, settings) = (tracker.clone(), settings.clone());
         tasks.spawn(async move {
-            silence::run(tracker, silence_rules, interval, webhook).await;
+            silence::run(tracker, settings).await;
             Ok(())
         });
     }
+    #[cfg(unix)]
+    {
+        let (path, settings, running) = (args.config.clone(), settings.clone(), cfg.clone());
+        tasks.spawn(async move {
+            reload_on_sighup(path, running, settings, tracker, reload_metrics).await;
+            Ok(())
+        });
+    }
+    #[cfg(not(unix))]
+    drop((tracker, reload_metrics));
 
     let retention = cfg.storage.retention_table()?;
     let max_db_bytes = cfg.storage.max_db_size_mb * 1_000_000;

@@ -38,11 +38,8 @@ pub struct Sink {
     max_message_bytes: usize,
     live: broadcast::Sender<Arc<LogEntry>>,
     silence: Arc<Tracker>,
-    parse_structured: bool,
-    rules: Arc<crate::rules::Rules>,
-    alerts: Arc<crate::alerts::AlertRules>,
+    settings: Arc<crate::live::LiveSettings>,
     alert_tx: Option<tokio::sync::mpsc::Sender<crate::silence::Event>>,
-    limiter: Arc<crate::ratelimit::RateLimiter>,
 }
 
 impl Sink {
@@ -58,54 +55,30 @@ impl Sink {
             max_message_bytes,
             live: broadcast::channel(LIVE_CAPACITY).0,
             silence,
-            parse_structured: false,
-            rules: Arc::default(),
-            alerts: Arc::default(),
+            settings: Arc::default(),
             alert_tx: None,
-            limiter: Arc::default(),
         }
     }
 
-    /// Extracts JSON and `key=value` data from messages into fields (off unless enabled).
-    /// Drop and mask rules applied to every entry before it is queued.
-    pub fn with_rules(mut self, rules: Arc<crate::rules::Rules>) -> Self {
-        self.rules = rules;
+    /// The settings read on every entry (rules, alerts, rate limits, structured parsing), which
+    /// a reload can replace while LogPit runs.
+    pub fn with_settings(mut self, settings: Arc<crate::live::LiveSettings>) -> Self {
+        self.settings = settings;
         self
     }
 
-    /// Pattern alerts; due notifications are sent on `tx` (never blocking ingestion: when the
-    /// channel is full a notification is skipped).
-    pub fn with_alerts(
+    /// Pattern alerts notify through this channel; ingestion never waits on it (when it is full a
+    /// notification is skipped).
+    pub fn with_alert_channel(
         mut self,
-        alerts: Arc<crate::alerts::AlertRules>,
         tx: tokio::sync::mpsc::Sender<crate::silence::Event>,
     ) -> Self {
-        self.alerts = alerts;
         self.alert_tx = Some(tx);
         self
     }
 
-    pub fn alerts(&self) -> &crate::alerts::AlertRules {
-        &self.alerts
-    }
-
-    /// Per-host and global rate limits applied before an entry is processed.
-    pub fn with_rate_limiter(mut self, limiter: Arc<crate::ratelimit::RateLimiter>) -> Self {
-        self.limiter = limiter;
-        self
-    }
-
-    pub fn limiter(&self) -> &crate::ratelimit::RateLimiter {
-        &self.limiter
-    }
-
-    pub fn rules(&self) -> &crate::rules::Rules {
-        &self.rules
-    }
-
-    pub fn with_structured_parsing(mut self, on: bool) -> Self {
-        self.parse_structured = on;
-        self
+    pub fn settings(&self) -> &Arc<crate::live::LiveSettings> {
+        &self.settings
     }
 
     /// Subscribes to entries as they are accepted (before they reach the database).
@@ -115,6 +88,18 @@ impl Sink {
 
     pub fn live_subscribers(&self) -> usize {
         self.live.receiver_count()
+    }
+
+    pub fn rules(&self) -> Arc<crate::rules::Rules> {
+        self.settings.rules.get()
+    }
+
+    pub fn alerts(&self) -> Arc<crate::alerts::AlertRules> {
+        self.settings.alerts.get()
+    }
+
+    pub fn limiter(&self) -> Arc<crate::ratelimit::RateLimiter> {
+        self.settings.limiter.get()
     }
 
     pub fn silence(&self) -> &Tracker {
@@ -129,18 +114,22 @@ impl Sink {
         let now = now_ms();
         // A host that is being limited is still alive, so it counts for silence alerts.
         self.silence.touch(&entry.host, now);
-        if !self.limiter.allow(&entry.host, now) {
+        if !self.settings.limiter.get().allow(&entry.host, now) {
             return;
         }
         crate::cef::enrich(&mut entry);
-        if self.parse_structured {
+        if self
+            .settings
+            .structured
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             crate::structured::enrich(&mut entry);
         }
-        if !self.rules.apply(&mut entry) {
+        if !self.settings.rules.get().apply(&mut entry) {
             return;
         }
         if let Some(tx) = &self.alert_tx {
-            for event in self.alerts.observe(&entry, now) {
+            for event in self.settings.alerts.get().observe(&entry, now) {
                 let _ = tx.try_send(event);
             }
         }
@@ -254,20 +243,22 @@ pub async fn serve_tcp(listener: TcpListener, sink: Sink) -> anyhow::Result<()> 
 pub async fn run_tls(
     addr: SocketAddr,
     sink: Sink,
-    acceptor: tokio_rustls::TlsAcceptor,
+    acceptor: Arc<crate::live::Reloadable<tokio_rustls::TlsAcceptor>>,
 ) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("syslog TLS listening on {addr}");
     serve_tls(listener, sink, acceptor).await
 }
 
+/// Serves TLS syslog; every new connection uses the acceptor current at that moment, so a reload
+/// that renews the certificate applies to new connections while open ones continue unchanged.
 pub async fn serve_tls(
     listener: TcpListener,
     sink: Sink,
-    acceptor: tokio_rustls::TlsAcceptor,
+    acceptor: Arc<crate::live::Reloadable<tokio_rustls::TlsAcceptor>>,
 ) -> anyhow::Result<()> {
     accept_loop(listener, "TLS", move |stream, peer| {
-        let (sink, acceptor) = (sink.clone(), acceptor.clone());
+        let (sink, acceptor) = (sink.clone(), acceptor.get());
         async move {
             match timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await {
                 Ok(Ok(tls)) => handle_connection(tls, peer, sink, "TLS").await,

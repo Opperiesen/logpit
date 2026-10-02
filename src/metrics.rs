@@ -18,6 +18,10 @@ pub struct Metrics {
     pub size_evicted: AtomicU64,
     /// TLS connections that failed or timed out during the handshake.
     pub tls_failures: AtomicU64,
+    /// Configuration reloads (SIGHUP) that were applied.
+    pub reloads: AtomicU64,
+    /// Configuration reloads that failed and left the running configuration untouched.
+    pub reload_failures: AtomicU64,
     /// Bytes of the database holding data, as last measured by the retention task.
     pub db_used_bytes: AtomicU64,
 }
@@ -54,6 +58,16 @@ impl Metrics {
                 "logpit_write_errors_total",
                 "Failed storage batch writes",
                 &self.write_errors,
+            ),
+            (
+                "logpit_config_reloads_total",
+                "Configuration reloads applied",
+                &self.reloads,
+            ),
+            (
+                "logpit_config_reload_failures_total",
+                "Configuration reloads that failed (the running configuration was kept)",
+                &self.reload_failures,
             ),
             (
                 "logpit_tls_handshake_failures_total",

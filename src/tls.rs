@@ -87,7 +87,11 @@ mod tests {
             16 * 1024,
             Arc::new(Tracker::new(false)),
         );
-        tokio::spawn(serve_tls(listener, sink, acceptor));
+        tokio::spawn(serve_tls(
+            listener,
+            sink,
+            Arc::new(crate::live::Reloadable::new(acceptor)),
+        ));
         (port, rx, metrics)
     }
 
