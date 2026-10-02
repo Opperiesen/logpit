@@ -51,13 +51,14 @@
   #hostsTable tr.active td.name { font-weight:700; }
   #hostsTable td.zero { color:var(--muted); opacity:.6; }
   .badge { background:#d1242f; color:#fff; border-radius:4px; padding:0 5px; margin-left:6px; font:600 11px system-ui, sans-serif; }
+  #morebar { text-align:center; padding:12px; }
   #empty { padding:24px 16px; color:var(--muted); }
 </style>
 </head>
 <body>
 <header>
   <h1>LogPit</h1>
-  <input id="q" type="search" placeholder="Search messages…" autofocus>
+  <input id="q" type="search" placeholder="Search messages…" autofocus title="Words must all match. Use OR between alternatives, -word or NOT word to exclude, &quot;a phrase&quot; for adjacent words, and prefix* for prefixes. Example: disk error OR timeout -debug">
   <input id="host" type="search" placeholder="Host" size="12">
   <input id="app" type="search" placeholder="App" size="12">
   <input id="f" type="search" placeholder="field:value" size="14" title="Filter on a structured field, e.g. act:blocked">
@@ -98,6 +99,7 @@
   </table>
 </details>
 <table><tbody id="rows"></tbody></table>
+<div id="morebar" hidden><button id="more" type="button">Load more</button></div>
 <div id="empty" hidden></div>
 <script>
 const $ = id => document.getElementById(id);
@@ -497,12 +499,36 @@ $('group').onchange = () => {
   loadChart();
 };
 
+// Paging: the server returns `X-Next-Cursor` when a page is full; "Load more" appends the next one.
+let nextCursor = null, pageParams = null;
+const PAGE_SIZE = 500;
+
+async function loadMore() {
+  if (!nextCursor || !pageParams) return;
+  const p = new URLSearchParams(pageParams);
+  p.set('before', nextCursor);
+  $('more').disabled = true;
+  try {
+    const res = await fetch('/api/logs?' + p, { headers: authHeaders() });
+    if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
+    const rows = await res.json();
+    $('rows').append(...rows.map(rowEl));
+    nextCursor = res.headers.get('X-Next-Cursor');
+    $('morebar').hidden = !nextCursor;
+    $('status').textContent = $('rows').rows.length + ' entries' + (nextCursor ? ' (more available)' : '');
+  } catch (e) { $('status').textContent = String(e.message || e); }
+  finally { $('more').disabled = false; }
+}
+$('more').onclick = loadMore;
+
 async function load() {
   stopTail();
   takeSnapshot();
+  nextCursor = null;
+  $('morebar').hidden = true;
   if (snap.range === 'custom') $('live').checked = false;
   syncUrl();
-  const p = new URLSearchParams({ limit: '500' });
+  const p = new URLSearchParams({ limit: String(PAGE_SIZE) });
   for (const k of ['q', 'host', 'app', 'level', 'f']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
   applyWindow(p, snap);
   const headers = authHeaders();
@@ -532,7 +558,10 @@ async function load() {
     body.replaceChildren(...rows.map(rowEl));
     $('empty').textContent = 'No matching entries.';
     $('empty').hidden = rows.length > 0;
-    $('status').textContent = rows.length + ' entries';
+    pageParams = p.toString();
+    nextCursor = res.headers.get('X-Next-Cursor');
+    $('morebar').hidden = !nextCursor;
+    $('status').textContent = rows.length + ' entries' + (nextCursor ? ' (more available)' : '');
     loadChart();
     loadHosts();
     if ($('live').checked) startTail();

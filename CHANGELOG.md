@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Search text: `q` now supports `OR`, `-word` / `NOT word` exclusions, `"phrases"` and `prefix*`
+  (everything is still compiled to quoted FTS5 strings, so input is never interpreted as FTS syntax).
+  Plain words keep working as before. It applies to search, stats, hosts, export and the live tail.
+- Paging: `GET /api/logs` accepts `before=<ts>:<id>` and returns an `X-Next-Cursor` header when a page is
+  full. The web UI gets a *Load more* button, and a hint about the search syntax on the search box.
+
 ## 0.4.8 - 2026-10-03
 
 - Export: `GET /api/export` streams the entries matching the search filters as NDJSON (re-ingestable

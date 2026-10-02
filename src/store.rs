@@ -381,6 +381,8 @@ pub struct Query {
     pub until_ms: Option<i64>,
     /// Exact-match filters on structured fields, as `(key, value)`; all must match.
     pub fields: Vec<(String, String)>,
+    /// Cursor for paging: keep only entries older than `(ts, id)`, as in search order.
+    pub before: Option<(i64, i64)>,
     pub limit: usize,
 }
 
@@ -411,15 +413,14 @@ impl Query {
         {
             return false;
         }
-        match self.text.as_deref() {
-            Some(text) if text.split_whitespace().next().is_some() => {
+        match self.text.as_deref().map(crate::query::parse) {
+            Some(parsed) if !parsed.is_empty() => {
                 let hay = std::iter::once(e.message.as_str())
                     .chain(e.fields.values().map(String::as_str))
                     .collect::<Vec<_>>()
                     .join("\n")
                     .to_lowercase();
-                text.split_whitespace()
-                    .all(|w| hay.contains(&w.to_lowercase()))
+                parsed.matches(&hay)
             }
             _ => true,
         }
@@ -438,16 +439,6 @@ pub struct Row {
     pub fields: Option<serde_json::Value>,
 }
 
-/// Turns free text into an FTS5 query where every word is a quoted literal, so
-/// user input can never be interpreted as FTS syntax.
-pub fn fts_query(text: &str) -> Option<String> {
-    let terms: Vec<String> = text
-        .split_whitespace()
-        .map(|w| format!("\"{}\"", w.replace('"', "\"\"")))
-        .collect();
-    (!terms.is_empty()).then(|| terms.join(" "))
-}
-
 /// The FROM-join and WHERE conditions shared by search and stats for one query.
 struct Filter {
     join_fts: bool,
@@ -462,10 +453,25 @@ impl Filter {
             conds: Vec::new(),
             args: Vec::new(),
         };
-        if let Some(fts) = q.text.as_deref().and_then(fts_query) {
+        let text = q
+            .text
+            .as_deref()
+            .map(crate::query::parse)
+            .unwrap_or_default();
+        if let Some(fts) = text.fts_include() {
             f.join_fts = true;
             f.conds.push("logs_fts MATCH ?");
             f.args.push(Box::new(fts));
+        }
+        if let Some(fts) = text.fts_exclude() {
+            f.conds
+                .push("l.id NOT IN (SELECT rowid FROM logs_fts WHERE logs_fts MATCH ?)");
+            f.args.push(Box::new(fts));
+        }
+        if let Some((ts, id)) = q.before {
+            f.conds.push("(l.ts, l.id) < (?, ?)");
+            f.args.push(Box::new(ts));
+            f.args.push(Box::new(id));
         }
         if let Some(h) = &q.host {
             f.conds.push("l.host = ?");
@@ -714,6 +720,14 @@ mod tests {
             "a\" OR \"b",
             "NEAR(",
             "-x",
+            "\"\"",
+            "\"...\"",
+            "...",
+            "-\"\"",
+            "foo*bar*",
+            "OR",
+            "NOT",
+            "-\"a b\"*",
         ] {
             let query = Query {
                 text: Some(text.into()),
@@ -721,6 +735,121 @@ mod tests {
             };
             search(&conn, &query).unwrap_or_else(|e| panic!("{text:?} failed: {e}"));
         }
+    }
+
+    #[test]
+    fn rich_text_search() {
+        let mut conn = mem();
+        insert_batch(
+            &mut conn,
+            &[
+                entry(1, "h", 6, "disk error on sda"),
+                entry(2, "h", 6, "disk timeout on sdb"),
+                entry(3, "h", 6, "network error eth0"),
+                entry(4, "h", 7, "debug disk scan"),
+                entry(5, "h", 6, "failed login for root"),
+                entry(6, "h", 6, "failure to mount"),
+            ],
+        )
+        .unwrap();
+        let find = |text: &str| -> Vec<i64> {
+            let mut ts: Vec<i64> = search(
+                &conn,
+                &Query {
+                    text: Some(text.into()),
+                    ..q(100)
+                },
+            )
+            .unwrap()
+            .into_iter()
+            .map(|r| r.ts)
+            .collect();
+            ts.sort();
+            ts
+        };
+        assert_eq!(find("disk error"), [1], "words are ANDed");
+        assert_eq!(find("error OR timeout"), [1, 2, 3]);
+        assert_eq!(
+            find("disk error OR network"),
+            [1, 3],
+            "AND binds tighter than OR"
+        );
+        assert_eq!(find("\"disk error\""), [1], "a phrase needs adjacent words");
+        assert!(find("\"error disk\"").is_empty());
+        assert_eq!(find("fail*"), [5, 6], "prefix");
+        assert_eq!(find("disk -debug"), [1, 2], "exclusion");
+        assert_eq!(find("disk NOT sda"), [2, 4]);
+        assert_eq!(find("disk -sda -timeout"), [4]);
+        assert_eq!(find("-disk -error"), [5, 6], "exclusion alone");
+        assert_eq!(find("\"on sda\" OR \"eth0\""), [1, 3]);
+        // Case does not matter, and operators only count in upper case.
+        assert_eq!(find("DISK ERROR"), [1]);
+        assert!(
+            find("disk or error").is_empty(),
+            "lower-case 'or' is a plain word"
+        );
+        // Exclusions also apply to stats-style filtering (same filter builder).
+        let counted = stats(
+            &conn,
+            &Query {
+                text: Some("disk -debug".into()),
+                ..q(0)
+            },
+            1000,
+            &GroupBy::None,
+        )
+        .unwrap();
+        assert_eq!(counted.iter().map(|r| r.2).sum::<u64>(), 2);
+    }
+
+    #[test]
+    fn cursor_pages_through_all_entries_without_gaps_or_repeats() {
+        let mut conn = mem();
+        // Many entries share timestamps, so the id has to break ties.
+        let batch: Vec<LogEntry> = (0..47)
+            .map(|i| entry(i / 5, "h", 6, &format!("m{i}")))
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let mut seen = Vec::new();
+        let mut cursor = None;
+        let mut pages = 0;
+        loop {
+            let page = search(
+                &conn,
+                &Query {
+                    before: cursor,
+                    ..q(10)
+                },
+            )
+            .unwrap();
+            pages += 1;
+            seen.extend(page.iter().map(|r| r.message.clone()));
+            match page.last().filter(|_| page.len() == 10) {
+                Some(last) => cursor = Some((last.ts, last.id)),
+                None => break,
+            }
+        }
+        assert_eq!(pages, 5);
+        assert_eq!(seen.len(), 47);
+        let mut unique = seen.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), 47, "no repeats");
+        // Newest first throughout.
+        assert_eq!(seen[0], "m46");
+        assert_eq!(seen[46], "m0");
+        // The cursor composes with the other filters.
+        let q2 = Query {
+            text: Some("m4".into()),
+            before: Some((9, i64::MAX)),
+            ..q(100)
+        };
+        assert!(
+            search(&conn, &q2)
+                .unwrap()
+                .iter()
+                .all(|r| r.message.starts_with("m4"))
+        );
     }
 
     #[test]

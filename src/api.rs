@@ -217,6 +217,15 @@ fn parse_search(params: Vec<(String, String)>) -> Result<Query, String> {
             "level" if !v.is_empty() => q.max_severity = Some(num("level", &v)?.clamp(0, 7) as u8),
             "since" if !v.is_empty() => q.since_ms = Some(num("since", &v)?),
             "until" if !v.is_empty() => q.until_ms = Some(num("until", &v)?),
+            // Paging cursor `ts:id`, as returned in the `X-Next-Cursor` header.
+            "before" if !v.is_empty() => {
+                let bad = || "before must be <ts>:<id>".to_string();
+                let (ts, id) = v.split_once(':').ok_or_else(bad)?;
+                q.before = Some((
+                    ts.parse().map_err(|_| bad())?,
+                    id.parse().map_err(|_| bad())?,
+                ));
+            }
             "limit" if !v.is_empty() => {
                 q.limit = num("limit", &v)?.clamp(1, MAX_LIMIT as i64) as usize
             }
@@ -241,6 +250,7 @@ async fn search(
         Ok(q) => q,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    let limit = query.limit;
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
@@ -249,7 +259,18 @@ async fn search(
     .await;
 
     match result {
-        Ok(Ok(rows)) => Json(rows).into_response(),
+        Ok(Ok(rows)) => {
+            // A full page means there may be more: hand out the cursor for the next one.
+            let next = rows
+                .last()
+                .filter(|_| rows.len() == limit)
+                .map(|r| format!("{}:{}", r.ts, r.id));
+            let mut resp = Json(rows).into_response();
+            if let Some(cursor) = next.and_then(|c| c.parse().ok()) {
+                resp.headers_mut().insert("x-next-cursor", cursor);
+            }
+            resp
+        }
         Ok(Err(e)) => {
             tracing::error!("search failed: {e:#}");
             (StatusCode::INTERNAL_SERVER_ERROR, "search failed").into_response()
@@ -735,6 +756,12 @@ mod tests {
             ]
         );
         assert!(parse_search(p(&[("since", "abc")])).is_err());
+        let q = parse_search(p(&[("before", "1700000000123:42")])).unwrap();
+        assert_eq!(q.before, Some((1_700_000_000_123, 42)));
+        for bad in ["1700", "a:1", "1:b", ":", "1:2:3"] {
+            assert!(parse_search(p(&[("before", bad)])).is_err(), "{bad:?}");
+        }
+        assert!(parse_search(p(&[("before", "")])).unwrap().before.is_none());
         assert!(parse_search(p(&[("f", "novalue")])).is_err());
         assert!(parse_search(p(&[("f", "a b:c")])).is_err());
         // Empty form values (as sent by the UI) are ignored.

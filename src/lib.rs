@@ -9,6 +9,7 @@ pub mod health;
 pub mod ingest;
 pub mod metrics;
 pub mod model;
+pub mod query;
 pub mod silence;
 pub mod stats;
 pub mod store;

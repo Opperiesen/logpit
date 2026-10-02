@@ -171,12 +171,44 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 | Parameter | Meaning |
 |---|---|
-| `q` | Words that must all appear in the message or its fields (always treated as literals) |
+| `q` | Search text over the message and its fields, see below |
 | `host`, `app` | Exact match |
 | `level` | Maximum severity number: 0 emergency … 3 error … 6 info … 7 debug |
 | `f` | `key:value` exact match on a structured field; repeat to combine (e.g. `f=act:blocked&f=proto:TCP`) |
 | `since`, `until` | Unix timestamps in milliseconds |
 | `limit` | 1–1000, default 100 |
+| `before` | Paging cursor `<ts>:<id>`: only entries older than that one, as given by the `X-Next-Cursor` header |
+
+### Search text
+
+`q` is a small language, compiled to full-text queries made only of quoted strings, so no
+input can be interpreted as full-text syntax:
+
+| You type | It means |
+|---|---|
+| `disk error` | both words (the default) |
+| `error OR timeout` | either; `AND` binds tighter, so `disk error OR timeout` is `(disk AND error) OR timeout` |
+| `"disk error"` | the words next to each other, in that order |
+| `fail*` or `"disk er"*` | words starting with that |
+| `-debug` or `NOT debug` | exclude entries that contain it (applies to the whole query, even alone) |
+
+`OR`, `AND` and `NOT` must be upper case (lower case is an ordinary word), and matching ignores
+case. The same text works in `/api/stats`, `/api/hosts`, `/api/export`, the web UI and the
+live tail (which has no index, so it matches words as substrings, a little more loosely).
+
+### Paging
+
+A search returns at most `limit` entries, newest first. When a page is full the response has an
+`X-Next-Cursor: <ts>:<id>` header; pass it as `before` to get the next page, until the header
+is absent. Entries sharing a timestamp are ordered by id, so no entry is skipped or repeated even
+while new ones arrive. The web UI's *Load more* button does this, 500 entries at a time.
+
+```sh
+curl -sD - -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/logs?q=error&limit=1000'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/logs?q=error&limit=1000&before=1700000000123:42'
+```
+
+For everything at once, use [export](#export-and-backup).
 
 ## Web UI links
 
@@ -282,8 +314,8 @@ curl -N -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/tail?host=p
 
 Streams new entries as server-sent events (one JSON object per `data:` line). It accepts
 the `q`, `host`, `app`, `level` and `f` filters of `/api/logs`; `since`, `until` and `limit`
-are ignored. Unlike search, `q` here is a case-insensitive substring match on the message
-and field values. Only entries ingested after the connection opens are sent. A slow client
+are ignored. Unlike search, `q` here is matched in memory (same syntax, but words match as case-insensitive
+substrings of the message and field values). Only entries ingested after the connection opens are sent. A slow client
 gets a `lagged` event with the number of skipped entries; at most 32 clients may tail at once.
 
 ## Silence alerts
