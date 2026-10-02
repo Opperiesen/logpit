@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 /// A single normalized log record.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct LogEntry {
     /// Unix timestamp in milliseconds.
     pub ts: i64,
@@ -10,6 +12,8 @@ pub struct LogEntry {
     /// Syslog severity, 0 (emergency) to 7 (debug).
     pub severity: u8,
     pub message: String,
+    /// Structured key/value data (e.g. parsed CEF extensions). Empty when none.
+    pub fields: BTreeMap<String, String>,
 }
 
 /// Truncates `s` to at most `max` bytes without splitting a UTF-8 character.

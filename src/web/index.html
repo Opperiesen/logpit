@@ -21,6 +21,9 @@
   td.ts, td.host, td.app { white-space:nowrap; color:var(--muted); }
   td.msg { white-space:pre-wrap; word-break:break-word; width:100%; }
   .sev { font-weight:600; }
+  .fields { margin-top:2px; display:flex; flex-wrap:wrap; gap:2px 8px; color:var(--muted); font-size:11.5px; }
+  .fields span { cursor:pointer; } .fields span:hover { color:var(--accent); }
+  .fields b { font-weight:600; }
   .s0,.s1,.s2,.s3 { color:#d1242f; } .s4 { color:#bf8700; } .s5 { color:#0969da; } .s6 { color:var(--muted); } .s7 { color:var(--muted); opacity:.7; }
   #empty { padding:24px 16px; color:var(--muted); }
 </style>
@@ -31,6 +34,7 @@
   <input id="q" type="search" placeholder="Search messages…" autofocus>
   <input id="host" type="search" placeholder="Host" size="12">
   <input id="app" type="search" placeholder="App" size="12">
+  <input id="f" type="search" placeholder="field:value" size="14" title="Filter on a structured field, e.g. act:blocked">
   <select id="level" title="Minimum severity">
     <option value="">All levels</option>
     <option value="3">Error and above</option>
@@ -59,9 +63,30 @@ try { $('token').value = localStorage.getItem('logpit-token') || ''; } catch {}
 
 function td(cls, text) { const c = document.createElement('td'); c.className = cls; c.textContent = text; return c; }
 
+// Message cell: the message plus its structured fields (click a field to filter on it).
+function msgCell(r) {
+  const c = td('msg', r.message);
+  const keys = Object.keys(r.fields || {}).filter(k => !k.startsWith('cef_') && k !== 'msg');
+  if (keys.length) {
+    const box = document.createElement('div');
+    box.className = 'fields';
+    for (const k of keys) {
+      const s = document.createElement('span');
+      const b = document.createElement('b');
+      b.textContent = k + '=';
+      s.append(b, document.createTextNode(r.fields[k]));
+      s.title = 'Filter on ' + k + ':' + r.fields[k];
+      s.onclick = () => { $('f').value = k + ':' + r.fields[k]; load(); };
+      box.append(s);
+    }
+    c.append(box);
+  }
+  return c;
+}
+
 async function load() {
   const p = new URLSearchParams({ limit: '500' });
-  for (const k of ['q', 'host', 'app', 'level']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
+  for (const k of ['q', 'host', 'app', 'level', 'f']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
   if ($('range').value) p.set('since', String(Date.now() - Number($('range').value)));
   const headers = {};
   const token = $('token').value;
@@ -76,7 +101,7 @@ async function load() {
       $('token').focus();
       return;
     }
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
     const rows = await res.json();
     const body = $('rows');
     body.replaceChildren(...rows.map(r => {
@@ -84,7 +109,7 @@ async function load() {
       tr.append(
         td('ts', new Date(r.ts).toLocaleString()),
         td('sev s' + r.severity, LEVELS[r.severity] || r.severity),
-        td('host', r.host), td('app', r.app), td('msg', r.message));
+        td('host', r.host), td('app', r.app), msgCell(r));
       return tr;
     }));
     $('empty').textContent = 'No matching entries.';
@@ -95,7 +120,7 @@ async function load() {
 
 $('go').onclick = load;
 $('token').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
-for (const id of ['q', 'host', 'app']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+for (const id of ['q', 'host', 'app', 'f']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 for (const id of ['level', 'range']) $(id).onchange = load;
 $('live').onchange = () => { clearInterval(timer); if ($('live').checked) timer = setInterval(load, 3000); };
 load();

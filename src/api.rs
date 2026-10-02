@@ -9,7 +9,6 @@ use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
 use serde_json::Value;
 
 use crate::ingest::{Sink, now_ms};
@@ -101,12 +100,34 @@ pub fn entry_from_json(v: &Value, now: i64) -> Option<LogEntry> {
         .unwrap_or(now);
     let severity = number(&["severity", "PRIORITY"]).map_or(6, |s| s.clamp(0, 7) as u8);
 
+    // Optional structured data: {"fields": {"key": "value" | number | bool}}.
+    let fields = obj
+        .get("fields")
+        .and_then(Value::as_object)
+        .map(|m| {
+            m.iter()
+                .filter(|(k, _)| crate::store::valid_field_key(k))
+                .filter_map(|(k, v)| {
+                    let v = match v {
+                        Value::String(s) => s.clone(),
+                        Value::Number(n) => n.to_string(),
+                        Value::Bool(b) => b.to_string(),
+                        _ => return None,
+                    };
+                    Some((k.clone(), v))
+                })
+                .take(64)
+                .collect()
+        })
+        .unwrap_or_default();
+
     Some(LogEntry {
         ts,
         host: text(&["host", "_HOSTNAME"]).unwrap_or_else(|| "unknown".into()),
         app: text(&["app", "SYSLOG_IDENTIFIER", "_COMM"]).unwrap_or_default(),
         severity,
         message,
+        fields,
     })
 }
 
@@ -156,30 +177,45 @@ async fn ingest(State(state): State<AppState>, body: String) -> impl IntoRespons
     (status, Json(IngestResult { accepted, rejected }))
 }
 
-#[derive(Deserialize, Default)]
-struct SearchParams {
-    q: Option<String>,
-    host: Option<String>,
-    app: Option<String>,
-    /// Maximum severity number (0 = emergency … 7 = debug).
-    level: Option<u8>,
-    since: Option<i64>,
-    until: Option<i64>,
-    limit: Option<usize>,
+/// Builds a store query from raw URL parameters. `f=key:value` may be repeated.
+fn parse_search(params: Vec<(String, String)>) -> Result<Query, String> {
+    let mut q = Query {
+        limit: DEFAULT_LIMIT,
+        ..Default::default()
+    };
+    let num = |name: &str, v: &str| v.parse::<i64>().map_err(|_| format!("invalid {name}"));
+    for (k, v) in params {
+        match k.as_str() {
+            "q" => q.text = Some(v),
+            "host" if !v.is_empty() => q.host = Some(v),
+            "app" if !v.is_empty() => q.app = Some(v),
+            // Maximum severity number (0 = emergency … 7 = debug).
+            "level" if !v.is_empty() => q.max_severity = Some(num("level", &v)?.clamp(0, 7) as u8),
+            "since" if !v.is_empty() => q.since_ms = Some(num("since", &v)?),
+            "until" if !v.is_empty() => q.until_ms = Some(num("until", &v)?),
+            "limit" if !v.is_empty() => {
+                q.limit = num("limit", &v)?.clamp(1, MAX_LIMIT as i64) as usize
+            }
+            "f" if !v.is_empty() => {
+                let (key, value) = v.split_once(':').ok_or("f must be key:value")?;
+                if !crate::store::valid_field_key(key) {
+                    return Err(format!("invalid field name {key:?}"));
+                }
+                q.fields.push((key.to_string(), value.to_string()));
+            }
+            _ => {}
+        }
+    }
+    Ok(q)
 }
 
 async fn search(
     State(state): State<AppState>,
-    QueryParams(p): QueryParams<SearchParams>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let query = Query {
-        text: p.q,
-        host: p.host.filter(|s| !s.is_empty()),
-        app: p.app.filter(|s| !s.is_empty()),
-        max_severity: p.level.map(|l| l.min(7)),
-        since_ms: p.since,
-        until_ms: p.until,
-        limit: p.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT),
+    let query = match parse_search(params) {
+        Ok(q) => q,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -240,6 +276,55 @@ mod tests {
     fn severity_is_clamped() {
         let e = entry_from_json(&json!({"message": "x", "severity": 42}), 0).unwrap();
         assert_eq!(e.severity, 7);
+    }
+
+    #[test]
+    fn json_fields_are_flattened_and_filtered() {
+        let v = json!({"message": "m", "fields": {"a": "x", "n": 5, "ok": true, "bad key": "y", "nested": {"z": 1}}});
+        let e = entry_from_json(&v, 0).unwrap();
+        assert_eq!(e.fields.len(), 3);
+        assert_eq!(e.fields["n"], "5");
+        assert_eq!(e.fields["ok"], "true");
+    }
+
+    #[test]
+    fn search_params_parse_and_validate() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let q = parse_search(p(&[
+            ("q", "disk"),
+            ("host", "pve"),
+            ("level", "9"),
+            ("limit", "99999"),
+            ("f", "act:blocked"),
+            ("f", "src:10.0.0.1:80"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            (
+                q.text.as_deref(),
+                q.host.as_deref(),
+                q.max_severity,
+                q.limit
+            ),
+            (Some("disk"), Some("pve"), Some(7), MAX_LIMIT)
+        );
+        assert_eq!(
+            q.fields,
+            vec![
+                ("act".to_string(), "blocked".to_string()),
+                ("src".to_string(), "10.0.0.1:80".to_string())
+            ]
+        );
+        assert!(parse_search(p(&[("since", "abc")])).is_err());
+        assert!(parse_search(p(&[("f", "novalue")])).is_err());
+        assert!(parse_search(p(&[("f", "a b:c")])).is_err());
+        // Empty form values (as sent by the UI) are ignored.
+        let q = parse_search(p(&[("host", ""), ("level", ""), ("since", "")])).unwrap();
+        assert!(q.host.is_none() && q.max_severity.is_none() && q.since_ms.is_none());
     }
 
     #[test]

@@ -45,6 +45,7 @@ impl Sink {
     }
 
     pub fn push(&self, mut entry: LogEntry) {
+        crate::cef::enrich(&mut entry);
         truncate_utf8(&mut entry.message, self.max_message_bytes);
         match self.tx.try_send(entry) {
             Ok(()) => Metrics::inc(&self.metrics.received, 1),
