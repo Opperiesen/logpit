@@ -63,18 +63,32 @@ pub struct HttpConfig {
     pub listen: String,
     /// When set, `/ingest` and `/api/*` require `Authorization: Bearer <token>`.
     pub token: Option<String>,
-    /// Additional tokens limited to some scopes (`read`, `write`). With `token`, any
-    /// configured token turns authentication on.
+    /// Additional tokens limited to some scopes (`read`, `write`, `admin`), with an optional name
+    /// and read restrictions. With `token`, any configured token turns authentication on.
     pub tokens: Vec<TokenConfig>,
     pub max_body_bytes: usize,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TokenConfig {
     pub token: String,
     pub scopes: Vec<Scope>,
+    /// How the token appears in the audit trail and `/api/tokens` (default `token-N`, the
+    /// position in the list). Letters, digits, `_`, `-` and `.`.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Limits reading to these hosts (exact names); empty means every host.
+    #[serde(default)]
+    pub hosts: Vec<String>,
+    /// Limits reading to these apps (exact names); empty means every app.
+    #[serde(default)]
+    pub apps: Vec<String>,
 }
+
+/// Longest token name and longest host or app list of one token.
+const MAX_TOKEN_NAME: usize = 64;
+const MAX_ACCESS_ITEMS: usize = 100;
 
 /// GELF listeners (Graylog's JSON log format). `POST /gelf` on the HTTP port is always available.
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
@@ -331,33 +345,53 @@ impl Config {
         if let Some(t) = env_secret(get, "LOGPIT_HTTP_TOKEN")? {
             self.http.token = Some(t);
         }
-        for (name, scope) in [
-            ("LOGPIT_HTTP_TOKEN_READ", Scope::Read),
-            ("LOGPIT_HTTP_TOKEN_WRITE", Scope::Write),
+        for (var, name, scope) in [
+            ("LOGPIT_HTTP_TOKEN_READ", "env-read", Scope::Read),
+            ("LOGPIT_HTTP_TOKEN_WRITE", "env-write", Scope::Write),
         ] {
-            if let Some(token) = env_secret(get, name)? {
+            if let Some(token) = env_secret(get, var)? {
                 self.http.tokens.push(TokenConfig {
                     token,
                     scopes: vec![scope],
+                    name: Some(name.into()),
+                    ..Default::default()
                 });
             }
         }
         Ok(())
     }
 
-    /// All configured tokens as `(token, scopes)`; `http.token` has every scope.
+    /// The name of each entry of `http.tokens`: the configured one, or `token-N` by position.
+    fn token_name(index: usize, t: &TokenConfig) -> String {
+        t.name
+            .clone()
+            .unwrap_or_else(|| format!("token-{}", index + 1))
+    }
+
+    /// All configured tokens; `http.token` is named `admin` and has every scope.
     pub fn auth(&self) -> crate::auth::Auth {
-        let admin = self
-            .http
-            .token
-            .iter()
-            .map(|t| (t.clone(), vec![Scope::Read, Scope::Write]));
+        use crate::auth::{Access, TokenEntry};
+        let admin = self.http.token.iter().map(|t| TokenEntry {
+            token: t.clone(),
+            name: "admin".into(),
+            scopes: vec![Scope::Read, Scope::Write, Scope::Admin],
+            access: Access::default(),
+        });
         let scoped = self
             .http
             .tokens
             .iter()
-            .map(|t| (t.token.clone(), t.scopes.clone()));
-        crate::auth::Auth::new(admin.chain(scoped))
+            .enumerate()
+            .map(|(i, t)| TokenEntry {
+                token: t.token.clone(),
+                name: Self::token_name(i, t),
+                scopes: t.scopes.clone(),
+                access: Access {
+                    hosts: t.hosts.clone(),
+                    apps: t.apps.clone(),
+                },
+            });
+        crate::auth::Auth::from_entries(admin.chain(scoped))
     }
 
     /// Loads `path` if given (it must exist), else `./logpit.toml` if present, else defaults.
@@ -407,12 +441,44 @@ impl Config {
             );
         }
         let mut seen = std::collections::HashSet::new();
-        for t in &self.http.tokens {
+        let mut names = std::collections::HashSet::new();
+        if self.http.token.is_some() {
+            names.insert("admin".to_string());
+        }
+        for (i, t) in self.http.tokens.iter().enumerate() {
             if t.token.is_empty() {
                 bail!("http.tokens entries must not have an empty token");
             }
             if t.scopes.is_empty() {
-                bail!("http.tokens entries need at least one scope (read, write)");
+                bail!("http.tokens entries need at least one scope (read, write, admin)");
+            }
+            let name = Self::token_name(i, t);
+            if name.is_empty()
+                || name.len() > MAX_TOKEN_NAME
+                || !name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+            {
+                bail!(
+                    "token name {name:?} must be 1 to {MAX_TOKEN_NAME} letters, digits, '_', '-' or '.'"
+                );
+            }
+            if !names.insert(name.clone()) {
+                bail!("token name {name:?} is used twice");
+            }
+            if !t.hosts.is_empty() || !t.apps.is_empty() {
+                if !t.scopes.contains(&Scope::Read) {
+                    bail!(
+                        "token {name:?} restricts hosts or apps, which only limits reading: it needs the read scope"
+                    );
+                }
+                for (what, list) in [("hosts", &t.hosts), ("apps", &t.apps)] {
+                    if list.len() > MAX_ACCESS_ITEMS || list.iter().any(|v| v.is_empty()) {
+                        bail!(
+                            "token {name:?}: {what} takes at most {MAX_ACCESS_ITEMS} non-empty names"
+                        );
+                    }
+                }
             }
             if !seen.insert(t.token.as_str()) || self.http.token.as_deref() == Some(&t.token) {
                 bail!("the same token is configured twice; give each token one entry");
@@ -536,6 +602,57 @@ mod tests {
     }
 
     #[test]
+    fn named_restricted_tokens() {
+        use crate::auth::Scope::*;
+        let cfg = Config::parse(
+            "[http]\ntoken = \"root\"\n\
+             [[http.tokens]]\ntoken = \"w\"\nname = \"web-team\"\nscopes = [\"read\"]\nhosts = [\"web1\", \"web2\"]\napps = [\"nginx\"]\n\
+             [[http.tokens]]\ntoken = \"s\"\nscopes = [\"write\"]\n\
+             [[http.tokens]]\ntoken = \"o\"\nname = \"ops.1\"\nscopes = [\"read\", \"admin\"]",
+        )
+        .unwrap();
+        let a = cfg.auth();
+        let root = a.identify(Some("root"), Admin).unwrap();
+        assert_eq!(root.name, "admin");
+        assert!(root.access.unrestricted());
+        let web = a.identify(Some("w"), Read).unwrap();
+        assert_eq!(web.name, "web-team");
+        assert_eq!(web.access.hosts, ["web1", "web2"]);
+        assert_eq!(web.access.apps, ["nginx"]);
+        assert!(a.identify(Some("w"), Admin).is_err());
+        // Unnamed tokens are numbered by their place in the list.
+        assert_eq!(a.identify(Some("s"), Write).unwrap().name, "token-2");
+        assert_eq!(a.identify(Some("o"), Admin).unwrap().name, "ops.1");
+
+        let bad =
+            |body: &str| Config::parse(&format!("[[http.tokens]]\ntoken = \"a\"\n{body}")).is_err();
+        assert!(bad("scopes = [\"read\"]\nname = \"has space\""));
+        assert!(bad("scopes = [\"read\"]\nname = \"\""));
+        assert!(bad("scopes = [\"write\"]\nhosts = [\"h\"]"));
+        assert!(bad("scopes = [\"read\"]\nhosts = [\"\"]"));
+        assert!(!bad("scopes = [\"read\"]\nhosts = [\"h\"]"));
+        // Names are unique, the default ones and `admin` included.
+        assert!(
+            Config::parse(
+                "[[http.tokens]]\ntoken = \"a\"\nname = \"x\"\nscopes = [\"read\"]\n\
+             [[http.tokens]]\ntoken = \"b\"\nname = \"x\"\nscopes = [\"read\"]"
+            )
+            .is_err()
+        );
+        assert!(
+            Config::parse(
+                "[[http.tokens]]\ntoken = \"a\"\nname = \"token-2\"\nscopes = [\"read\"]\n\
+             [[http.tokens]]\ntoken = \"b\"\nscopes = [\"read\"]"
+            )
+            .is_err()
+        );
+        assert!(Config::parse(
+            "[http]\ntoken = \"r\"\n[[http.tokens]]\ntoken = \"a\"\nname = \"admin\"\nscopes = [\"read\"]"
+        )
+        .is_err());
+    }
+
+    #[test]
     fn scoped_tokens_from_file_and_env() {
         let mut cfg = Config::parse(
             "[http]\ntoken = \"admin\"\n[[http.tokens]]\ntoken = \"ship\"\nscopes = [\"write\"]",
@@ -560,7 +677,7 @@ mod tests {
 
         assert!(Config::parse("[[http.tokens]]\ntoken = \"a\"\nscopes = []").is_err());
         assert!(Config::parse("[[http.tokens]]\ntoken = \"\"\nscopes = [\"read\"]").is_err());
-        assert!(Config::parse("[[http.tokens]]\ntoken = \"a\"\nscopes = [\"admin\"]").is_err());
+        assert!(Config::parse("[[http.tokens]]\ntoken = \"a\"\nscopes = [\"root\"]").is_err());
         assert!(
             Config::parse(
                 "[http]\ntoken = \"a\"\n[[http.tokens]]\ntoken = \"a\"\nscopes = [\"read\"]"

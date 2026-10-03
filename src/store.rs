@@ -354,6 +354,7 @@ pub fn context(
     id: i64,
     lines: usize,
     same_host: bool,
+    access: &crate::auth::Access,
 ) -> rusqlite::Result<Option<EntryContext>> {
     const COLUMNS: &str = "l.id, l.ts, l.host, l.app, l.severity, l.message, l.fields";
     let entry = conn
@@ -367,22 +368,27 @@ pub fn context(
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
             e => Err(e),
         })?;
-    let Some(entry) = entry else {
+    // An entry the caller may not read is reported as absent, like one that does not exist.
+    let Some(entry) = entry.filter(|e| access.allows(&e.host, &e.app)) else {
         return Ok(None);
     };
     let host = if same_host { " AND l.host = ?4" } else { "" };
+    let (limits, limit_args) = access_conditions(access, Some(if same_host { 5 } else { 4 }));
+    let limits: String = limits.iter().map(|c| format!(" AND {c}")).collect();
     let side = |cmp: &str, order: &str| -> rusqlite::Result<Vec<Row>> {
+        // Placeholders ?1..?3 (and ?4 for the host) come first, the access ones follow them.
         let sql = format!(
-            "SELECT {COLUMNS} FROM logs l WHERE (l.ts, l.id) {cmp} (?1, ?2){host} \
+            "SELECT {COLUMNS} FROM logs l WHERE (l.ts, l.id) {cmp} (?1, ?2){host}{limits} \
              ORDER BY l.ts {order}, l.id {order} LIMIT ?3"
         );
-        let mut stmt = conn.prepare(&sql)?;
         let limit = i64::try_from(lines).unwrap_or(i64::MAX);
-        let rows = if same_host {
-            stmt.query_map(params![entry.ts, entry.id, limit, entry.host], map_row)?
-        } else {
-            stmt.query_map(params![entry.ts, entry.id, limit], map_row)?
-        };
+        let mut args: Vec<&dyn ToSql> = vec![&entry.ts, &entry.id, &limit];
+        if same_host {
+            args.push(&entry.host);
+        }
+        args.extend(limit_args.iter().map(|a| a.as_ref()));
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(args), map_row)?;
         rows.collect()
     };
     let mut before = side("<", "DESC")?;
@@ -665,6 +671,8 @@ pub struct Query {
     pub fields: Vec<(String, String)>,
     /// Cursor for paging: keep only entries older than `(ts, id)`, as in search order.
     pub before: Option<(i64, i64)>,
+    /// What the caller may read, on top of the filters above (unrestricted by default).
+    pub access: crate::auth::Access,
     pub limit: usize,
 }
 
@@ -682,6 +690,9 @@ impl Query {
     /// Time bounds and `limit` are ignored. Free text matches case-insensitively as
     /// substrings of the message or field values (no FTS index is involved).
     pub fn matches(&self, e: &LogEntry) -> bool {
+        if !self.access.allows(&e.host, &e.app) {
+            return false;
+        }
         if self.host.as_ref().is_some_and(|h| *h != e.host)
             || self.app.as_ref().is_some_and(|a| *a != e.app)
             || self.max_severity.is_some_and(|s| e.severity > s)
@@ -725,7 +736,34 @@ pub struct Row {
 struct Filter {
     join_fts: bool,
     conds: Vec<&'static str>,
+    /// Conditions built at run time (the caller's access); their arguments come last in `args`.
+    dynamic: Vec<String>,
     args: Vec<Box<dyn ToSql>>,
+}
+
+/// Conditions limiting `l.host` and `l.app` to what `access` allows, and their arguments in
+/// placeholder order. With `first`, placeholders are numbered from it (`?5`, `?6`…), which a
+/// statement that already uses numbered ones needs; otherwise they are anonymous.
+fn access_conditions(
+    access: &crate::auth::Access,
+    first: Option<usize>,
+) -> (Vec<String>, Vec<Box<dyn ToSql>>) {
+    let (mut conds, mut args) = (Vec::new(), Vec::<Box<dyn ToSql>>::new());
+    for (column, list) in [("l.host", &access.hosts), ("l.app", &access.apps)] {
+        if list.is_empty() {
+            continue;
+        }
+        let marks: Vec<String> = (0..list.len())
+            .map(|i| match first {
+                Some(n) => format!("?{}", n + args.len() + i),
+                None => "?".into(),
+            })
+            .collect();
+        let marks = marks.join(",");
+        conds.push(format!("{column} IN ({marks})"));
+        args.extend(list.iter().map(|v| Box::new(v.clone()) as Box<dyn ToSql>));
+    }
+    (conds, args)
 }
 
 impl Filter {
@@ -733,6 +771,7 @@ impl Filter {
         let mut f = Filter {
             join_fts: false,
             conds: Vec::new(),
+            dynamic: Vec::new(),
             args: Vec::new(),
         };
         let text = q
@@ -783,6 +822,9 @@ impl Filter {
             f.args.push(Box::new(format!("$.\"{key}\"")));
             f.args.push(Box::new(value.clone()));
         }
+        let (dynamic, args) = access_conditions(&q.access, None);
+        f.dynamic = dynamic;
+        f.args.extend(args);
         Ok(f)
     }
 
@@ -792,9 +834,15 @@ impl Filter {
         if self.join_fts {
             sql.push_str(" JOIN logs_fts f ON f.rowid = l.id");
         }
-        if !self.conds.is_empty() {
+        let conds: Vec<&str> = self
+            .conds
+            .iter()
+            .copied()
+            .chain(self.dynamic.iter().map(String::as_str))
+            .collect();
+        if !conds.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.conds.join(" AND "));
+            sql.push_str(&conds.join(" AND "));
         }
         sql
     }
@@ -1456,7 +1504,7 @@ mod tests {
         };
         let msgs = |rows: &[Row]| rows.iter().map(|r| r.message.clone()).collect::<Vec<_>>();
 
-        let c = context(&conn, id_of("\"pve 5\""), 2, true)
+        let c = context(&conn, id_of("\"pve 5\""), 2, true, &Default::default())
             .unwrap()
             .unwrap();
         assert_eq!(c.entry.message, "pve 5");
@@ -1471,7 +1519,7 @@ mod tests {
             "same-timestamp entry follows by id"
         );
 
-        let all = context(&conn, id_of("\"pve 5\""), 2, false)
+        let all = context(&conn, id_of("\"pve 5\""), 2, false, &Default::default())
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -1482,17 +1530,145 @@ mod tests {
         assert_eq!(msgs(&all.after), ["pve tie", "nas 5"]);
 
         // Near the edges there are simply fewer neighbours; zero lines gives just the entry.
-        let first = context(&conn, id_of("\"pve 0\""), 3, true)
+        let first = context(&conn, id_of("\"pve 0\""), 3, true, &Default::default())
             .unwrap()
             .unwrap();
         assert!(first.before.is_empty());
         assert_eq!(first.after.len(), 3);
-        let bare = context(&conn, id_of("\"pve 5\""), 0, true)
+        let bare = context(&conn, id_of("\"pve 5\""), 0, true, &Default::default())
             .unwrap()
             .unwrap();
         assert!(bare.before.is_empty() && bare.after.is_empty());
 
-        assert!(context(&conn, 999_999, 5, true).unwrap().is_none());
+        assert!(
+            context(&conn, 999_999, 5, true, &Default::default())
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    fn access(hosts: &[&str], apps: &[&str]) -> crate::auth::Access {
+        crate::auth::Access {
+            hosts: hosts.iter().map(|h| h.to_string()).collect(),
+            apps: apps.iter().map(|a| a.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn access_limits_every_read_path() {
+        let mut conn = mem();
+        let mut batch = Vec::new();
+        for (i, (host, app)) in [
+            ("web1", "nginx"),
+            ("web2", "nginx"),
+            ("db1", "pg"),
+            ("web1", "cron"),
+            ("db1", "nginx"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut e = entry(i as i64 + 1, host, 3, "secret thing happened");
+            e.app = app.into();
+            batch.push(e);
+        }
+        insert_batch(&mut conn, &batch).unwrap();
+        let limited = |hosts: &[&str], apps: &[&str]| Query {
+            access: access(hosts, apps),
+            ..q(100)
+        };
+        let hosts_of = |query: &Query| -> Vec<String> {
+            search(&conn, query)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.host)
+                .collect()
+        };
+
+        // Hosts, apps, both, and a text search all stay inside the allowed set.
+        assert_eq!(
+            hosts_of(&limited(&["web1", "web2"], &[])),
+            ["web1", "web2", "web1"]
+        );
+        assert_eq!(hosts_of(&limited(&[], &["nginx"])), ["db1", "web2", "web1"]);
+        assert_eq!(hosts_of(&limited(&["web1"], &["nginx"])), ["web1"]);
+        assert!(hosts_of(&limited(&["nobody"], &[])).is_empty());
+        let mut text = limited(&["db1"], &[]);
+        text.text = Some("secret".into());
+        assert_eq!(hosts_of(&text), ["db1", "db1"]);
+        // The caller's own host filter cannot widen it.
+        let mut asks_db = limited(&["web1"], &[]);
+        asks_db.host = Some("db1".into());
+        assert!(hosts_of(&asks_db).is_empty());
+
+        let only_web1 = limited(&["web1"], &[]);
+        let summary =
+            host_summary(&conn, &only_web1, HostSort::natural(HostSortKey::Host)).unwrap();
+        assert_eq!(
+            summary.iter().map(|h| h.host.as_str()).collect::<Vec<_>>(),
+            ["web1"]
+        );
+        let top = top_values(&conn, &only_web1, &GroupBy::Host, 10).unwrap();
+        assert_eq!((top.matching, top.distinct), (2, 1));
+        let (samples, _) = recent_samples(&conn, &only_web1, 10, 50).unwrap();
+        assert_eq!(samples.len(), 2);
+        let mut seen = 0;
+        export_rows(&conn, &only_web1, None, &mut |_| {
+            seen += 1;
+            true
+        })
+        .unwrap();
+        assert_eq!(seen, 2);
+        let rows = stats(&conn, &only_web1, 1000, &GroupBy::Host).unwrap();
+        assert_eq!(rows.iter().map(|(_, _, n)| n).sum::<u64>(), 2);
+
+        // Live entries are filtered the same way.
+        let live = entry(9, "db1", 3, "x");
+        assert!(!only_web1.matches(&live));
+        assert!(limited(&["db1"], &[]).matches(&live));
+        assert!(q(0).matches(&live));
+    }
+
+    #[test]
+    fn context_hides_entries_and_neighbours_outside_the_access() {
+        let mut conn = mem();
+        let batch: Vec<LogEntry> = (1..=6)
+            .map(|i| {
+                entry(
+                    i,
+                    if i % 2 == 0 { "a" } else { "b" },
+                    6,
+                    &format!("line {i}"),
+                )
+            })
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let id = |ts: i64| {
+            conn.query_row("SELECT id FROM logs WHERE ts = ?", [ts], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap()
+        };
+        let only_a = access(&["a"], &[]);
+        // Across hosts (`same_host` false) the neighbours of an `a` entry are still only `a`'s.
+        let c = context(&conn, id(4), 5, false, &only_a).unwrap().unwrap();
+        assert_eq!(c.before.iter().map(|r| r.ts).collect::<Vec<_>>(), [2]);
+        assert_eq!(c.after.iter().map(|r| r.ts).collect::<Vec<_>>(), [6]);
+        let c = context(&conn, id(4), 5, true, &only_a).unwrap().unwrap();
+        assert_eq!(c.before.len() + c.after.len(), 2);
+        // An entry of another host is as good as absent.
+        assert!(context(&conn, id(3), 5, false, &only_a).unwrap().is_none());
+        // Unrestricted still sees everything.
+        let c = context(&conn, id(3), 5, false, &Default::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(c.before.len() + c.after.len(), 5);
+        // Several names and an app limit number their placeholders after the fixed ones.
+        let wide = access(&["a", "b"], &["app"]);
+        let c = context(&conn, id(3), 5, true, &wide).unwrap().unwrap();
+        assert_eq!(c.before.len() + c.after.len(), 2);
+        let c = context(&conn, id(3), 5, false, &wide).unwrap().unwrap();
+        assert_eq!(c.before.len() + c.after.len(), 5);
     }
 
     #[test]

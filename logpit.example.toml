@@ -26,10 +26,19 @@ tcp_listen = "127.0.0.1:5514"
 listen = "127.0.0.1:8080"
 # token = "change-me"        # protects /ingest and /api/*; set it before exposing the port
 max_body_bytes = 8388608
-# Tokens limited to some scopes ("read": /api/logs and /api/tail, "write": /ingest).
+# Tokens limited to some scopes ("read": search and statistics, "write": ingestion, "admin":
+# /api/audit and /api/tokens). A name appears in the audit trail; `hosts` and `apps` limit what a
+# read token can see (exact names; empty means all).
 # [[http.tokens]]
 # token = "shipper-secret"
 # scopes = ["write"]
+#
+# [[http.tokens]]
+# token = "web-team-secret"
+# name = "web-team"
+# scopes = ["read"]
+# hosts = ["web1", "web2"]
+# apps = ["nginx"]
 
 [silence]
 # Alert when a host stops sending logs (webhook + `logpit_host_silent` metric). Off by default.

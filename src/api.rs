@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
-use axum::extract::{DefaultBodyLimit, Query as QueryParams, Request, State};
+use axum::extract::{
+    ConnectInfo, DefaultBodyLimit, Extension, Query as QueryParams, Request, State,
+};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -15,7 +17,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
 
-use crate::auth::{Decision, Scope};
+use crate::audit::{self, AuditLog};
+use crate::auth::{Decision, Identity, Scope};
 use crate::export::Format;
 use crate::ingest::{Sink, now_ms};
 use crate::metrics::Metrics;
@@ -50,6 +53,8 @@ pub struct AppState {
     pub settings: Arc<crate::live::LiveSettings>,
     /// Bounds concurrent exports, which each hold a database read transaction open.
     pub exports: Arc<tokio::sync::Semaphore>,
+    /// Refused requests and reads, for `/api/audit`.
+    pub audit: Arc<AuditLog>,
 }
 
 pub fn router(state: AppState, max_body_bytes: usize) -> Router {
@@ -79,7 +84,14 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
             (state.clone(), Scope::Read),
             require_scope,
         ));
-    let protected = write.merge(read);
+    let admin = Router::new()
+        .route("/api/audit", get(audit_trail))
+        .route("/api/tokens", get(token_list))
+        .route_layer(middleware::from_fn_with_state(
+            (state.clone(), Scope::Admin),
+            require_scope,
+        ));
+    let protected = write.merge(read).merge(admin);
 
     Router::new()
         .route("/", get(|| async { Html(INDEX_HTML) }))
@@ -128,23 +140,102 @@ fn credentials(headers: &HeaderMap) -> Option<String> {
 
 async fn require_scope(
     State((state, scope)): State<(AppState, Scope)>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
-    match state
-        .settings
-        .auth
-        .get()
-        .check(credentials(req.headers()).as_deref(), scope)
-    {
-        Decision::Allowed => next.run(req).await,
-        Decision::Unauthorized => {
-            (StatusCode::UNAUTHORIZED, "missing or invalid token").into_response()
+    let presented = credentials(req.headers());
+    let auth = state.settings.auth.get();
+    let identity = auth.identify(presented.as_deref(), scope);
+    let method = req.method().to_string();
+    let path = req.uri().path().to_string();
+    let query = audit::shorten_query(req.uri().query().unwrap_or(""));
+    let peer = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|c| c.0.to_string());
+    let (token, response) = match identity {
+        Ok(id) => {
+            let name = id.name.clone();
+            req.extensions_mut().insert(id);
+            (Some(name), next.run(req).await)
         }
-        Decision::Forbidden => {
-            (StatusCode::FORBIDDEN, "this token lacks the required scope").into_response()
+        Err(Decision::Forbidden) => (
+            auth.name_of(presented.as_deref()).map(str::to_string),
+            (StatusCode::FORBIDDEN, "this token lacks the required scope").into_response(),
+        ),
+        Err(_) => (
+            None,
+            (StatusCode::UNAUTHORIZED, "missing or invalid token").into_response(),
+        ),
+    };
+    let status = response.status().as_u16();
+    // With authentication off every caller is anonymous and there is nobody to account for.
+    if auth.enabled() && audit::wanted(&method, &path, status) {
+        let refused = status == 401 || status == 403;
+        tracing::info!(
+            target: "logpit::audit",
+            token = token.as_deref().unwrap_or("-"),
+            method = %method,
+            path = %path,
+            query = %query,
+            status,
+            peer = peer.as_deref().unwrap_or("-"),
+            refused,
+            "api access"
+        );
+        state.audit.record(audit::Event {
+            ts: now_ms(),
+            token,
+            method,
+            path,
+            query,
+            status,
+            peer,
+        });
+    }
+    response
+}
+
+/// The newest audit events, newest first. `limit` defaults to 100 (at most 1000).
+async fn audit_trail(
+    State(state): State<AppState>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let mut limit = 100usize;
+    for (k, v) in params {
+        if k == "limit" && !v.is_empty() {
+            match v.parse::<usize>().ok().filter(|n| *n > 0) {
+                Some(n) => limit = n.min(audit::CAPACITY),
+                None => return (StatusCode::BAD_REQUEST, "invalid limit").into_response(),
+            }
         }
     }
+    Json(state.audit.recent(limit)).into_response()
+}
+
+#[derive(serde::Serialize)]
+struct TokenInfo<'a> {
+    name: &'a str,
+    scopes: &'a [Scope],
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    hosts: &'a [String],
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    apps: &'a [String],
+}
+
+/// The configured tokens by name, scopes and read restrictions; never the secrets.
+async fn token_list(State(state): State<AppState>) -> Response {
+    let auth = state.settings.auth.get();
+    let tokens: Vec<TokenInfo> = auth
+        .entries()
+        .map(|e| TokenInfo {
+            name: &e.name,
+            scopes: &e.scopes,
+            hosts: &e.access.hosts,
+            apps: &e.access.apps,
+        })
+        .collect();
+    Json(tokens).into_response()
 }
 
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
@@ -459,12 +550,14 @@ fn parse_search(params: Vec<(String, String)>) -> Result<Query, String> {
 
 async fn search(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let query = match parse_search(params) {
+    let mut query = match parse_search(params) {
         Ok(q) => q,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    query.access = who.access;
     let limit = query.limit;
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -539,12 +632,14 @@ fn parse_stats(params: Vec<(String, String)>) -> Result<StatsRequest, String> {
 /// absent `since` the oldest entry; without `bucket`, a size giving about 120 buckets is chosen.
 async fn stats(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let req = match parse_stats(params) {
+    let mut req = match parse_stats(params) {
         Ok(r) => r,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    req.query.access = who.access;
     let path = state.db_path.clone();
     let result =
         tokio::task::spawn_blocking(move || -> anyhow::Result<Result<stats::Stats, String>> {
@@ -636,12 +731,14 @@ fn parse_hosts(params: Vec<(String, String)>) -> Result<(Query, HostSort), Strin
 /// after sorting.
 async fn hosts(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let (query, sort) = match parse_hosts(params) {
+    let (mut query, sort) = match parse_hosts(params) {
         Ok(r) => r,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    query.access = who.access;
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
@@ -721,7 +818,25 @@ struct ViewInput {
 }
 
 /// The saved views, by name.
-async fn list_views(State(state): State<AppState>) -> Response {
+/// Saved views are shared by everyone and may name hosts, apps or search text, so a token
+/// limited to some hosts or apps does not get them.
+fn views_refused(who: &Identity) -> Option<Response> {
+    (!who.access.unrestricted()).then(|| {
+        (
+            StatusCode::FORBIDDEN,
+            "saved views are not available to a token limited to some hosts or apps",
+        )
+            .into_response()
+    })
+}
+
+async fn list_views(
+    State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
+) -> Response {
+    if let Some(refused) = views_refused(&who) {
+        return refused;
+    }
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
@@ -735,7 +850,14 @@ async fn list_views(State(state): State<AppState>) -> Response {
 }
 
 /// Saves a view (`{"name": …, "query": "host=pve&level=3"}`), replacing the one with that name.
-async fn save_view(State(state): State<AppState>, Json(input): Json<ViewInput>) -> Response {
+async fn save_view(
+    State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
+    Json(input): Json<ViewInput>,
+) -> Response {
+    if let Some(refused) = views_refused(&who) {
+        return refused;
+    }
     let (name, query) = match validate_view(&input.name, &input.query) {
         Ok(v) => v,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
@@ -766,8 +888,12 @@ async fn save_view(State(state): State<AppState>, Json(input): Json<ViewInput>) 
 
 async fn delete_view(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     axum::extract::Path(id): axum::extract::Path<i64>,
 ) -> Response {
+    if let Some(refused) = views_refused(&who) {
+        return refused;
+    }
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
@@ -837,12 +963,14 @@ struct TopResponse {
 /// like "which source addresses were blocked most?".
 async fn top(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let (query, group, limit) = match parse_top(params) {
+    let (mut query, group, limit) = match parse_top(params) {
         Ok(r) => r,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    query.access = who.access;
     let path = state.db_path.clone();
     let for_db = group.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -891,6 +1019,7 @@ struct FieldName {
 /// know what `/api/top` and `f=` can use. `limit` defaults to 50 (at most 200).
 async fn fields(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
     let mut limit = 50usize;
@@ -905,10 +1034,11 @@ async fn fields(
             _ => rest.push((k, v)),
         }
     }
-    let query = match parse_search(rest) {
+    let mut query = match parse_search(rest) {
         Ok(q) => q,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    query.access = who.access;
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
@@ -959,12 +1089,14 @@ fn parse_patterns(params: Vec<(String, String)>) -> Result<(Query, usize), Strin
 /// frequent first, with the count in each half of the time window to show what is growing.
 async fn patterns(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let (query, limit) = match parse_patterns(params) {
+    let (mut query, limit) = match parse_patterns(params) {
         Ok(r) => r,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    query.access = who.access;
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
@@ -1018,6 +1150,7 @@ fn parse_context(params: &[(String, String)]) -> Result<(usize, bool), String> {
 /// understand a line found by a search.
 async fn log_context(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     axum::extract::Path(id): axum::extract::Path<i64>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
@@ -1025,10 +1158,11 @@ async fn log_context(
         Ok(r) => r,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    let access = who.access;
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
-        store::context(&conn, id, lines, same_host).map_err(anyhow::Error::from)
+        store::context(&conn, id, lines, same_host, &access).map_err(anyhow::Error::from)
     })
     .await;
     match result {
@@ -1074,12 +1208,14 @@ fn parse_export(params: Vec<(String, String)>) -> Result<(Query, Format, Option<
 /// Rows are read and sent incrementally, so memory use does not depend on the export size.
 async fn export(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let (query, format, limit) = match parse_export(params) {
+    let (mut query, format, limit) = match parse_export(params) {
         Ok(r) => r,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    query.access = who.access;
     let Ok(permit) = state.exports.clone().try_acquire_owned() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1138,12 +1274,14 @@ async fn export(
 /// the client reads too slowly.
 async fn tail(
     State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let query = match parse_search(params) {
+    let mut query = match parse_search(params) {
         Ok(q) => q,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
+    query.access = who.access;
     if state.sink.live_subscribers() >= MAX_TAIL_SUBSCRIBERS {
         return (
             StatusCode::SERVICE_UNAVAILABLE,

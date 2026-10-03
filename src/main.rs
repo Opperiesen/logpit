@@ -315,6 +315,7 @@ async fn main() -> anyhow::Result<()> {
         db_path: db_path.clone(),
         settings: settings.clone(),
         exports: Arc::new(tokio::sync::Semaphore::new(api::MAX_EXPORTS)),
+        audit: Arc::default(),
     };
     if !settings.auth.get().enabled() && !http.ip().is_loopback() {
         tracing::warn!("HTTP API is exposed on {http} without any token; set http.token");
@@ -343,7 +344,14 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| format!("cannot bind HTTP listener on {http}"))?;
     tracing::info!("HTTP listening on http://{http}");
     let app = api::router(state, cfg.http.max_body_bytes);
-    tasks.spawn(async move { axum::serve(listener, app).await.map_err(Into::into) });
+    tasks.spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .map_err(Into::into)
+    });
 
     // Both notifiers read their webhook from the settings each time, so a reload can add, change
     // or remove alerts and the webhook without restarting them.

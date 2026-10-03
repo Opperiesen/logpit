@@ -27,6 +27,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   built-in healthcheck, token via secret file.
 - **Message patterns**: `GET /api/patterns` folds messages that differ only by numbers or ids into one
   template with counts and trend, to see what is noisy or growing.
+- **Access control**: named tokens with `read`, `write` and `admin` scopes, optional limits to some hosts or
+  apps for reading, and an audit trail of refused requests and reads.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Observability**: Prometheus metrics at `/metrics`, health at `/healthz`.
 
@@ -107,11 +109,58 @@ podman run … \
   -e LOGPIT_HTTP_TOKEN_READ_FILE=/run/secrets/view …
 ```
 
-A write token can only `POST /ingest`, a read token can only call `/api/logs` and `/api/tail`;
-the wrong scope gets `403` (a missing or unknown token gets `401`). `LOGPIT_HTTP_TOKEN` keeps
-both scopes, and any token turns authentication on. Further tokens can be added in the TOML
-file with `[[http.tokens]]` entries (`token`, `scopes = ["read", "write"]`). `/healthz` and
-`/metrics` stay open.
+A write token can only use the ingestion endpoints (`/ingest`, Loki, GELF, OTLP), a read token only the
+search and statistics endpoints (`/api/logs`, `/api/tail`, `/api/stats`…); the wrong scope gets `403`
+(a missing or unknown token gets `401`). `LOGPIT_HTTP_TOKEN` keeps every scope (it is named `admin`),
+and any token turns authentication on. Further tokens can be added in the TOML file with
+`[[http.tokens]]` entries. `/healthz` and `/metrics` stay open.
+
+### Named tokens, restrictions and audit
+
+A `[[http.tokens]]` entry can be named, given the `admin` scope, and limited to some hosts or apps:
+
+```toml
+[[http.tokens]]
+token = "…"
+name = "web-team"            # shown in the audit trail; default token-1, token-2… by position
+scopes = ["read"]
+hosts = ["web1", "web2"]     # only these hosts can be read; empty or absent: every host
+apps = ["nginx"]             # and only these apps; both limits apply together
+
+[[http.tokens]]
+token = "…"
+name = "ops"
+scopes = ["read", "admin"]
+```
+
+Names use letters, digits, `_`, `-` and `.`, and each is unique (`LOGPIT_HTTP_TOKEN` is `admin`, the
+`LOGPIT_HTTP_TOKEN_READ`/`_WRITE` tokens are `env-read` and `env-write`). A token with `hosts` or `apps`
+needs the `read` scope, since it limits reading only: every read endpoint (search, context, live tail,
+statistics, hosts, top values, patterns, export) keeps to the allowed entries whatever filters are asked
+for, an entry outside them is answered `404`, and the context of an entry never shows neighbours outside
+them. Saved views are shared by everyone and can name hosts or search text, so they answer `403` to a
+limited token (the web UI then hides the *Views* menu). Counts such as `distinct` and the totals of the
+Hosts panel only cover what the token may read. `GET /api/stats` still starts at the oldest entry of the
+whole database when `since` is absent. Restrictions are exact names, not patterns, and are reloaded
+by `SIGHUP` with the tokens.
+
+The `admin` scope opens two endpoints:
+
+```sh
+curl -s -H "Authorization: Bearer $ADMIN" 'http://localhost:8080/api/audit?limit=50'
+# [{"ts":1791024064467,"token":"web-team","method":"GET","path":"/api/logs","query":"host=db1","status":200,"peer":"10.0.0.8:51234"}, …]
+curl -s -H "Authorization: Bearer $ADMIN" http://localhost:8080/api/tokens
+# [{"name":"web-team","scopes":["read"],"hosts":["web1","web2"],"apps":["nginx"]}, …]   (never the secrets)
+```
+
+The audit trail keeps the last 1000 events in memory (lost on restart) and writes each one to the log
+(target `logpit::audit`). It records every refused request (`401` and `403`, with the token's name when
+the token is known but lacks the scope), and the requests that read entries or change shared data: search,
+context, export, live tail, saved views being added or deleted, and the audit and token lists
+themselves. Ingestion and the web page's background refreshes (statistics, hosts, top values, patterns)
+are left out, or they would drown the rest. `query` is the query string, which includes the search
+text, shortened to 200 characters; `peer` is the address of the connection, which is a reverse proxy's
+behind one. Nothing is recorded while authentication is off.
 
 ## Sending logs
 

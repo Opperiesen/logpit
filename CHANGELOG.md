@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Access control: `[[http.tokens]]` entries can be named, given the new `admin` scope and limited to some
+  `hosts` and `apps` for reading; every read endpoint (search, context, live tail, statistics, hosts, top
+  values, patterns, export) keeps to what the token may see, and saved views are refused to a limited token.
+  `GET /api/audit` (the last 1000 refused requests and reads, also logged as `logpit::audit`) and
+  `GET /api/tokens` (names, scopes and limits, never secrets) need `admin`. `LOGPIT_HTTP_TOKEN` is named
+  `admin` and has every scope.
 - Message patterns: `GET /api/patterns` groups the matching entries by message template (numbers and ids
   masked), with counts, hosts, the most severe level, an example and the count in each half of the window
   as a trend, plus a *Message patterns* panel in the web UI.
