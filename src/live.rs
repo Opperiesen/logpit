@@ -148,6 +148,9 @@ impl LiveSettings {
         if old.http.max_body_bytes != new.http.max_body_bytes {
             out.push("http.max_body_bytes");
         }
+        if old.http.audit_retention_days != new.http.audit_retention_days {
+            out.push("http.audit_retention_days");
+        }
         out
     }
 

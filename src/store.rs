@@ -84,9 +84,76 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
             name       TEXT NOT NULL UNIQUE,
             query      TEXT NOT NULL,
             created_ts INTEGER NOT NULL
-        );",
+        );
+        CREATE TABLE IF NOT EXISTS audit (
+            id     INTEGER PRIMARY KEY,
+            ts     INTEGER NOT NULL,
+            token  TEXT,
+            method TEXT NOT NULL,
+            path   TEXT NOT NULL,
+            query  TEXT NOT NULL,
+            status INTEGER NOT NULL,
+            peer   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS audit_ts ON audit (ts);",
     )?;
     Ok(())
+}
+
+/// Appends audit events in one transaction.
+pub fn insert_audit(conn: &mut Connection, events: &[crate::audit::Event]) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO audit (ts, token, method, path, query, status, peer) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        )?;
+        for e in events {
+            stmt.execute(params![
+                e.ts, e.token, e.method, e.path, e.query, e.status, e.peer
+            ])?;
+        }
+    }
+    tx.commit()
+}
+
+/// The newest audit events matching `q`, newest first.
+pub fn audit_events(
+    conn: &Connection,
+    q: &crate::audit::AuditQuery,
+) -> rusqlite::Result<Vec<crate::audit::Event>> {
+    let mut stmt = conn.prepare(
+        "SELECT ts, token, method, path, query, status, peer FROM audit \
+         WHERE (?1 IS NULL OR ts >= ?1) AND (?2 IS NULL OR ts <= ?2) \
+           AND (?3 IS NULL OR token = ?3) AND (?4 = 0 OR status IN (401, 403)) \
+         ORDER BY ts DESC, id DESC LIMIT ?5",
+    )?;
+    let rows = stmt.query_map(
+        params![
+            q.since_ms,
+            q.until_ms,
+            q.token,
+            q.refused,
+            i64::try_from(q.limit).unwrap_or(i64::MAX)
+        ],
+        |r| {
+            Ok(crate::audit::Event {
+                ts: r.get(0)?,
+                token: r.get(1)?,
+                method: r.get(2)?,
+                path: r.get(3)?,
+                query: r.get(4)?,
+                status: r.get(5)?,
+                peer: r.get(6)?,
+            })
+        },
+    )?;
+    rows.collect()
+}
+
+/// Deletes audit events older than `cutoff_ms`; returns how many.
+pub fn purge_audit(conn: &Connection, cutoff_ms: i64) -> rusqlite::Result<usize> {
+    conn.execute("DELETE FROM audit WHERE ts < ?", [cutoff_ms])
 }
 
 /// Inserts `entries` in a single transaction.

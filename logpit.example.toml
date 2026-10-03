@@ -26,6 +26,7 @@ tcp_listen = "127.0.0.1:5514"
 listen = "127.0.0.1:8080"
 # token = "change-me"        # protects /ingest and /api/*; set it before exposing the port
 max_body_bytes = 8388608
+audit_retention_days = 30    # days of access audit kept in the database; 0 = last 1000 in memory only
 # Tokens limited to some scopes ("read": search and statistics, "write": ingestion, "admin":
 # /api/audit and /api/tokens). A name appears in the audit trail; `hosts` and `apps` limit what a
 # read token can see (exact names; empty means all).

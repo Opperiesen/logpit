@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use logpit::api::{self, AppState};
+use logpit::audit::AuditLog;
 use logpit::config::Config;
 use logpit::ingest::{self, Sink, now_ms};
 use logpit::live::LiveSettings;
@@ -315,7 +316,11 @@ async fn main() -> anyhow::Result<()> {
         db_path: db_path.clone(),
         settings: settings.clone(),
         exports: Arc::new(tokio::sync::Semaphore::new(api::MAX_EXPORTS)),
-        audit: Arc::default(),
+        audit: Arc::new(if cfg.http.audit_retention_days > 0 {
+            AuditLog::persistent(&db_path, cfg.http.audit_retention_days)?
+        } else {
+            AuditLog::default()
+        }),
     };
     if !settings.auth.get().enabled() && !http.ip().is_loopback() {
         tracing::warn!("HTTP API is exposed on {http} without any token; set http.token");

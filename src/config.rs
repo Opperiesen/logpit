@@ -67,6 +67,9 @@ pub struct HttpConfig {
     /// and read restrictions. With `token`, any configured token turns authentication on.
     pub tokens: Vec<TokenConfig>,
     pub max_body_bytes: usize,
+    /// Days to keep the audit trail in the database; `0` keeps it in memory only (the last 1000
+    /// events, lost on restart).
+    pub audit_retention_days: u32,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
@@ -208,6 +211,7 @@ impl Default for HttpConfig {
             token: None,
             tokens: Vec::new(),
             max_body_bytes: 8 * 1024 * 1024,
+            audit_retention_days: 30,
         }
     }
 }
@@ -248,6 +252,12 @@ impl Config {
                 .trim()
                 .parse()
                 .with_context(|| format!("invalid LOGPIT_RETENTION_DAYS {v:?}"))?;
+        }
+        if let Some(v) = get("LOGPIT_AUDIT_RETENTION_DAYS") {
+            self.http.audit_retention_days = v
+                .trim()
+                .parse()
+                .with_context(|| format!("invalid LOGPIT_AUDIT_RETENTION_DAYS {v:?}"))?;
         }
         if let Some(v) = get("LOGPIT_MAX_DB_SIZE_MB") {
             self.storage.max_db_size_mb = v
@@ -599,6 +609,21 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_SILENCE_AFTER_SECS", "x")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn audit_retention_defaults_and_env() {
+        let mut cfg = Config::parse("").unwrap();
+        assert_eq!(cfg.http.audit_retention_days, 30);
+        cfg.apply_env(&env(&[("LOGPIT_AUDIT_RETENTION_DAYS", "0")]))
+            .unwrap();
+        assert_eq!(cfg.http.audit_retention_days, 0);
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_AUDIT_RETENTION_DAYS", "x")]))
+                .is_err()
+        );
+        let from_file = Config::parse("[http]\naudit_retention_days = 7").unwrap();
+        assert_eq!(from_file.http.audit_retention_days, 7);
     }
 
     #[test]

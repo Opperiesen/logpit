@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The audit trail is now stored in the database (`http.audit_retention_days`, default 30, purged hourly),
+  survives restarts and can be filtered on `/api/audit` with `since`, `until`, `token` and `refused`.
+  `audit_retention_days = 0` keeps the previous in-memory behaviour.
+
 ## 0.9.0 - 2026-10-03
 
 - Access control: `[[http.tokens]]` entries can be named, given the new `admin` scope and limited to some

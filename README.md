@@ -147,20 +147,26 @@ by `SIGHUP` with the tokens.
 The `admin` scope opens two endpoints:
 
 ```sh
-curl -s -H "Authorization: Bearer $ADMIN" 'http://localhost:8080/api/audit?limit=50'
+curl -s -H "Authorization: Bearer $ADMIN" 'http://localhost:8080/api/audit?limit=50&refused=true'
 # [{"ts":1791024064467,"token":"web-team","method":"GET","path":"/api/logs","query":"host=db1","status":200,"peer":"10.0.0.8:51234"}, …]
 curl -s -H "Authorization: Bearer $ADMIN" http://localhost:8080/api/tokens
 # [{"name":"web-team","scopes":["read"],"hosts":["web1","web2"],"apps":["nginx"]}, …]   (never the secrets)
 ```
 
-The audit trail keeps the last 1000 events in memory (lost on restart) and writes each one to the log
-(target `logpit::audit`). It records every refused request (`401` and `403`, with the token's name when
+The audit trail is stored in the database for `http.audit_retention_days` (default 30; env
+`LOGPIT_AUDIT_RETENTION_DAYS`; changing it needs a restart), so it survives restarts and is part of
+`logpit --backup`; `0` keeps only the last 1000 events in memory instead. Each event is also written to
+the log (target `logpit::audit`). `/api/audit` takes `limit` (default 100, at most 10 000, or 1000 in
+memory), `since` and `until` (Unix ms), `token` (a token name) and `refused=true` for the refusals only.
+Events are written by a background thread, so requests never wait for the database, and are dropped
+(with a warning in the log) if it falls 4096 events behind. It records every refused request (`401` and `403`, with the token's name when
 the token is known but lacks the scope), and the requests that read entries or change shared data: search,
 context, export, live tail, saved views being added or deleted, and the audit and token lists
 themselves. Ingestion and the web page's background refreshes (statistics, hosts, top values, patterns)
 are left out, or they would drown the rest. `query` is the query string, which includes the search
 text, shortened to 200 characters; `peer` is the address of the connection, which is a reverse proxy's
-behind one. Nothing is recorded while authentication is off.
+behind one. Nothing is recorded while authentication is off. Old events are purged at startup and
+every hour; they are not touched by the size cap or by log retention.
 
 ## Sending logs
 
@@ -898,7 +904,7 @@ Without a config file the defaults listen on loopback only.
 - Single node, no user accounts (access is by token), and no built-in TLS for the HTTP port
   (use a reverse proxy). Retention is by age and optionally by size; see
   [Retention by severity](#retention-by-severity) and [Disk size cap](#disk-size-cap).
-- The audit trail is kept in memory only, and read restrictions are exact host and app names.
+- Read restrictions are exact host and app names, not patterns.
 
 ## Development
 

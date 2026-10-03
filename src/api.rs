@@ -196,21 +196,66 @@ async fn require_scope(
     response
 }
 
-/// The newest audit events, newest first. `limit` defaults to 100 (at most 1000).
+/// `limit` (default 100, at most 1000), `since` and `until` (Unix ms), `token` (a token name) and
+/// `refused=true` (only 401 and 403).
+fn parse_audit(params: Vec<(String, String)>) -> Result<audit::AuditQuery, String> {
+    let mut q = audit::AuditQuery {
+        limit: 100,
+        ..Default::default()
+    };
+    let num = |name: &str, v: &str| v.parse::<i64>().map_err(|_| format!("invalid {name}"));
+    for (k, v) in params {
+        match (k.as_str(), v.as_str()) {
+            (_, "") => {}
+            ("limit", v) => {
+                q.limit = v
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or("invalid limit")?
+                    .min(audit::MAX_QUERY_LIMIT);
+            }
+            ("since", v) => q.since_ms = Some(num("since", v)?),
+            ("until", v) => q.until_ms = Some(num("until", v)?),
+            ("token", v) => q.token = Some(v.to_string()),
+            ("refused", "true") => q.refused = true,
+            ("refused", "false") => q.refused = false,
+            ("refused", _) => return Err("refused must be true or false".into()),
+            _ => {}
+        }
+    }
+    Ok(q)
+}
+
+/// Audit events, newest first: from the database when the trail is kept there (surviving
+/// restarts, for `audit_retention_days`), otherwise the last 1000 in memory.
 async fn audit_trail(
     State(state): State<AppState>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let mut limit = 100usize;
-    for (k, v) in params {
-        if k == "limit" && !v.is_empty() {
-            match v.parse::<usize>().ok().filter(|n| *n > 0) {
-                Some(n) => limit = n.min(audit::CAPACITY),
-                None => return (StatusCode::BAD_REQUEST, "invalid limit").into_response(),
-            }
+    let query = match parse_audit(params) {
+        Ok(q) => q,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let Some(path) = state.audit.persistent_path().map(|p| p.to_path_buf()) else {
+        return Json(state.audit.search(&query)).into_response();
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = store::open(&path)?;
+        store::audit_events(&conn, &query).map_err(anyhow::Error::from)
+    })
+    .await;
+    match result {
+        Ok(Ok(events)) => Json(events).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("audit query failed: {e:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "audit query failed").into_response()
+        }
+        Err(e) => {
+            tracing::error!("audit query task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "audit query failed").into_response()
         }
     }
-    Json(state.audit.recent(limit)).into_response()
 }
 
 #[derive(serde::Serialize)]
@@ -1544,6 +1589,42 @@ mod tests {
         ] {
             assert!(validate_view(name, query).is_err(), "{why}");
         }
+    }
+
+    #[test]
+    fn audit_params_parse_and_validate() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let q = parse_audit(p(&[
+            ("token", "web"),
+            ("since", "5"),
+            ("until", "9"),
+            ("refused", "true"),
+            ("limit", "7"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            (
+                q.token.as_deref(),
+                q.since_ms,
+                q.until_ms,
+                q.refused,
+                q.limit
+            ),
+            (Some("web"), Some(5), Some(9), true, 7)
+        );
+        assert_eq!(parse_audit(p(&[])).unwrap().limit, 100);
+        assert_eq!(
+            parse_audit(p(&[("limit", "999999")])).unwrap().limit,
+            audit::MAX_QUERY_LIMIT
+        );
+        assert!(parse_audit(p(&[("limit", "0")])).is_err());
+        assert!(parse_audit(p(&[("since", "x")])).is_err());
+        assert!(parse_audit(p(&[("refused", "maybe")])).is_err());
+        assert!(!parse_audit(p(&[("refused", "")])).unwrap().refused);
     }
 
     #[test]
