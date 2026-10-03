@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Multi-line events in `logpit ship`: `--multiline-start REGEX` joins the lines that follow a matching
+  line (stack traces, wrapped output) into one entry, with `--multiline-wait-ms` and
+  `--multiline-max-lines`.
+
 - Maintenance windows (`[[maintenance]]`, `/api/maintenance`): notifications about the hosts a one-off or
   recurring (daily or weekly, UTC) window covers are held back from the webhook and e-mail, and recorded
   in the alert history as muted. Windows can also be started and ended through the admin API.

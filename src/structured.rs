@@ -158,7 +158,12 @@ pub fn extract(message: &str) -> Vec<(String, String)> {
             return found;
         }
     }
-    from_logfmt(text)
+    let found = from_logfmt(text);
+    // A stack trace under a logfmt header line would make the whole message look like prose.
+    match text.split_once('\n') {
+        Some((first, _)) if found.is_empty() => from_logfmt(first),
+        _ => found,
+    }
 }
 
 /// Adds the structured values of the message to the entry's fields. Entries that already carry
@@ -193,6 +198,18 @@ pub fn enrich_missing(entry: &mut LogEntry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_first_line_of_a_multi_line_message_is_tried_alone() {
+        let trace = "level=error msg=\"charge failed\" trace_id=ab12\njava.lang.IllegalStateException: card declined\n\tat com.shop.Pay.charge(Pay.java:42)";
+        let found = extract(trace);
+        assert!(
+            found.contains(&("trace_id".to_string(), "ab12".to_string())),
+            "{found:?}"
+        );
+        // Prose stays prose, whatever its first line.
+        assert!(extract("it failed a=b\nand then it kept failing for a long time").is_empty());
+    }
 
     fn kv(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs

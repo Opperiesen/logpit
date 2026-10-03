@@ -51,6 +51,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Ingestion quotas**: per-token limits on events per second and per day, answered `429` beyond them.
 - **Maintenance windows**: hold the notifications about some hosts back during planned work, from the
   configuration or the API.
+- **Multi-line events**: `logpit ship` joins stack traces and wrapped output into one entry.
 - **Retention rules**: `[[retention]]` keeps entries of some hosts, apps or severities for a different time.
 - **Cold archive**: entries leaving through retention or the size cap are first written to daily gzip files,
   readable with `zcat` and reloadable with `logpit restore`.
@@ -483,6 +484,14 @@ logpit ship --url https://logpit.example.com --file /var/log/nginx/error.log --f
   override the names. The token is read from `--token-file`, `LOGPIT_SHIP_TOKEN_FILE` or
   `LOGPIT_SHIP_TOKEN`, never from the command line, where it would show in `ps`. `logpit ship --help` lists
   everything. It needs a `write` token.
+- **Multi-line events.** `--multiline-start REGEX` makes a file line that matches the expression start an
+  event, and the lines after it (a stack trace, wrapped output) part of the same event, joined with
+  newlines: `--multiline-start '^\d{4}-\d{2}-\d{2}'` for logs that begin with a date, `'^\S'` for
+  traces indented under their first line. An event is sent when the next one starts, or after
+  `--multiline-wait-ms` (1000) without a new line, and is cut at `--multiline-max-lines` (500) or 64 KiB.
+  Lines before the first match form an event of their own. The read position saved is that of the last
+  line sent, so a restart re-reads an event that was still being assembled. It applies to `--file`, not
+  to the journal (its entries are already whole).
 - Lines longer than 64 KiB are cut, and a file truncated and refilled beyond its old size between two
   checks (every 250 ms) cannot be told from one that was appended to.
 
@@ -1452,6 +1461,9 @@ skipped; keys are made valid (anything but letters, digits, `_`, `.`, `-` become
 there are at most 64 fields of 1 KiB each. The message text is kept exactly as received. Like
 CEF fields, the values are filterable (`f=level:error`, `f=http.status:500`), can be used for
 `group_by=field:level` in statistics, are matched by `q`, and are clickable in the web UI.
+
+A multi-line message (a stack trace after a header line, as [`logpit ship --multiline-start`](#sending-logs) joins them) is
+read as a whole first and, when that finds nothing, by its first line alone.
 
 Plain text is left alone: `key=value` data only counts when there are at least two pairs and
 no more bare words than pairs, so a sentence containing `a=b` is not mistaken for logfmt. Entries

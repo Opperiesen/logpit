@@ -36,6 +36,10 @@ pub const USAGE: &str = "usage: logpit ship --url <http(s)://logpit:8080> (--jou
   --journalctl PATH      journalctl binary (default: journalctl)
   --file PATH            follow a log file, surviving rotation (repeatable)
   --from-start           read existing content of files seen for the first time (default: only new lines)
+  --multiline-start RE   a file line matching RE starts an event; the lines that follow it (stack
+                         traces, wrapped output) are joined into the same event
+  --multiline-wait-ms N  send a joined event after this long without a new line (default 1000)
+  --multiline-max-lines N  most lines in one joined event (default 500)
   --app NAME             application name for file lines (default: the file name)
   --host NAME            host name to send (default: the machine's)
   --spool DIR            where batches and read positions are kept (default: ./logpit-spool)
@@ -53,6 +57,10 @@ pub struct ShipConfig {
     pub journalctl: String,
     pub files: Vec<PathBuf>,
     pub from_start: bool,
+    /// Lines of files that start an event; the others continue the previous one.
+    pub multiline_start: Option<regex::Regex>,
+    pub multiline_wait_ms: u64,
+    pub multiline_max_lines: usize,
     pub app: Option<String>,
     pub host: String,
     pub spool: PathBuf,
@@ -93,6 +101,9 @@ impl ShipConfig {
             journalctl: "journalctl".into(),
             files: Vec::new(),
             from_start: false,
+            multiline_start: None,
+            multiline_wait_ms: 1000,
+            multiline_max_lines: 500,
             app: None,
             host: String::new(),
             spool: PathBuf::from("logpit-spool"),
@@ -125,6 +136,20 @@ impl ShipConfig {
                 "--journalctl" => cfg.journalctl = value("--journalctl")?,
                 "--file" => cfg.files.push(PathBuf::from(value("--file")?)),
                 "--from-start" => cfg.from_start = true,
+                "--multiline-start" => {
+                    cfg.multiline_start = Some(
+                        crate::filters::compile_regex(&value("--multiline-start")?)
+                            .map_err(|e| anyhow::anyhow!("--multiline-start: {e}"))?,
+                    )
+                }
+                "--multiline-wait-ms" => {
+                    cfg.multiline_wait_ms =
+                        number("--multiline-wait-ms", value("--multiline-wait-ms")?)?
+                }
+                "--multiline-max-lines" => {
+                    cfg.multiline_max_lines =
+                        number("--multiline-max-lines", value("--multiline-max-lines")?)? as usize
+                }
                 "--app" => cfg.app = Some(value("--app")?),
                 "--host" => cfg.host = value("--host")?,
                 "--spool" => cfg.spool = PathBuf::from(value("--spool")?),
@@ -494,6 +519,84 @@ impl Tailer {
 
 // ---- sources ------------------------------------------------------------------------------
 
+/// Joins the lines of one file into events: a line matching `start` begins an event and the lines
+/// after it, up to the next match, belong to it. An event is held until the next one starts, or
+/// until `wait` passes without a new line, and ends early at `max_lines` or [`MAX_LINE_BYTES`].
+/// Positions are those of the event's last line, so a restart re-reads an event that was still
+/// held, never skips one.
+pub struct Joiner {
+    start: regex::Regex,
+    max_lines: usize,
+    wait: Duration,
+    pending: Option<Pending>,
+}
+
+struct Pending {
+    text: String,
+    lines: usize,
+    offset: u64,
+    inode: u64,
+    updated: std::time::Instant,
+}
+
+/// A finished event: its text, the offset after its last line and the file's inode.
+pub type Event = (String, u64, u64);
+
+impl Joiner {
+    pub fn new(start: regex::Regex, max_lines: usize, wait: Duration) -> Self {
+        Self {
+            start,
+            max_lines,
+            wait,
+            pending: None,
+        }
+    }
+
+    /// Adds a line; returns the events it completed.
+    pub fn push(
+        &mut self,
+        line: String,
+        offset: u64,
+        inode: u64,
+        now: std::time::Instant,
+    ) -> Vec<Event> {
+        let mut done = Vec::new();
+        let begins = self.start.is_match(&line);
+        if let Some(p) = &mut self.pending {
+            let full = p.lines >= self.max_lines || p.text.len() + line.len() >= MAX_LINE_BYTES;
+            if begins || full || p.inode != inode {
+                done.extend(self.flush());
+            } else {
+                p.text.push('\n');
+                p.text.push_str(&line);
+                (p.lines, p.offset, p.updated) = (p.lines + 1, offset, now);
+                return done;
+            }
+        }
+        self.pending = Some(Pending {
+            text: line,
+            lines: 1,
+            offset,
+            inode,
+            updated: now,
+        });
+        done
+    }
+
+    /// The held event, when nothing was added to it for `wait`.
+    pub fn idle(&mut self, now: std::time::Instant) -> Option<Event> {
+        let waited = self
+            .pending
+            .as_ref()
+            .is_some_and(|p| now.saturating_duration_since(p.updated) >= self.wait);
+        if waited { self.flush() } else { None }
+    }
+
+    pub fn flush(&mut self) -> Option<Event> {
+        self.pending.take().map(|p| (p.text, p.offset, p.inode))
+    }
+}
+
 async fn follow_files(
     cfg: Arc<ShipConfig>,
     state: HashMap<String, FileState>,
@@ -516,8 +619,21 @@ async fn follow_files(
                 .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().into_owned())
         })
     };
+    let mut joiners: Vec<Option<Joiner>> = cfg
+        .files
+        .iter()
+        .map(|_| {
+            cfg.multiline_start.clone().map(|start| {
+                Joiner::new(
+                    start,
+                    cfg.multiline_max_lines,
+                    Duration::from_millis(cfg.multiline_wait_ms),
+                )
+            })
+        })
+        .collect();
     loop {
-        for t in &mut tailers {
+        for (t, joiner) in tailers.iter_mut().zip(&mut joiners) {
             let lines = match t.poll() {
                 Ok(l) => l,
                 Err(e) => {
@@ -525,8 +641,20 @@ async fn follow_files(
                     continue;
                 }
             };
+            let now = std::time::Instant::now();
+            let events: Vec<Event> = match joiner {
+                None => lines,
+                Some(j) => {
+                    let mut events: Vec<Event> = lines
+                        .into_iter()
+                        .flat_map(|(line, offset, inode)| j.push(line, offset, inode, now))
+                        .collect();
+                    events.extend(j.idle(now));
+                    events
+                }
+            };
             let app = app_of(&t.path);
-            for (line, offset, inode) in lines {
+            for (line, offset, inode) in events {
                 let body = serde_json::json!({
                     "host": cfg.host,
                     "app": app,
@@ -826,6 +954,75 @@ mod tests {
 
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    #[test]
+    fn joined_events_start_at_matching_lines_and_keep_the_last_offset() {
+        let start = regex::Regex::new(r"^\d{4}-").unwrap();
+        let mut j = Joiner::new(start, 3, Duration::from_millis(500));
+        let t0 = std::time::Instant::now();
+        let push = |j: &mut Joiner, line: &str, off: u64, at: std::time::Instant| {
+            j.push(line.into(), off, 1, at)
+        };
+        // Continuation lines with nothing before them start an event of their own.
+        assert!(push(&mut j, "  orphan", 5, t0).is_empty());
+        assert!(push(&mut j, "2026-10-05 ERROR boom", 30, t0).len() == 1);
+        assert!(push(&mut j, "  at a()", 40, t0).is_empty());
+        assert!(push(&mut j, "  at b()", 50, t0).is_empty());
+        // The event is held until the next one starts…
+        let done = push(&mut j, "2026-10-05 INFO next", 70, t0);
+        assert_eq!(
+            done,
+            [(
+                "2026-10-05 ERROR boom\n  at a()\n  at b()".to_string(),
+                50,
+                1
+            )]
+        );
+        // …or until it has been quiet for the wait.
+        assert_eq!(j.idle(t0 + Duration::from_millis(499)), None);
+        assert_eq!(
+            j.idle(t0 + Duration::from_millis(500)),
+            Some(("2026-10-05 INFO next".to_string(), 70, 1))
+        );
+        assert_eq!(j.idle(t0 + Duration::from_secs(60)), None);
+        // At most 3 lines per event: the fourth starts another.
+        for (i, l) in ["2026-x", "a", "b", "c", "d"].iter().enumerate() {
+            let out = push(&mut j, l, 100 + i as u64, t0);
+            assert_eq!(out.len(), usize::from(*l == "c"), "{l}");
+            if *l == "c" {
+                assert_eq!(out[0].0, "2026-x\na\nb");
+            }
+        }
+        assert_eq!(j.flush().unwrap().0, "c\nd");
+        // A rotation (another inode) closes the event.
+        push(&mut j, "2026-a", 1, t0);
+        let rotated = j.push("  tail".into(), 2, 2, t0);
+        assert_eq!(rotated, [("2026-a".to_string(), 1, 1)]);
+    }
+
+    #[test]
+    fn multiline_options_are_checked() {
+        let base = ["--url", "http://h", "--file", "x"];
+        let with = |extra: &[&str]| {
+            let all: Vec<&str> = base.iter().chain(extra).copied().collect();
+            ShipConfig::from_args(&args(&all), &no_env)
+        };
+        let c = with(&[
+            "--multiline-start",
+            r"^\d{4}-",
+            "--multiline-wait-ms",
+            "200",
+            "--multiline-max-lines",
+            "20",
+        ])
+        .unwrap();
+        assert!(c.multiline_start.unwrap().is_match("2026-10-05 x"));
+        assert_eq!((c.multiline_wait_ms, c.multiline_max_lines), (200, 20));
+        assert!(with(&[]).unwrap().multiline_start.is_none());
+        assert!(with(&["--multiline-start", "("]).is_err());
+        assert!(with(&["--multiline-wait-ms", "0"]).is_err());
+        assert!(with(&["--multiline-start"]).is_err());
     }
 
     #[test]
