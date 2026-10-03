@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.0 - 2026-10-03
+
 - Command line: `logpit search` prints the entries matching the usual filters (text, host, app, level,
   field comparisons, regex, tag, time range) oldest first, paging through up to a million of them, and
   `logpit tail` prints the last few and follows new ones, with text, JSON or NDJSON output, a token from a
