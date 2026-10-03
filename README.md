@@ -698,6 +698,24 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/logs?q=erro
 
 For everything at once, use [export](#export-and-backup).
 
+## Display preferences
+
+The cog (&#9881;) in the header of the web UI opens the display preferences, kept in this browser
+(`localStorage`) and applied before the first search:
+
+| Preference | Choices |
+|---|---|
+| Theme | follow the system (default), light, dark |
+| Times | local time (default), UTC (`2026-10-03 18:56:01.888 UTC`), ISO 8601 (`2026-10-03T18:56:01.888Z`) |
+| Density | comfortable (default), compact |
+| Long messages | wrap (default), one line (cut with an ellipsis) |
+| Columns | time, level, host, app, and the structured fields under each message |
+
+They change how the page looks and never what is asked of the server: links, saved views, exports and
+the API are not affected, and times in the API stay Unix milliseconds. *Reset* restores the defaults.
+Changing the time format searches again, since the rows are written with it; the chart tooltips, the
+context panels and the alert list follow it too.
+
 ## Web UI links
 
 The address bar always reflects the last search, so a link reproduces the same view and the

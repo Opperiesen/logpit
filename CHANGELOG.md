@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Web UI display preferences (the cog in the header, kept in the browser): light, dark or system theme,
+  local time, UTC or ISO 8601 times, compact density, wrapped or single-line messages, and which columns
+  (time, level, host, app, fields) are shown.
+
 - Retention rules (`[[retention]]`: `host`, `app`, `severity`, `days`): entries are kept for the time of
   the first rule they match (patterns with `*` and `?`, `days = 0` for ever), in front of the
   per-severity retention, with the cold archive honoured. Token restrictions on `apps` now take patterns

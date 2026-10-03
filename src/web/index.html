@@ -6,7 +6,9 @@
 <title>LogPit</title>
 <style>
   :root { color-scheme: light dark; --bg:#fff; --fg:#1b1f24; --muted:#6a737d; --line:#d8dee4; --accent:#0969da; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#30363d; --accent:#58a6ff; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#30363d; --accent:#58a6ff; } }
+  :root[data-theme=light] { color-scheme:light; --bg:#fff; --fg:#1b1f24; --muted:#6a737d; --line:#d8dee4; --accent:#0969da; }
+  :root[data-theme=dark] { color-scheme:dark; --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#30363d; --accent:#58a6ff; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; }
   header { display:flex; flex-wrap:wrap; gap:8px; padding:12px 16px; border-bottom:1px solid var(--line); align-items:center; position:sticky; top:0; background:var(--bg); }
@@ -16,6 +18,17 @@
   button { cursor:pointer; background:var(--accent); color:#fff; border-color:var(--accent); }
   label { color:var(--muted); display:flex; align-items:center; gap:4px; }
   #status { color:var(--muted); margin-left:auto; }
+  .prefs { position:relative; }
+  .prefs summary { cursor:pointer; padding:5px 9px; border:1px solid var(--line); border-radius:6px; list-style:none; user-select:none; }
+  .prefs summary::-webkit-details-marker { display:none; }
+  .prefs .panel { position:absolute; right:0; top:calc(100% + 6px); z-index:20; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:grid; gap:8px; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.28); }
+  .prefs .panel label { justify-content:space-between; }
+  .prefs .panel .cols { display:flex; flex-wrap:wrap; gap:4px 12px; }
+  .prefs .panel .cols label { gap:4px; }
+  .prefs .panel button { justify-self:start; padding:2px 10px; font-size:12px; }
+  body.compact td { padding:1px 8px; } body.compact table { font-size:11.5px; line-height:1.25; }
+  body.nowrap td.msg { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
+  body.hide-ts td.ts, body.hide-sev td.sev, body.hide-host td.host, body.hide-app td.app, body.hide-fields .fields { display:none; }
   table { width:100%; border-collapse:collapse; font:12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
   td { padding:3px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
   td.ts, td.host, td.app { white-space:nowrap; color:var(--muted); }
@@ -121,6 +134,17 @@
   <select id="views" title="Saved views, shared by everyone who uses this LogPit"><option value="">Views</option></select>
   <button id="saveView" type="button" title="Save the current search, time range and chart grouping under a name">Save view</button>
   <button id="delView" type="button" title="Delete the selected view" hidden>Delete</button>
+  <details class="prefs" id="prefs">
+    <summary title="Display preferences, kept in this browser">&#9881;</summary>
+    <div class="panel">
+      <label>Theme <select id="prefTheme"><option value="auto">Follow the system</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      <label>Times <select id="prefTime"><option value="local">Local time</option><option value="utc">UTC</option><option value="iso">ISO 8601 (UTC)</option></select></label>
+      <label>Density <select id="prefDensity"><option value="normal">Comfortable</option><option value="compact">Compact</option></select></label>
+      <label>Long messages <select id="prefWrap"><option value="wrap">Wrap</option><option value="nowrap">One line</option></select></label>
+      <div class="cols" title="Columns of the table"><label><input type="checkbox" data-col="ts"> Time</label><label><input type="checkbox" data-col="sev"> Level</label><label><input type="checkbox" data-col="host"> Host</label><label><input type="checkbox" data-col="app"> App</label><label><input type="checkbox" data-col="fields"> Fields</label></div>
+      <button id="prefReset" type="button">Reset</button>
+    </div>
+  </details>
   <span id="status"></span>
 </header>
 <div id="chartbar" hidden>
@@ -194,6 +218,7 @@ function msgCell(r) {
 const CONTEXT_STEP = 10;
 function ctxTime(ts) {
   const d = new Date(ts);
+  if (prefs.time === 'utc' || prefs.time === 'iso') return d.toISOString().slice(11, 23);
   return d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
 }
 
@@ -248,9 +273,51 @@ function toggleContext(tr, row) {
   fillContext(cell, row, { lines: 5, scope: 'host' });
 }
 
+// Display preferences, kept in this browser: theme, how times are written, density, wrapping and the
+// columns shown. They only change how the page looks, never what is asked of the server.
+const PREF_DEFAULTS = { theme: 'auto', time: 'local', density: 'normal', wrap: 'wrap', hide: [] };
+let prefs = { ...PREF_DEFAULTS };
+try { prefs = { ...PREF_DEFAULTS, ...JSON.parse(localStorage.getItem('logpit-prefs') || '{}') }; } catch {}
+if (!Array.isArray(prefs.hide)) prefs.hide = [];
+function fmtTime(ms) {
+  const d = new Date(ms);
+  if (prefs.time === 'utc') return d.toISOString().replace('T', ' ').replace('Z', ' UTC');
+  if (prefs.time === 'iso') return d.toISOString();
+  return d.toLocaleString();
+}
+function applyPrefs() {
+  const root = document.documentElement;
+  if (prefs.theme === 'light' || prefs.theme === 'dark') root.dataset.theme = prefs.theme; else delete root.dataset.theme;
+  document.body.classList.toggle('compact', prefs.density === 'compact');
+  document.body.classList.toggle('nowrap', prefs.wrap === 'nowrap');
+  for (const c of ['ts', 'sev', 'host', 'app', 'fields']) document.body.classList.toggle('hide-' + c, prefs.hide.includes(c));
+}
+function savePrefs() { try { localStorage.setItem('logpit-prefs', JSON.stringify(prefs)); } catch {} }
+function syncPrefControls() {
+  $('prefTheme').value = prefs.theme; $('prefTime').value = prefs.time;
+  $('prefDensity').value = prefs.density; $('prefWrap').value = prefs.wrap;
+  for (const c of document.querySelectorAll('#prefs [data-col]')) c.checked = !prefs.hide.includes(c.dataset.col);
+}
+for (const [id, key] of [['prefTheme', 'theme'], ['prefTime', 'time'], ['prefDensity', 'density'], ['prefWrap', 'wrap']]) {
+  $(id).onchange = () => {
+    prefs[key] = $(id).value; savePrefs(); applyPrefs();
+    if (key === 'time') load(); // rows were written with the old format
+  };
+}
+for (const c of document.querySelectorAll('#prefs [data-col]')) {
+  c.onchange = () => {
+    prefs.hide = prefs.hide.filter(x => x !== c.dataset.col);
+    if (!c.checked) prefs.hide.push(c.dataset.col);
+    savePrefs(); applyPrefs();
+  };
+}
+$('prefReset').onclick = () => { const t = prefs.time; prefs = { ...PREF_DEFAULTS }; savePrefs(); applyPrefs(); syncPrefControls(); if (t !== 'local') load(); };
+document.addEventListener('click', e => { if (!$('prefs').contains(e.target)) $('prefs').open = false; });
+applyPrefs();
+
 function rowEl(r) {
   const tr = document.createElement('tr');
-  const ts = td('ts', new Date(r.ts).toLocaleString());
+  const ts = td('ts', fmtTime(r.ts));
   if (r.id !== undefined) {
     ts.classList.add('ctxable');
     ts.title = 'Show the entries around this one';
@@ -472,7 +539,7 @@ async function loadChart() {
       if (zoomable) hit.onclick = () => { if (!dragged) zoomTo(b.ts, b.ts + d.bucket_ms - 1); };
       else hit.classList.add('flat');
       const t = document.createElementNS(NS, 'title');
-      t.textContent = new Date(b.ts).toLocaleString() + ' — ' + b.total +
+      t.textContent = fmtTime(b.ts) + ' — ' + b.total +
         (parts.length ? ' (' + parts.join(', ') + ')' : '') + (zoomable ? ' · click to zoom, drag to select a range' : ' · drag to select a range');
       hit.append(t);
       hits.push(hit);
@@ -652,7 +719,7 @@ async function loadAlerts() {
       const row = document.createElement('div');
       row.className = 'alrow';
       const when = document.createElement('span');
-      when.textContent = ago(a.ts); when.title = new Date(a.ts).toLocaleString();
+      when.textContent = ago(a.ts); when.title = fmtTime(a.ts);
       const kind = document.createElement('span');
       kind.className = 'k ' + (a.kind === 'host_recovered' ? 'ok' : ALERT_BAD.includes(a.kind) ? 'bad' : '');
       kind.textContent = a.kind.replace(/_/g, ' ');
@@ -1056,6 +1123,7 @@ async function loadTagOptions() {
 }
 $('range').onchange = () => { if ($('range').value !== 'custom') leaveZoom(); load(); };
 $('live').onchange = () => { if ($('live').checked) load(); else { stopTail(); load(); } };
+syncPrefControls();
 applyUrl();
 loadTagOptions();
 suppressPush = true; // the first load canonicalizes the URL instead of adding an entry
