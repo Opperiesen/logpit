@@ -29,6 +29,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   template with counts and trend, to see what is noisy or growing.
 - **Access control**: named tokens with `read`, `write` and `admin` scopes, optional limits to some hosts or
   apps for reading, and an audit trail of refused requests and reads.
+- **New-pattern alerts**: get notified when a message pattern never seen before appears, or a known one
+  suddenly surges.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Observability**: Prometheus metrics at `/metrics`, health at `/healthz`.
 
@@ -765,6 +767,53 @@ per_host = true
 - Mistakes (a bad regex, `count = 0`, a duplicate name…) stop LogPit at startup with the alert's
   name. `logpit_alerts_fired_total{rule="…"}` counts the notifications.
 
+## New-pattern alerts
+
+`[new_patterns]` notifies through the same webhook when a **message template never seen before**
+appears (a new kind of error after a deployment, say), and optionally when a known template **surges**.
+Templates are the ones of [Message patterns](#message-patterns): numbers and ids are masked, so
+`disk 7 failed` and `disk 12 failed` are the same template and only `kernel panic at <*>` is new.
+
+```toml
+[new_patterns]
+enabled = true                 # or LOGPIT_NEW_PATTERNS=true; off by default
+learn_secs = 600               # quiet period after startup, templates seen meanwhile are learned
+severity = ["warning", "err"]  # watched severities (default: warning and above)
+ignore = ["healthcheck"]       # regexes: matching messages are not watched
+max_per_minute = 10            # notification throttle; the rest count in a metric
+max_known = 20000              # templates remembered
+surge_factor = 8               # 0 (default) = no surge detection
+surge_min = 100                # a surge needs this many entries in one window...
+surge_window_secs = 60         # ...of this length, and 8x the template's usual count per window
+```
+
+```json
+{"event":"new_pattern","host":"web1","severity":"err","pattern":"kernel panic at <*>",
+ "sample":"kernel panic at 0xdead","message":"New log pattern (err) on web1: kernel panic at <*>. Example: …"}
+{"event":"pattern_surge","pattern":"retry <*>","count":400,"usual":12,"window_secs":60,
+ "sample":"retry 3","message":"Pattern surge: retry <*> seen 400 times within 60s (usually about 12). Last: …"}
+```
+
+- **Not announcing history.** The templates of the newest 50 000 stored entries are learned at
+  startup, and nothing is announced during `learn_secs` after startup (or after the watch is turned on
+  by a reload), so a restart or a fresh database does not raise a flood. The templates are kept in
+  memory only. Only the watched severities are learned, so a pattern seen at `info` is still new the
+  first time it shows up as an error.
+- **Surges.** For each template LogPit keeps a moving average of its count per window. A surge is a
+  window with at least `surge_min` entries and `surge_factor` times the usual count (at least 1). It
+  needs 10 closed windows of history for that template, and is announced once, then not again for five
+  windows. Templates learned from the database at startup have no history either.
+- **Limits.** `max_per_minute` bounds notifications (new patterns and surges together; the suppressed
+  ones are counted, not queued). With `max_known` templates remembered, new ones are neither learned
+  nor announced and a warning is logged once; raise it. Words that vary (user names without digits…)
+  make separate templates, so an app that logs them can produce many "new" patterns: `ignore` them.
+- **Cost.** Every ingested entry at a watched severity is templated and looked up, which is why it
+  is off by default. A reload (`SIGHUP`) applies the section and keeps what was learned; turning it
+  on starts a new learning period.
+- **Metrics** (while on): `logpit_new_patterns_total`, `logpit_pattern_surges_total`,
+  `logpit_pattern_alerts_suppressed_total` and `logpit_known_patterns`. It uses the webhook of
+  `[silence]` (see [Alert webhook](#alert-webhook)); without one, notifications go to the log only.
+
 ## Structured fields
 
 Messages that contain a CEF record (`CEF:0|Vendor|Product|…|key=value …`), whether
@@ -887,7 +936,7 @@ podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
 kill -HUP "$(pidof logpit)"
 ```
 
-**Applied by a reload**: `[[ingest.rules]]`, `[[alerts]]`, `[ingest.rate_limit]`,
+**Applied by a reload**: `[[ingest.rules]]`, `[[alerts]]`, `[new_patterns]`, `[ingest.rate_limit]`,
 `ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
 (`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
 key and client CA files. The last two are read again on every reload, so renewing a certificate or

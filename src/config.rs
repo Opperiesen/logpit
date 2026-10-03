@@ -16,6 +16,9 @@ pub struct Config {
     pub ingest: IngestConfig,
     /// Pattern alerts (`[[alerts]]`), notified through the webhook configured under `[silence]`.
     pub alerts: Vec<crate::alerts::AlertConfig>,
+    /// Notifications for message patterns never seen before (`[new_patterns]`), sent through the
+    /// same webhook.
+    pub new_patterns: crate::watch::WatchConfig,
     pub gelf: GelfConfig,
 }
 
@@ -284,6 +287,13 @@ impl Config {
         if let Some(v) = get("LOGPIT_SYSLOG_TCP_LISTEN") {
             self.syslog.tcp_listen = v;
         }
+        if let Some(v) = get("LOGPIT_NEW_PATTERNS") {
+            self.new_patterns.enabled = match v.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" => true,
+                "0" | "false" | "no" | "off" => false,
+                _ => bail!("invalid LOGPIT_NEW_PATTERNS {v:?} (use true or false)"),
+            };
+        }
         if let Some(v) = get("LOGPIT_PARSE_STRUCTURED") {
             self.ingest.parse_structured = match v.trim().to_ascii_lowercase().as_str() {
                 "1" | "true" | "yes" | "on" => true,
@@ -439,6 +449,7 @@ impl Config {
         crate::rules::Rules::from_config(&self.ingest.rules)?;
         self.ingest.rate_limit.validate()?;
         crate::alerts::AlertRules::from_config(&self.alerts)?;
+        self.new_patterns.validate()?;
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
             bail!("syslog.tls_listen needs syslog.tls_cert and syslog.tls_key");
@@ -879,6 +890,33 @@ mod tests {
         );
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn new_patterns_config() {
+        let cfg = Config::parse("").unwrap();
+        assert!(!cfg.new_patterns.enabled);
+        assert_eq!(cfg.new_patterns.learn_secs, 600);
+        let cfg = Config::parse(
+            "[new_patterns]\nenabled = true\nlearn_secs = 30\nseverity = [\"err\", 2]\n\
+             ignore = [\"healthcheck\"]\nmax_per_minute = 3\nsurge_factor = 8\nsurge_min = 50",
+        )
+        .unwrap();
+        assert!(cfg.new_patterns.enabled && cfg.new_patterns.surge_factor == 8.0);
+        assert!(Config::parse("[new_patterns]\nbogus = 1").is_err());
+        assert!(Config::parse("[new_patterns]\nignore = [\"(\"]").is_err());
+        assert!(Config::parse("[new_patterns]\nsurge_factor = 0.5").is_err());
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[("LOGPIT_NEW_PATTERNS", "on")]))
+            .unwrap();
+        assert!(cfg.new_patterns.enabled);
+        cfg.apply_env(&env(&[("LOGPIT_NEW_PATTERNS", "0")]))
+            .unwrap();
+        assert!(!cfg.new_patterns.enabled);
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_NEW_PATTERNS", "maybe")]))
                 .is_err()
         );
     }

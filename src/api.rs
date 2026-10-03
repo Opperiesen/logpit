@@ -290,6 +290,7 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
             + &state.sink.silence().render_metrics()
             + &state.sink.rules().render_metrics()
             + &state.sink.alerts().render_metrics()
+            + &state.sink.settings().watch.render_metrics()
             + &state.sink.limiter().render_metrics(),
     )
 }

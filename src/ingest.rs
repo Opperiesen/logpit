@@ -132,6 +132,9 @@ impl Sink {
             for event in self.settings.alerts.get().observe(&entry, now) {
                 let _ = tx.try_send(event);
             }
+            for event in self.settings.watch.observe(&entry, now) {
+                let _ = tx.try_send(event);
+            }
         }
         truncate_utf8(&mut entry.message, self.max_message_bytes);
         let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));

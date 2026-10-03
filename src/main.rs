@@ -303,6 +303,25 @@ async fn main() -> anyhow::Result<()> {
     }
     drop(silence_rules);
 
+    // Templates already in the database are not "new": learn them before ingestion starts.
+    if settings.watch.enabled() {
+        let (samples, _) = store::recent_samples(
+            &seed_conn,
+            &store::Query::default(),
+            logpit::watch::SEED_ENTRIES,
+            400,
+        )?;
+        settings.watch.seed(
+            samples.iter().map(|s| (s.severity, s.message.as_str())),
+            now_ms(),
+        );
+        tracing::info!(
+            "new-pattern alerts on: learned the templates of {} stored entries, quiet for {}s",
+            samples.len(),
+            cfg.new_patterns.learn_secs
+        );
+    }
+
     let retention_metrics = metrics.clone();
     let reload_metrics = metrics.clone();
     // Pattern alerts reach the notifier through a channel, so ingestion never waits for a webhook.

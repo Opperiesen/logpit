@@ -16,6 +16,7 @@ use crate::config::Config;
 use crate::ratelimit::RateLimiter;
 use crate::rules::Rules;
 use crate::silence;
+use crate::watch::PatternWatch;
 use crate::webhook::Webhook;
 
 /// A value that can be replaced while readers use it: `get` hands out the current one, and a reader
@@ -82,6 +83,9 @@ pub struct LiveSettings {
     pub structured: AtomicBool,
     pub auth: Reloadable<Auth>,
     pub silence: Reloadable<SilenceSettings>,
+    /// New-pattern and surge notifications; its settings are swapped in place so that the
+    /// templates it has learned survive a reload.
+    pub watch: PatternWatch,
     /// The acceptor of the syslog TLS listener, when it is enabled.
     pub tls: Option<Arc<Reloadable<TlsAcceptor>>>,
 }
@@ -115,6 +119,7 @@ impl LiveSettings {
             structured: AtomicBool::new(cfg.ingest.parse_structured),
             auth: Reloadable::new(cfg.auth()),
             silence: Reloadable::new(SilenceSettings::from_config(cfg)?),
+            watch: PatternWatch::new(&cfg.new_patterns, crate::ingest::now_ms())?,
             tls: tls_acceptor(cfg)?.map(|a| Arc::new(Reloadable::new(a))),
         })
     }
@@ -182,6 +187,8 @@ impl LiveSettings {
             _ => None,
         };
         let auth = Arc::new(new.auth());
+        // Checked here so a bad value fails the reload before anything is applied.
+        new.new_patterns.validate()?;
 
         // 2. Swap.
         if let Some(rules) = rules {
@@ -204,6 +211,11 @@ impl LiveSettings {
         if let Some(silence) = silence {
             self.silence.set(silence);
             report.applied.push("silence alerts and webhook");
+        }
+        if old.new_patterns != new.new_patterns {
+            self.watch
+                .reconfigure(&new.new_patterns, crate::ingest::now_ms())?;
+            report.applied.push("new-pattern alerts");
         }
         if old.http.token != new.http.token || old.http.tokens != new.http.tokens {
             report.applied.push("API tokens");
@@ -296,6 +308,39 @@ mod tests {
             "the rules were not swapped either"
         );
         assert!(live.silence.get().webhook.is_none());
+    }
+
+    #[test]
+    fn new_pattern_settings_reload_keep_what_was_learned() {
+        let old = cfg("[new_patterns]\nenabled = true\nlearn_secs = 0");
+        let live = LiveSettings::from_config(&old).unwrap();
+        let first = crate::model::LogEntry {
+            severity: 3,
+            message: "disk 1 failed".into(),
+            ..Default::default()
+        };
+        let now = crate::ingest::now_ms() + 1000;
+        assert_eq!(live.watch.observe(&first, now).len(), 1);
+        let new = cfg("[new_patterns]\nenabled = true\nlearn_secs = 0\nmax_per_minute = 5");
+        let report = live.reload(&old, &new).unwrap();
+        assert_eq!(report.applied, ["new-pattern alerts"]);
+        assert!(
+            live.watch.observe(&first, now + 1).is_empty(),
+            "still known"
+        );
+        // An invalid new section fails the whole reload and changes nothing.
+        let mut bad = new.clone();
+        bad.new_patterns.ignore = vec!["(".into()];
+        assert!(live.reload(&new, &bad).is_err());
+        // Turning it off stops notifications.
+        let off = cfg("");
+        live.reload(&new, &off).unwrap();
+        let other = crate::model::LogEntry {
+            severity: 3,
+            message: "something else".into(),
+            ..Default::default()
+        };
+        assert!(live.watch.observe(&other, now + 2).is_empty());
     }
 
     #[test]

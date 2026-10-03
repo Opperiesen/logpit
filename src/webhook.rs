@@ -107,6 +107,14 @@ pub fn render(format: WebhookFormat, event: &Event) -> Rendered {
                 Event::Pattern { rule, .. } => {
                     (format!("LogPit: {rule}"), "high", "rotating_light")
                 }
+                Event::NewPattern { host, .. } => {
+                    (format!("LogPit: new pattern on {host}"), "high", "new")
+                }
+                Event::Surge { .. } => (
+                    "LogPit: pattern surge".to_string(),
+                    "high",
+                    "chart_with_upwards_trend",
+                ),
             };
             Rendered {
                 content_type: "text/plain; charset=utf-8",
@@ -359,6 +367,65 @@ mod tests {
 
     fn recovered(host: &str) -> Event {
         Event::Recovered { host: host.into() }
+    }
+
+    #[test]
+    fn new_pattern_and_surge_events_render_in_every_format() {
+        let new = Event::NewPattern {
+            pattern: "disk <*> failed".into(),
+            host: "web1".into(),
+            severity: "err".into(),
+            sample: "disk 7 failed".into(),
+        };
+        let surge = Event::Surge {
+            pattern: "retry <*>".into(),
+            count: 400,
+            usual: 12,
+            window_secs: 60,
+            sample: "retry 3".into(),
+        };
+        let payload = new.payload();
+        assert_eq!(payload["event"], "new_pattern");
+        assert_eq!(payload["pattern"], "disk <*> failed");
+        let msg = payload["message"].as_str().unwrap();
+        assert!(
+            msg.contains("web1")
+                && msg.contains("disk <*> failed")
+                && msg.contains("disk 7 failed")
+        );
+        let payload = surge.payload();
+        assert_eq!(payload["event"], "pattern_surge");
+        assert_eq!(
+            (payload["count"].as_u64(), payload["usual"].as_u64()),
+            (Some(400), Some(12))
+        );
+        assert!(
+            payload["message"]
+                .as_str()
+                .unwrap()
+                .contains("400 times within 60s")
+        );
+        // Slack escapes the `<*>` of a template instead of sending markup.
+        let slack = render(WebhookFormat::Slack, &new);
+        assert!(
+            slack.body.contains("disk &lt;*&gt; failed"),
+            "{}",
+            slack.body
+        );
+        let ntfy = render(WebhookFormat::Ntfy, &new);
+        assert!(
+            ntfy.headers
+                .iter()
+                .any(|(k, v)| k == "Title" && v.contains("web1"))
+        );
+        for format in [
+            WebhookFormat::Json,
+            WebhookFormat::Text,
+            WebhookFormat::Discord,
+            WebhookFormat::Ntfy,
+        ] {
+            assert!(!render(format, &surge).body.is_empty());
+        }
     }
 
     #[test]

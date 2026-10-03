@@ -66,6 +66,18 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # pattern = '(password|token)=\S+'
 # replace = "$1=[hidden]"
 
+# New-pattern alerts: notify through the [silence] webhook when a message template never seen
+# before appears (numbers and ids are masked), and optionally when a known one surges.
+# [new_patterns]
+# enabled = true
+# learn_secs = 600               # quiet period after startup; stored templates are learned first
+# severity = ["warning", "err"]  # default: warning and above
+# ignore = ["healthcheck"]       # regexes for messages to skip
+# max_per_minute = 10
+# surge_factor = 8               # 0 = no surge detection
+# surge_min = 100
+# surge_window_secs = 60
+
 # Pattern alerts: notify through the [silence] webhook when matching entries pile up.
 # [[alerts]]
 # name = "disk-errors"

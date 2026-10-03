@@ -71,6 +71,29 @@ pub enum Event {
         /// The entry's message that tipped the alert over, for context.
         sample: String,
     },
+    /// A message template that was never seen before (see the `watch` module).
+    NewPattern {
+        pattern: String,
+        host: String,
+        severity: String,
+        sample: String,
+    },
+    /// A known template showing up far more often than usual.
+    Surge {
+        pattern: String,
+        /// Entries in the current window.
+        count: u64,
+        /// Usual entries per window.
+        usual: u64,
+        window_secs: u64,
+        sample: String,
+    },
+}
+
+/// A sample taken from a log line: one line, clipped.
+fn one_line(sample: &str) -> String {
+    let sample: String = sample.split_whitespace().collect::<Vec<_>>().join(" ");
+    sample.chars().take(200).collect()
 }
 
 impl Event {
@@ -103,9 +126,7 @@ impl Event {
                 window_secs,
                 sample,
             } => {
-                // The sample comes from a log line: one line, clipped.
-                let sample: String = sample.split_whitespace().collect::<Vec<_>>().join(" ");
-                let sample: String = sample.chars().take(200).collect();
+                let sample = one_line(sample);
                 let on = host
                     .as_ref()
                     .map(|h| format!(" on {h}"))
@@ -120,6 +141,46 @@ impl Event {
                     "message": format!(
                         "Alert {rule}: {count} matching entries within {}{on}. Last: {sample}",
                         fmt_secs(i64::try_from(*window_secs).unwrap_or(i64::MAX))
+                    ),
+                })
+            }
+            Event::NewPattern {
+                pattern,
+                host,
+                severity,
+                sample,
+            } => {
+                let sample = one_line(sample);
+                json!({
+                    "event": "new_pattern",
+                    "pattern": pattern,
+                    "host": host,
+                    "severity": severity,
+                    "sample": sample,
+                    "message": format!(
+                        "New log pattern ({severity}) on {host}: {pattern}. Example: {sample}"
+                    ),
+                })
+            }
+            Event::Surge {
+                pattern,
+                count,
+                usual,
+                window_secs,
+                sample,
+            } => {
+                let sample = one_line(sample);
+                let window = fmt_secs(i64::try_from(*window_secs).unwrap_or(i64::MAX));
+                json!({
+                    "event": "pattern_surge",
+                    "pattern": pattern,
+                    "count": count,
+                    "usual": usual,
+                    "window_secs": window_secs,
+                    "sample": sample,
+                    "message": format!(
+                        "Pattern surge: {pattern} seen {count} times within {window} \
+                         (usually about {usual}). Last: {sample}"
                     ),
                 })
             }
@@ -296,7 +357,9 @@ pub async fn run(
             match event {
                 Event::Silent { .. } => tracing::warn!("silence alert: {message}"),
                 Event::Recovered { .. } => tracing::info!("silence recovered: {message}"),
-                Event::Pattern { .. } => tracing::warn!("{message}"),
+                Event::Pattern { .. } | Event::NewPattern { .. } | Event::Surge { .. } => {
+                    tracing::warn!("{message}")
+                }
             }
             if let Some(hook) = settings.webhook.clone() {
                 tokio::spawn(async move { hook.send(&event).await });

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- New-pattern alerts (`[new_patterns]`, off by default): a webhook notification when a message template
+  never seen before appears, and optionally when a known template surges to several times its usual
+  count per window. Learns the templates of stored entries at startup and stays quiet for `learn_secs`,
+  throttled by `max_per_minute`, ignorable by regex, with Prometheus counters; applied by `SIGHUP`.
+
 - Search: `f=` accepts comparisons on structured fields (`status>=500`, `duration<2.5`, `act!=block`,
   `src~^10\.`) and the new `re=` filters the message with a regular expression (linear-time engine, size
   bounded). They work in every search endpoint, saved views, the live tail and the web UI, which gets a
