@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.1 - 2026-10-03
+
 - Fix: shutdown no longer hangs while a syslog TCP connection, a live tail or any other HTTP
   connection is open (`docker stop` used to end in a `SIGKILL` that lost the last batch); the
   entries already queued are still written.
@@ -13,6 +15,8 @@
 - Host and app names longer than 255 bytes are cut on ingestion.
 - The web UI is served with a Content-Security-Policy, `X-Frame-Options: DENY`, `nosniff` and
   `Referrer-Policy: no-referrer`.
+- Internal simplifications (shared helpers, chrono's RFC 3339 parser for Loki times); API server
+  errors now read `<operation> failed`.
 - Tests: end-to-end HTTP API tests (scopes, restricted tokens, audit, limits) and a deterministic
   fuzz smoke test of every parser that reads untrusted input.
 
