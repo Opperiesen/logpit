@@ -140,17 +140,71 @@ const INDEX_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; \
     style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; \
     base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
-/// The web UI, with headers that keep a browser from framing it or sniffing other types.
-async fn index() -> impl IntoResponse {
-    (
-        [
-            (header::CONTENT_SECURITY_POLICY, INDEX_CSP),
-            (header::X_FRAME_OPTIONS, "DENY"),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (header::REFERRER_POLICY, "no-referrer"),
-        ],
-        Html(INDEX_HTML),
-    )
+/// The page as served, built once: the source without its indentation, blank lines and whole-line
+/// `//` and `/* */` comments (kept in the source for its readers), and that page gzipped. The
+/// script has no multi-line strings, so dropping whole lines and leading spaces changes no value.
+fn index_page() -> &'static (String, Vec<u8>) {
+    static PAGE: std::sync::OnceLock<(String, Vec<u8>)> = std::sync::OnceLock::new();
+    PAGE.get_or_init(|| {
+        let mut page = String::with_capacity(INDEX_HTML.len());
+        for line in INDEX_HTML.lines().map(str::trim) {
+            let comment =
+                line.starts_with("//") || (line.starts_with("/*") && line.ends_with("*/"));
+            if !line.is_empty() && !comment {
+                page.push_str(line);
+                page.push('\n');
+            }
+        }
+        let gzipped = crate::archive::gzip_member(page.as_bytes());
+        (page, gzipped)
+    })
+}
+
+/// Whether an `Accept-Encoding` value takes gzip (listed, and not with a zero quality).
+fn accepts_gzip(value: &str) -> bool {
+    value.split(',').any(|coding| {
+        let mut parts = coding.split(';').map(str::trim);
+        let name = parts.next().unwrap_or_default();
+        let refused = parts.any(|p| {
+            p.strip_prefix("q=")
+                .and_then(|q| q.parse::<f32>().ok())
+                .is_some_and(|q| q == 0.0)
+        });
+        (name.eq_ignore_ascii_case("gzip") || name == "*") && !refused
+    })
+}
+
+/// The web UI, gzipped when the browser accepts it, with headers that keep a browser from framing
+/// it or sniffing other types.
+async fn index(request_headers: HeaderMap) -> Response {
+    let (page, gzipped) = index_page();
+    let gzip = request_headers
+        .get(header::ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(accepts_gzip);
+    let mut response = if gzip {
+        (
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CONTENT_ENCODING, "gzip"),
+            ],
+            gzipped.as_slice(),
+        )
+            .into_response()
+    } else {
+        Html(page.as_str()).into_response()
+    };
+    let headers = response.headers_mut();
+    for (name, value) in [
+        (header::CONTENT_SECURITY_POLICY, INDEX_CSP),
+        (header::X_FRAME_OPTIONS, "DENY"),
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (header::REFERRER_POLICY, "no-referrer"),
+        (header::VARY, "accept-encoding"),
+    ] {
+        headers.insert(name, header::HeaderValue::from_static(value));
+    }
+    response
 }
 
 /// Runs `job` on the blocking pool with its own connection to the database at `path`. A failure
@@ -1608,11 +1662,50 @@ mod tests {
     #[test]
     fn web_ui_stays_within_its_size_budget() {
         const BUDGET: usize = 32 * 1024;
-        let compressed = miniz_oxide::deflate::compress_to_vec(INDEX_HTML.as_bytes(), 9).len();
+        let served = index_page().1.len();
         assert!(
-            compressed <= BUDGET,
-            "src/web/index.html is {compressed} bytes compressed, over its {BUDGET}-byte budget"
+            served <= BUDGET,
+            "the web UI is served as {served} gzipped bytes, over its {BUDGET}-byte budget"
         );
+    }
+
+    #[test]
+    fn the_served_page_drops_only_layout_and_comments() {
+        let (page, gzipped) = index_page();
+        assert!(page.len() < INDEX_HTML.len());
+        assert!(
+            page.lines()
+                .all(|l| !l.is_empty() && l == l.trim() && !l.starts_with("//"))
+        );
+        // Every line of code survives: the page is the source's non-comment lines, trimmed.
+        let kept = INDEX_HTML
+            .lines()
+            .map(str::trim)
+            .filter(|l| {
+                !l.is_empty() && !l.starts_with("//") && !(l.starts_with("/*") && l.ends_with("*/"))
+            })
+            .count();
+        assert_eq!(page.lines().count(), kept);
+        assert!(page.contains("<title>LogPit</title>") && page.contains("</script>"));
+        let unzipped = crate::inflate::gunzip(gzipped, 1 << 20).unwrap();
+        assert_eq!(unzipped, page.as_bytes());
+    }
+
+    #[test]
+    fn gzip_is_sent_only_when_accepted() {
+        for yes in ["gzip", "gzip, deflate, br", "br;q=1.0, GZIP;q=0.5", "*"] {
+            assert!(accepts_gzip(yes), "{yes}");
+        }
+        for no in [
+            "",
+            "br",
+            "deflate",
+            "gzip;q=0",
+            "gzip; q=0.0, br",
+            "identity",
+        ] {
+            assert!(!accepts_gzip(no), "{no}");
+        }
     }
 
     #[test]

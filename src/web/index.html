@@ -372,7 +372,7 @@
   <label>Stack by
     <select id="group"><option value="severity">severity</option><option value="host">host</option><option value="app">app</option></select>
   </label>
-  <div id="legend"></div>
+  <div id="legend" role="group" aria-label="Legend (arrow keys move along it)"></div>
   <button id="zoomOut" type="button" class="small" title="Double the zoomed window around its middle" hidden>Zoom out</button>
   <span class="exp">Export
     <button id="expNdjson" type="button" class="small" title="Download the matching entries as NDJSON (up to 100,000)">NDJSON</button>
@@ -1101,6 +1101,7 @@ async function loadChart() {
       return el;
     });
     $('legend').replaceChildren(...items);
+    roving($('legend'));
     const total = Object.values(totals).reduce((a, b) => a + b, 0);
     const peak = d.buckets.reduce((a, b) => (b.total > (a ? a.total : -1) ? b : a), null);
     chart.setAttribute('aria-label', 'Volume over time: ' + total.toLocaleString() + ' entries in ' + d.buckets.length + ' buckets' +
@@ -1125,10 +1126,10 @@ function drawAxis(d) {
   let list = (days ? marks.filter(m => m.h === 0) : marks).filter(m => m.i / n < 0.95);
   const step = (days ? [1, 2, 7] : [1, 2, 3, 6, 12, 24]).find(s => list.length / s <= room) || 14;
   list = days ? list.filter((m, k) => k % step === 0) : list.filter(m => m.h % step === 0);
-  $('axis').replaceChildren(...list.map((m, k) => {
+  $('axis').replaceChildren(...list.map(m => {
     const s = document.createElement('button');
     s.type = 'button';
-    s.tabIndex = k === 0 ? 0 : -1;
+    s.tabIndex = 0;
     s.style.left = (100 * m.i / n) + '%';
     s.textContent = days ? m.t.toLocaleDateString([], { weekday: 'short', day: 'numeric', ...(m.utc ? { timeZone: 'UTC' } : {}) })
       : String(m.h).padStart(2, '0') + ':00';
@@ -1137,16 +1138,21 @@ function drawAxis(d) {
     s.onclick = () => jumpTo(start, span);
     return s;
   }));
+  roving($('axis'));
   $('axis').hidden = false;
 }
 
-// The hour scale is a single tab stop: the arrow keys, Home and End move along it.
-$('axis').addEventListener('keydown', e => {
-  const btns = [...$('axis').children], i = btns.indexOf(document.activeElement);
-  const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: btns.length - 1 }[e.key];
-  if (i < 0 || j === undefined || j < 0 || j >= btns.length) return;
+// The hour scale and the legend are each a single tab stop: the arrow keys, Home and End move
+// along them. roving() makes the first item the stop after each render.
+function roving(box) {
+  [...box.querySelectorAll('[tabindex]')].forEach((el, k) => { el.tabIndex = k ? -1 : 0; });
+}
+for (const box of [$('axis'), $('legend')]) box.addEventListener('keydown', e => {
+  const items = [...box.querySelectorAll('[tabindex]')], i = items.indexOf(document.activeElement);
+  const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: items.length - 1 }[e.key];
+  if (i < 0 || j === undefined || j < 0 || j >= items.length) return;
   e.preventDefault();
-  btns[i].tabIndex = -1; btns[j].tabIndex = 0; btns[j].focus();
+  items[i].tabIndex = -1; items[j].tabIndex = 0; items[j].focus();
 });
 
 // Scroll the stream to the newest band of [start, start + span) without searching again; when that time
@@ -1800,20 +1806,23 @@ async function loadTagOptions() {
   } catch {}
 }
 $('range').onchange = () => {
-  if ($('range').value === 'pick') { $('range').value = snap ? snap.range : DEFAULT_RANGE; openRangePick(); return; }
+  // Custom… opens the form but leaves the focus on the selector, so arrowing through the options
+  // (which changes the value at each step on some systems) never gets caught in it.
+  if ($('range').value === 'pick') { $('range').value = snap ? snap.range : DEFAULT_RANGE; openRangePick(false); return; }
+  $('rangePick').hidden = true;
   if ($('range').value !== 'custom') leaveZoom();
   load();
 };
 
 // Custom range: two local date-times, applied as a zoomed window (prefilled with the current window).
 const toLocalInput = ms => new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 19);
-function openRangePick() {
+function openRangePick(focus = true) {
   const now = Date.now();
   const w = snap && snap.range === 'custom' ? snap : { since: now - (Number(snap && snap.range) || 3600000), until: now };
   $('pickFrom').value = toLocalInput(w.since); $('pickTo').value = toLocalInput(w.until);
   $('pickErr').textContent = '';
   $('rangePick').hidden = false;
-  $('pickFrom').focus();
+  if (focus) $('pickFrom').focus();
 }
 const closeRangePick = () => { $('rangePick').hidden = true; $('range').focus(); };
 $('pickCancel').onclick = closeRangePick;

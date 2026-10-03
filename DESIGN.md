@@ -346,7 +346,7 @@ There are no cards. Containers are bands and sheets:
 - **Current line:** J/K or a click marks the current stream line with the tint ground; a line focused without a time button gets the 2px focus outline inset.
 
 ### Hour Scale and New-Lines Pill
-- **Hour scale:** the graduation under the chart is a row of borderless buttons, one tab stop moved along with the arrow keys, Home and End, (bold 11px tabular, a 1px ink tick on the left); hover turns them accent. A click scrolls the stream to that hour's band or zooms to it.
+- **Hour scale:** the graduation under the chart is a row of borderless buttons, one tab stop moved along with the arrow keys, Home and End (the clickable chart legend works the same way), (bold 11px tabular, a 1px ink tick on the left); hover turns them accent. A click scrolls the stream to that hour's band or zooms to it.
 - **New-lines pill:** while reading below the top in Live mode, a fixed pill under the pinned band, in the header navy with header ink ("8 new lines above"); notice-coloured on hover. It appears and disappears in one step.
 
 ### Syntax Help, Line Actions and Empty State
@@ -359,7 +359,7 @@ There are no cards. Containers are bands and sheets:
 - **Search highlight:** matched words and regex matches in messages use `<mark>`: bold, on a deeper timetable yellow (`#ffe58f` light, `#5c4b00` dark), ink kept.
 - **Last-visit mark:** a full-width row with a 2px accent rule beneath and bold 12px accent text, between the lines that came since the previous visit and the older ones.
 - **Unread alerts:** the alarm-red badge after the Alerts title ("3 new"); the browser tab title takes the same count, plus error lines that arrived live while hidden.
-- **Custom range:** a ground-coloured popover under the range selector with two local date-time fields, a red *Apply*, a *Cancel* and an inline error in alarm red.
+- **Custom range:** opened from the selector without taking the focus (another choice closes it); a ground-coloured popover under the range selector with two local date-time fields, a red *Apply*, a *Cancel* and an inline error in alarm red.
 - **Command palette:** a native modal `dialog`, 560px wide, 1px field-grey border, flat (a 30% black backdrop is its only depth); a borderless 44px input over a list whose rows show the group in muted 12px beside the label; the selected row takes the strong tint. Arrow keys move, Enter runs, Escape closes.
 
 ### Navigation

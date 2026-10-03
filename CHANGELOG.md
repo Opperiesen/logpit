@@ -27,6 +27,11 @@
   the tab is hidden; the list marks where the previous visit stopped; a *Custom…* time range with two
   date-times and a *Zoom out* button; a command palette on Ctrl+K / Cmd+K.
 
+- The web UI is served without its indentation and comments and gzipped when the browser accepts it
+  (`Content-Encoding: gzip`, `Vary: Accept-Encoding`): about 27 KB on the wire instead of 110 KB. Its
+  size budget now applies to what is served. The chart legend is one tab stop walked with the arrow
+  keys, and choosing *Custom…* from the keyboard no longer moves the focus into the form.
+
 - Web UI redesign: the log stream is set like a railway timetable, grouped under hour bands that state the
   hour once with their entry, error and warning counts and stay pinned while scrolling; each line leads with
   its minutes and seconds. Light theme in timetable paper, dark theme in departure-board navy, system fonts

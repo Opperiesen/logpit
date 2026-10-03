@@ -553,6 +553,25 @@ async fn oversized_names_and_bodies_are_bounded() {
 }
 
 #[tokio::test]
+async fn the_web_ui_is_gzipped_for_browsers_that_accept_it() {
+    let s = start("").await;
+    let mut stream = tokio::net::TcpStream::connect(s.addr).await.unwrap();
+    stream
+        .write_all(b"GET / HTTP/1.0\r\nHost: test\r\nAccept-Encoding: gzip, br\r\n\r\n")
+        .await
+        .unwrap();
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).await.unwrap();
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8_lossy(&raw[..split]).to_ascii_lowercase();
+    assert!(head.contains("content-encoding: gzip"), "{head}");
+    assert!(head.contains("vary: accept-encoding") && head.contains("content-security-policy"));
+    let page = logpit::inflate::gunzip(&raw[split + 4..], 1 << 20).unwrap();
+    let page = String::from_utf8(page).unwrap();
+    assert!(page.contains("<title>LogPit</title>") && page.contains("</script>"));
+}
+
+#[tokio::test]
 async fn the_web_ui_is_served_with_protective_headers() {
     let s = start("").await;
     let r = call(s.addr, "GET", "/", None, b"").await;

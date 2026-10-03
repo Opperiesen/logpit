@@ -793,6 +793,10 @@ context panels and the alert list follow it too.
 
 ## Keyboard and active filters
 
+The page itself is served without its indentation and comments, and gzipped for browsers that accept
+it (about 27 KB instead of 110 KB).
+
+
 Outside a text field, the web UI answers to a few keys (also listed under *Settings*):
 
 | Key | Action |
@@ -802,7 +806,7 @@ Outside a text field, the web UI answers to a few keys (also listed under *Setti
 | `J` / `K` | move to the next or previous line |
 | `Enter` | open the context of the current line (on a line with a trace link, Tab reaches it) |
 | `Esc` | close *Settings*, leave a field, or close the panel under the current line |
-| `←` / `→`, `Home` / `End` | move along the hour scale under the chart (one tab stop) |
+| `←` / `→`, `Home` / `End` | move along the hour scale under the chart, or along the chart legend (each one tab stop) |
 | `Ctrl`+`K` / `⌘`+`K` | command palette: saved views, hosts, ranges, levels, live, theme, density, export, settings |
 
 The filters of the last search (search words, host, app, tag, field, regex, level and a zoomed time
@@ -826,7 +830,7 @@ In the chart legend, a severity sets the minimum level. A structured field can b
 kept: Alt-click it under a message, or use the − button beside a value in *Top values* (this writes
 `field!=value` in the field filter; host and app cannot be excluded this way).
 
-The time range selector has a *Custom…* entry with two local date-times, and a zoomed window gets a
+The time range selector has a *Custom…* entry with two local date-times (chosen from the keyboard, it opens the form and leaves the focus on the selector; Tab reaches the fields), and a zoomed window gets a
 *Zoom out* button that doubles it around its middle.
 
 Alerts that arrived since the panel was last open are counted on its title (*3 new*), and the browser
