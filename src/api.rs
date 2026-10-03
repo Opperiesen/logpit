@@ -171,7 +171,7 @@ fn positive_limit(v: &str, max: usize) -> Result<usize, &'static str> {
 }
 
 /// Standard base64 (RFC 4648, padding optional); `None` for anything else.
-fn base64_decode(text: &str) -> Option<Vec<u8>> {
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(text.len() * 3 / 4);
     let (mut acc, mut bits) = (0u32, 0u32);
     for c in text.trim_end_matches('=').bytes() {
@@ -356,6 +356,15 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
             + &state.sink.settings().parsers.get().render_metrics()
             + &state.sink.settings().dedup.render_metrics()
             + &state.sink.settings().volume.render_metrics()
+            + &state
+                .sink
+                .settings()
+                .silence
+                .get()
+                .email
+                .as_ref()
+                .map(|m| m.render_metrics())
+                .unwrap_or_default()
             + &state
                 .sink
                 .forwarders()

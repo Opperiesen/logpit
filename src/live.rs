@@ -48,6 +48,8 @@ impl<T: Default> Default for Reloadable<T> {
 
 /// What the silence checker and the notifier need: thresholds, the webhook and the check period.
 pub struct SilenceSettings {
+    /// E-mail notifications, when `[email]` is configured.
+    pub email: Option<Arc<crate::mail::Mailer>>,
     pub rules: silence::Rules,
     pub webhook: Option<Webhook>,
     pub interval: Duration,
@@ -56,6 +58,7 @@ pub struct SilenceSettings {
 impl Default for SilenceSettings {
     fn default() -> Self {
         Self {
+            email: None,
             rules: silence::Rules::default(),
             webhook: None,
             interval: Duration::from_secs(30),
@@ -71,6 +74,7 @@ impl SilenceSettings {
             url => Some(Webhook::new(url, s.webhook_format, &s.webhook_headers)?),
         };
         Ok(Self {
+            email: crate::mail::Mailer::new(&cfg.email)?,
             rules: silence::Rules::from_config(s),
             webhook,
             interval: Duration::from_secs(s.check_interval_secs),
@@ -246,7 +250,7 @@ impl LiveSettings {
             .transpose()?;
         let limiter = (old.ingest.rate_limit != new.ingest.rate_limit)
             .then(|| Arc::new(RateLimiter::new(&new.ingest.rate_limit)));
-        let silence = (old.silence != new.silence)
+        let silence = (old.silence != new.silence || old.email != new.email)
             .then(|| SilenceSettings::from_config(new).map(Arc::new))
             .transpose()?;
         let tls = match (&self.tls, tls_acceptor(new)?) {
@@ -686,6 +690,28 @@ mod tests {
             ["http.tls_cert"]
         );
         let _ = std::fs::remove_dir_all(&pki.dir);
+    }
+
+    #[test]
+    fn email_settings_follow_a_reload() {
+        let old = cfg("");
+        let live = LiveSettings::from_config(&old).unwrap();
+        assert!(live.silence.get().email.is_none());
+        let new = cfg(
+            "[email]\nhost = \"smtp.example.com\"\nfrom = \"logpit@example.com\"\nto = [\"ops@example.com\"]",
+        );
+        let report = live.reload(&old, &new).unwrap();
+        assert_eq!(report.applied, ["silence alerts and webhook"]);
+        assert!(live.silence.get().email.is_some());
+        let mut bad = new.clone();
+        bad.email.to = vec!["not an address".into()];
+        assert!(live.reload(&new, &bad).is_err());
+        assert!(
+            live.silence.get().email.is_some(),
+            "a refused reload changes nothing"
+        );
+        live.reload(&new, &cfg("")).unwrap();
+        assert!(live.silence.get().email.is_none());
     }
 
     #[test]

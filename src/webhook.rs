@@ -166,12 +166,12 @@ pub fn parse_header(line: &str) -> anyhow::Result<(String, String)> {
     Ok((name.to_string(), value.to_string()))
 }
 
-fn default_connector() -> TlsConnector {
+pub(crate) fn default_connector() -> TlsConnector {
     let roots = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     connector_with(roots)
 }
 
-fn connector_with(roots: RootCertStore) -> TlsConnector {
+pub(crate) fn connector_with(roots: RootCertStore) -> TlsConnector {
     let config = rustls::ClientConfig::builder_with_provider(Arc::new(default_provider()))
         .with_safe_default_protocol_versions()
         .expect("the default TLS versions are supported")

@@ -32,6 +32,8 @@ pub struct Config {
     pub volume: crate::volume::VolumeConfig,
     /// Scheduled backups of the database (`[backup]`).
     pub backup: crate::backup::BackupConfig,
+    /// E-mail notifications over SMTP, beside the webhook (`[email]`).
+    pub email: crate::mail::EmailConfig,
     /// Targets that receive a copy of the matching entries (`[[forward]]`).
     pub forward: Vec<crate::forward::ForwardConfig>,
     pub gelf: GelfConfig,
@@ -391,6 +393,25 @@ impl Config {
         if let Some(v) = get("LOGPIT_SYSLOG_TIMEZONE") {
             self.syslog.timezone = v.trim().to_string();
         }
+        if let Some(v) = get("LOGPIT_EMAIL_HOST") {
+            self.email.host = v.trim().to_string();
+        }
+        if let Some(v) = get("LOGPIT_EMAIL_FROM") {
+            self.email.from = v.trim().to_string();
+        }
+        if let Some(v) = get("LOGPIT_EMAIL_TO") {
+            self.email.to = v
+                .split(',')
+                .map(|a| a.trim().to_string())
+                .filter(|a| !a.is_empty())
+                .collect();
+        }
+        if let Some(v) = get("LOGPIT_EMAIL_USERNAME") {
+            self.email.username = (!v.is_empty()).then_some(v);
+        }
+        if let Some(p) = env_secret(get, "LOGPIT_EMAIL_PASSWORD")? {
+            self.email.password = Some(p);
+        }
         if let Some(v) = get("LOGPIT_BACKUP_DIR") {
             self.backup.dir = (!v.trim().is_empty()).then(|| PathBuf::from(v.trim()));
         }
@@ -592,6 +613,7 @@ impl Config {
         self.ingest.dedup.validate()?;
         self.volume.validate()?;
         self.backup.validate()?;
+        self.email.validate()?;
         let tags = crate::tags::Tags::from_config(&self.tags)?;
         crate::logmetrics::LogMetrics::from_config(&self.metrics, &tags)?;
         crate::parsers::Parsers::from_config(&self.parsers)?;
@@ -1055,6 +1077,47 @@ mod tests {
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn email_config() {
+        let cfg = Config::parse("").unwrap();
+        assert!(!cfg.email.enabled());
+        let cfg = Config::parse(
+            "[email]\nhost = \"smtp.example.com\"\nsecurity = \"tls\"\nfrom = \"logpit@example.com\"\n\
+             to = [\"ops@example.com\"]\nusername = \"u\"\npassword = \"p\"\nkinds = [\"host_silent\"]\nmax_per_hour = 5",
+        )
+        .unwrap();
+        assert!(cfg.email.enabled() && cfg.email.security == crate::mail::Security::Tls);
+        assert!(
+            Config::parse("[email]\nhost = \"h.example.com\"").is_err(),
+            "from and to are needed"
+        );
+        assert!(
+            Config::parse("[email]\nhost = \"h.example.com\"\nfrom = \"a@b.co\"\nto = [\"x\"]")
+                .is_err()
+        );
+        assert!(Config::parse("[email]\nsecurity = \"ssl\"").is_err());
+        assert!(Config::parse("[email]\nbogus = 1").is_err());
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[
+            ("LOGPIT_EMAIL_HOST", "smtp.example.com"),
+            ("LOGPIT_EMAIL_FROM", "logpit@example.com"),
+            ("LOGPIT_EMAIL_TO", "a@b.co, c@d.org,"),
+            ("LOGPIT_EMAIL_USERNAME", "u"),
+            ("LOGPIT_EMAIL_PASSWORD", "p"),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.email.to, ["a@b.co", "c@d.org"]);
+        assert_eq!(cfg.email.password.as_deref(), Some("p"));
+        assert!(cfg.validate().is_ok());
+        assert!(
+            cfg.apply_env(&env(&[
+                ("LOGPIT_EMAIL_PASSWORD", "x"),
+                ("LOGPIT_EMAIL_PASSWORD_FILE", "/nope")
+            ]))
+            .is_err()
         );
     }
 

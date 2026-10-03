@@ -25,6 +25,7 @@ pub mod logmetrics;
 pub mod logql;
 pub mod loki;
 pub mod lokiapi;
+pub mod mail;
 pub mod metrics;
 pub mod model;
 pub mod otlp;

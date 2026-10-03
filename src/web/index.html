@@ -82,7 +82,7 @@
   .patrow .t { white-space:nowrap; } .t.up { color:#cf222e; } .t.down { color:#1a7f37; } .t.flat { color:var(--muted); }
   #alerts { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
   #alerts summary { cursor:pointer; padding:6px 0; color:var(--muted); }
-  .alrow { display:grid; grid-template-columns:6em 9em 10em minmax(10em, 1fr) 5em; gap:0 10px; align-items:baseline; padding:2px 0; }
+  .alrow { display:grid; grid-template-columns:6em 9em 10em minmax(10em, 1fr) 10em; gap:0 10px; align-items:baseline; padding:2px 0; }
   .alrow .k { font-weight:600; } .alrow .k.bad { color:#cf222e; } .alrow .k.ok { color:#1a7f37; }
   .alrow .h { cursor:pointer; } .alrow .h:hover { color:var(--accent); }
   .alrow .m { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -731,7 +731,7 @@ async function loadAlerts() {
       msg.className = 'm'; msg.textContent = a.message; msg.title = a.message;
       const sent = document.createElement('span');
       sent.className = 'd';
-      sent.textContent = a.delivered === true ? 'sent' : a.delivered === false ? 'not sent' : 'no webhook';
+      sent.textContent = (a.delivered === true ? 'sent' : a.delivered === false ? 'not sent' : 'no webhook') + (a.email === true ? ' · mail' : a.email === false ? ' · mail failed' : '');
       sent.title = a.delivered === false ? 'The webhook did not accept this notification' : a.delivered === true ? 'Delivered to the webhook' : 'No webhook is configured';
       row.append(when, kind, host, msg, sent);
       return row;

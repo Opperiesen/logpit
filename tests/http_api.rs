@@ -407,6 +407,7 @@ async fn the_alert_history_is_served_and_limited_to_the_hosts_of_the_token() {
         host: host.map(String::from),
         message: format!("{kind} {ts}"),
         delivered,
+        email: None,
         details: serde_json::json!({"event": kind}),
     };
     for e in [

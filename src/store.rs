@@ -136,6 +136,13 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS alerts_ts ON alerts (ts);",
     )?;
+    // The e-mail outcome came later than the table: add its column to history written before.
+    let has_email = conn
+        .prepare("SELECT 1 FROM pragma_table_info('alerts') WHERE name = 'email'")?
+        .exists([])?;
+    if !has_email {
+        conn.execute("ALTER TABLE alerts ADD COLUMN email INTEGER", [])?;
+    }
     Ok(())
 }
 
@@ -193,8 +200,17 @@ pub fn audit_events(
 /// Records a raised notification.
 pub fn insert_alert(conn: &Connection, e: &crate::alertlog::AlertEntry) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO alerts (ts, kind, host, message, delivered, details) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![e.ts, e.kind, e.host, e.message, e.delivered, e.details.to_string()],
+        "INSERT INTO alerts (ts, kind, host, message, delivered, email, details) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            e.ts,
+            e.kind,
+            e.host,
+            e.message,
+            e.delivered,
+            e.email,
+            e.details.to_string()
+        ],
     )?;
     Ok(())
 }
@@ -205,7 +221,7 @@ pub fn alert_events(
     q: &crate::alertlog::AlertQuery,
 ) -> rusqlite::Result<Vec<crate::alertlog::AlertEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT ts, kind, host, message, delivered, details FROM alerts \
+        "SELECT ts, kind, host, message, delivered, details, email FROM alerts \
          WHERE (?1 IS NULL OR ts >= ?1) AND (?2 IS NULL OR ts <= ?2) \
            AND (?3 IS NULL OR kind = ?3) AND (?4 IS NULL OR host = ?4) \
          ORDER BY ts DESC, id DESC LIMIT ?5",
@@ -226,6 +242,7 @@ pub fn alert_events(
                 message: r.get(3)?,
                 delivered: r.get(4)?,
                 details: serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or_default(),
+                email: r.get(6)?,
             })
         },
     )?;

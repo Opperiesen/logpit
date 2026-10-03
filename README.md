@@ -42,6 +42,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Volume alerts**: get notified when a host sends far more or far fewer logs than it usually does.
 - **HTTPS**: the web UI and API can be served over TLS directly, with certificate reload and optional client
   certificates.
+- **E-mail notifications**: the alerts can also go out over SMTP (STARTTLS, TLS, authentication).
 - **Alert history**: every notification LogPit raises is kept and listed in `GET /api/alerts` and the web UI,
   with whether the webhook took it.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
@@ -1125,6 +1126,43 @@ It notifies through the same [webhook](#alert-webhook) (and the log):
   (they would mean something else then). Turning it on by a reload starts without history.
 - **Metrics.** `logpit_volume_alerts_total{kind="surge"|"drop"}` and `logpit_volume_hosts`.
 
+### E-mail notifications
+
+`[email]` sends the same notifications by e-mail, beside the webhook (both go out at the same time, and
+either may be used alone):
+
+```toml
+[email]
+host = "smtp.example.com"          # empty turns it off; env LOGPIT_EMAIL_HOST
+port = 587                         # default: 587 for starttls, 465 for tls, 25 for none
+security = "starttls"              # starttls (default), tls (from the first byte) or none
+from = "logpit@example.com"        # LOGPIT_EMAIL_FROM
+to = ["ops@example.com", "oncall@example.org"]   # LOGPIT_EMAIL_TO, comma separated
+username = "logpit"                # with password; LOGPIT_EMAIL_USERNAME
+password = "…"                     # prefer LOGPIT_EMAIL_PASSWORD or LOGPIT_EMAIL_PASSWORD_FILE
+subject_prefix = "[LogPit]"
+kinds = ["host_silent", "volume_surge", "volume_drop"]   # empty = every kind
+max_per_hour = 30                  # 0 = no limit
+```
+
+- **What is sent.** One message per notification (a silent host and its recovery, pattern alerts, new
+  patterns and surges, volume alerts), `text/plain` in UTF-8 and base64, with the alert text as subject
+  (clipped, non-ASCII encoded as RFC 2047) and as first line of the body, then the event as JSON. Mail is
+  marked `Auto-Submitted: auto-generated`. Addresses are checked at startup (plain `name@domain`), and
+  everything that comes from log data (host names, samples) is made harmless in headers.
+- **SMTP.** `starttls` upgrades a plain connection and refuses a server that does not offer it, rather
+  than falling back to clear text; `tls` is implicit TLS. Certificates are checked against the built-in
+  authorities (a private CA is not supported). Authentication is `AUTH PLAIN`, or `AUTH LOGIN` if that
+  is all the server offers; with `security = "none"` a login is only accepted for a server on this
+  machine, so a password never crosses the network unencrypted. One connection per message, three
+  attempts 5 s apart, 30 s per command.
+- **Floods.** `max_per_hour` (30) caps what is sent; the rest are dropped, logged, and counted in
+  `logpit_email_suppressed_total`, but still recorded in the [alert history](#alert-history), where each
+  entry shows `email` (`true`, `false` or absent when not sent by e-mail). Use `kinds` to keep the noisy
+  kinds out of your mailbox.
+- **Reloading.** `SIGHUP` applies the section (the hourly count starts over). Metrics:
+  `logpit_email_sent_total`, `logpit_email_failed_total` and `logpit_email_suppressed_total`.
+
 ### Alert history
 
 Every notification LogPit raises (a silent host and its recovery, [pattern alerts](#pattern-alerts),
@@ -1140,7 +1178,8 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/alerts?kind
 
 - **Fields.** `ts` (Unix ms), `kind` (`host_silent`, `host_recovered`, `log_alert`, `new_pattern`,
   `pattern_surge`, `volume_surge`, `volume_drop`), `host` (absent for an alert that is not about one
-  host), `message`, `delivered` and `details` (the event as the `json` webhook format sends it).
+  host), `message`, `delivered`, `email` (the same for the e-mail, see above) and `details` (the event as
+  the `json` webhook format sends it).
   `delivered` is `true` when the webhook accepted it, `false` when it gave up after its attempts, and
   absent when no webhook was configured. The entry is written once the webhook attempts end, which
   can take around fifteen seconds when it is unreachable, but is stamped with the time of the event.

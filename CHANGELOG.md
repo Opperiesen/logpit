@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- E-mail notifications (`[email]`): the alerts LogPit raises can be sent over SMTP (STARTTLS, implicit TLS
+  or plain, `AUTH PLAIN`/`LOGIN`) to a list of recipients, filtered by kind and limited per hour, beside
+  the webhook. The alert history shows the e-mail outcome and `/metrics` counts sent, failed and
+  suppressed messages; applied by `SIGHUP`.
+
 - Web UI display preferences (the cog in the header, kept in the browser): light, dark or system theme,
   local time, UTC or ISO 8601 times, compact density, wrapped or single-line messages, and which columns
   (time, level, host, app, fields) are shown.

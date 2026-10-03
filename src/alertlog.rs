@@ -31,6 +31,10 @@ pub struct AlertEntry {
     /// Whether the webhook accepted it; absent when no webhook was configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delivered: Option<bool>,
+    /// Whether the SMTP server accepted the e-mail; absent when e-mail is off, the kind is not
+    /// sent by e-mail or the hourly limit dropped it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<bool>,
     /// The event as the webhook gets it in `json` format.
     pub details: Value,
 }
@@ -44,6 +48,7 @@ impl AlertEntry {
             host: details["host"].as_str().map(str::to_string),
             message: details["message"].as_str().unwrap_or_default().to_string(),
             delivered,
+            email: None,
             details,
         }
     }
@@ -146,15 +151,27 @@ pub fn dispatch(event: Event, live: &Arc<LiveSettings>, log: &Arc<AlertLog>) {
         Event::Silent { .. } => tracing::warn!("silence alert: {message}"),
         _ => tracing::warn!("{message}"),
     }
-    let hook = live.silence.get().webhook.clone();
+    let settings = live.silence.get();
+    let (hook, mailer) = (settings.webhook.clone(), settings.email.clone());
     let log = log.clone();
     tokio::spawn(async move {
-        let delivered = match hook {
-            Some(hook) => Some(hook.send(&event).await),
-            None => None,
+        // The webhook and the e-mail go out at the same time: each has its own retries.
+        let webhook = async {
+            match &hook {
+                Some(hook) => Some(hook.send(&event).await),
+                None => None,
+            }
         };
-        log.record(AlertEntry::from_event(&event, ts, delivered))
-            .await;
+        let email = async {
+            match &mailer {
+                Some(m) => m.notify(&event, ts).await,
+                None => None,
+            }
+        };
+        let (delivered, emailed) = tokio::join!(webhook, email);
+        let mut entry = AlertEntry::from_event(&event, ts, delivered);
+        entry.email = emailed;
+        log.record(entry).await;
     });
 }
 
@@ -169,6 +186,7 @@ mod tests {
             host: host.map(String::from),
             message: format!("{kind} at {ts}"),
             delivered: None,
+            email: None,
             details: Value::Null,
         }
     }

@@ -10,6 +10,16 @@ max_message_bytes = 16384    # longer messages are truncated
 max_db_size_mb = 0           # soft cap: beyond it the oldest entries are evicted; 0 = off, else >= 16
 # archive_dir = "/var/lib/logpit/archive"   # write entries to daily gzip files before retention removes them
 
+# E-mail notifications over SMTP, beside the webhook.
+# [email]
+# host = "smtp.example.com"
+# security = "starttls"          # starttls, tls or none
+# from = "logpit@example.com"
+# to = ["ops@example.com"]
+# username = "logpit"            # with password (or LOGPIT_EMAIL_PASSWORD / _FILE)
+# max_per_hour = 30
+# kinds = []                     # e.g. ["host_silent", "volume_surge"]; empty = all
+
 # Retention rules for some hosts, apps or severities (first match wins; 0 days = keep for ever).
 # [[retention]]
 # host = "fw*"
