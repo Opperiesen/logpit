@@ -352,6 +352,7 @@ There are no cards. Containers are bands and sheets:
 - **Syntax help:** a 32px square `?` toggle beside the search on the header band (white on navy, inverted when open) opening a ground-coloured popover: muted intro, bold 12px section titles, a two-column list of examples as small monospace buttons and muted explanations.
 - **Line actions:** one toolbar of three small buttons (*copy*, *JSON*, *link*) moved to the hovered or current line, top-right of its message cell; hidden on other lines. Feedback is the label itself ("copied", "copy failed") for 1.5s, switched in one step.
 - **Empty state:** muted sentence, then the ways out as standard buttons (wider range, leave the zoom, remove or clear filters).
+- **Inline confirmations:** saving a view swaps *Save view* and *Delete* for a name field with a red *Save* and a *Cancel*; deleting swaps them for the question in semibold ink with a red *Delete* and a *Cancel*. No browser dialogs.
 
 ### Navigation
 There is no navigation in the site sense; the header band is the control strip. Wordmark left, search taking the remaining width, filters inline, status pushed right in lavender. Rail sections act as the secondary navigation, each opened or closed with a hard-turning chevron.

@@ -817,7 +817,8 @@ The **?** button next to the search box lists the search, field-filter and regex
 clicking an example searches with it. Hovering a line (or moving to it with `J`/`K`) shows *copy* (the
 message), *JSON* (the whole entry) and *link* (a link to the minute around the line on its host, never
 including the token); copying also works when LogPit is served over plain HTTP. A search that finds
-nothing offers a wider time range and to remove the filters.
+nothing offers a wider time range and to remove the filters. Relative ages in the side panels ("3m ago")
+refresh every 30 seconds.
 
 ## Web UI links
 
@@ -1013,8 +1014,9 @@ and clicking searches for the pattern's words. It follows the current filters an
 
 A view is a named search (filters, time range or zoomed window, chart grouping) kept on the server,
 so a team shares its useful searches. In the web UI, the *Views* menu in the header opens one,
-*Save view* stores the current search under a name (an existing name is replaced), and *Delete* removes
-the selected one. The menu shows which view matches the current search.
+*Save view* asks for a name in place and stores the current search under it (an existing name is replaced;
+Enter saves, Escape cancels), and *Delete* asks for a confirmation in place before removing the selected
+one. The menu shows which view matches the current search.
 
 ```sh
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \

@@ -76,6 +76,10 @@
   #filtersToggle { display:none; }
   .row2 { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 16px; background:var(--band); color:var(--ink); border-bottom:1px solid var(--rule); }
   .row2 .sep { flex:1; }
+  .row2 .inline { display:none; align-items:center; gap:6px; }
+  .row2.naming #viewForm, .row2.deleting #viewDel { display:inline-flex; }
+  .row2.naming #saveView, .row2.naming #delView, .row2.deleting #saveView, .row2.deleting #delView { display:none; }
+  #viewDelText { color:var(--ink); font-weight:600; }
   .prefs { position:relative; }
   .help { position:relative; }
   .help summary { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border:1px solid var(--shell-line); border-radius:2px; color:var(--shell-ink); font-weight:700; cursor:pointer; list-style:none; user-select:none; }
@@ -317,6 +321,8 @@
     <select id="views" aria-label="Saved views" title="Saved views, shared by everyone who uses this LogPit"><option value="">Views</option></select>
     <button id="saveView" type="button" title="Save the current search, time range and chart grouping under a name">Save view</button>
     <button id="delView" type="button" title="Delete the selected view" hidden>Delete</button>
+    <span class="inline" id="viewForm"><input id="viewName" type="text" placeholder="Name of the view" aria-label="Name of the view" size="18" maxlength="80"><button id="viewSave" type="button" class="primary">Save</button><button id="viewCancel" type="button">Cancel</button></span>
+    <span class="inline" id="viewDel" role="alert"><span id="viewDelText"></span><button id="viewDelYes" type="button" class="primary">Delete</button><button id="viewDelNo" type="button">Cancel</button></span>
     <details class="prefs" id="prefs">
       <summary title="Access token and display preferences, kept in this browser"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="4" r="2" fill="currentColor"/><circle cx="11" cy="8" r="2" fill="currentColor"/><circle cx="7" cy="12" r="2" fill="currentColor"/></svg>Settings</summary>
       <div class="panel">
@@ -1182,7 +1188,7 @@ async function loadAlerts() {
       const row = document.createElement('div');
       row.className = 'alrow';
       const when = document.createElement('span');
-      when.textContent = ago(a.ts); when.title = fmtTime(a.ts);
+      agoEl(when, a.ts); when.title = fmtTime(a.ts);
       const kind = document.createElement('span');
       kind.className = 'k ' + (a.kind === 'host_recovered' ? 'ok' : ALERT_BAD.includes(a.kind) ? 'bad' : '');
       kind.textContent = a.kind.replace(/_/g, ' ');
@@ -1241,7 +1247,7 @@ async function loadPatterns() {
       pat.title = x.example.message.slice(0, 300) + (x.search ? '\n\nClick to search: ' + x.search : '');
       if (x.search) clickable(pat, () => { $('q').value = x.search; load(); });
       const m = document.createElement('span'); m.className = 'm';
-      m.textContent = x.severity + ' · ' + x.hosts + (x.hosts >= 100 ? '+' : '') + ' host' + (x.hosts === 1 ? '' : 's') + ' · ' + ago(x.last_ts);
+      m.append(x.severity + ' · ' + x.hosts + (x.hosts >= 100 ? '+' : '') + ' host' + (x.hosts === 1 ? '' : 's') + ' · ', agoEl(document.createElement('span'), x.last_ts));
       row.append(n, t, pat, m);
       return row;
     });
@@ -1259,6 +1265,12 @@ async function loadPatterns() {
 }
 
 // Per-host summary of the current filters (all hosts, even when one is selected).
+// Relative ages ("3m ago") are refreshed every 30 seconds, so the rail does not go stale between searches.
+function agoEl(el, ms) { el.dataset.ago = String(ms); el.textContent = ago(ms); return el; }
+setInterval(() => {
+  if (document.hidden) return;
+  for (const el of document.querySelectorAll('[data-ago]')) el.textContent = ago(Number(el.dataset.ago));
+}, 30000);
 function ago(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return s + 's ago';
@@ -1315,7 +1327,7 @@ function renderHosts() {
       name.append(b);
     }
     const num = (v, cls) => td('n' + (v ? (cls ? ' ' + cls : '') : ' zero'), v.toLocaleString());
-    const seen = td('', ago(h.last_ts));
+    const seen = agoEl(td('', ''), h.last_ts);
     seen.title = new Date(h.last_ts).toLocaleString();
     // Tags sit under the host name, so the rail keeps to five narrow columns.
     if ((h.tags || []).length) {
@@ -1450,10 +1462,28 @@ $('views').onchange = () => {
   load();
 };
 
-$('saveView').onclick = async () => {
+// Saving asks for the name in place (an existing name is replaced); deleting asks for a second click.
+function viewMode(mode) {
+  const row = $('filters');
+  row.classList.toggle('naming', mode === 'naming');
+  row.classList.toggle('deleting', mode === 'deleting');
+}
+$('saveView').onclick = () => {
   const match = savedViews.find(v => String(v.id) === $('views').value);
-  const name = prompt('Name for this view (an existing name is replaced):', match ? match.name : '');
-  if (name === null || !name.trim()) return;
+  $('viewName').value = match ? match.name : '';
+  $('viewName').title = 'Saving under an existing name replaces that view';
+  viewMode('naming');
+  $('viewName').focus();
+  $('viewName').select();
+};
+$('viewCancel').onclick = () => { viewMode(null); $('saveView').focus(); };
+$('viewName').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('viewSave').click(); }
+  else if (e.key === 'Escape') { e.preventDefault(); $('viewCancel').click(); }
+});
+$('viewSave').onclick = async () => {
+  const name = $('viewName').value.trim();
+  if (!name) { $('viewName').focus(); return; }
   try {
     const res = await fetch('/api/views', {
       method: 'POST',
@@ -1462,6 +1492,7 @@ $('saveView').onclick = async () => {
     });
     if (!res.ok) throw new Error((await res.text()).slice(0, 160) || 'HTTP ' + res.status);
     const saved = await res.json();
+    viewMode(null);
     await loadViews();
     $('views').value = String(saved.id);
     $('delView').hidden = false;
@@ -1469,9 +1500,19 @@ $('saveView').onclick = async () => {
   } catch (e) { $('status').textContent = 'could not save the view: ' + String(e.message || e); }
 };
 
-$('delView').onclick = async () => {
+$('delView').onclick = () => {
   const v = savedViews.find(x => String(x.id) === $('views').value);
-  if (!v || !confirm('Delete the view "' + v.name + '"?')) return;
+  if (!v) return;
+  $('viewDelText').textContent = 'Delete the view "' + v.name + '"?';
+  viewMode('deleting');
+  $('viewDelNo').focus();
+};
+$('viewDelNo').onclick = () => { viewMode(null); $('delView').focus(); };
+$('viewDel').addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); $('viewDelNo').click(); } });
+$('viewDelYes').onclick = async () => {
+  const v = savedViews.find(x => String(x.id) === $('views').value);
+  viewMode(null);
+  if (!v) return;
   try {
     const res = await fetch('/api/views/' + v.id, { method: 'DELETE', headers: authHeaders() });
     if (!res.ok && res.status !== 404) throw new Error((await res.text()).slice(0, 160) || 'HTTP ' + res.status);

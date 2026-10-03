@@ -14,6 +14,9 @@
   actions on the hovered or current line (with a fallback for plain HTTP, where the clipboard API is
   unavailable); an empty result offers a wider time range and to remove the filters.
 
+- Web UI: saving and deleting a view ask in place instead of through browser dialogs, and the relative
+  ages in the side panels refresh every 30 seconds.
+
 - Web UI redesign: the log stream is set like a railway timetable, grouped under hour bands that state the
   hour once with their entry, error and warning counts and stay pinned while scrolling; each line leads with
   its minutes and seconds. Light theme in timetable paper, dark theme in departure-board navy, system fonts
