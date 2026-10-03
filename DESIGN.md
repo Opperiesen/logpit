@@ -372,7 +372,7 @@ There are no cards. Containers are bands and sheets:
 - **Shared shell:** one page serves the four views; the header band carries the wordmark, links to Search, Board, Compare and Admin (the current one underlined 2px) and the status on the right. Content sits in a 16px gutter; sections open with a 14px bold heading over a 1px ink rule; data is in hairline-ruled tables with muted 12px column heads and tabular figures.
 - **Departure board:** dark board by default. Rows of 20px type, the host in 24px bold; states as words in their colour (*Disrupted* red, *Delayed* amber, *On time* green) and *Cancelled* as an alarm-red badge; the latest message in monospace, clipped; a 24px clock top right.
 - **Host page:** a 96px stacked volume chart by severity over 7 days with day marks, then a two-column grid of latest errors, apps (notice-blue meters), patterns and alerts.
-- **Admin and compare:** forms in one wrapping row of labelled fields ending with the red primary button; changes in compare read red for growth and green for decline, `=` muted when unchanged.
+- **Admin and compare:** forms in one wrapping row of labelled fields ending with the red primary button (a row button such as *End* names its row for assistive technology); changes in compare read red for growth and green for decline, `=` muted when unchanged.
 
 ### Navigation
 There is no navigation in the site sense; the header band is the control strip. Wordmark left, search taking the remaining width, filters inline, status pushed right in lavender. Rail sections act as the secondary navigation, each opened or closed with a hard-turning chevron.

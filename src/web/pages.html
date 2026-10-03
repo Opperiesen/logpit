@@ -87,6 +87,8 @@ const view = path[0] || 'board';
 const theme = view === 'board' ? (prefs.theme === 'light' ? 'light' : 'dark') : prefs.theme;
 if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
 for (const a of document.querySelectorAll('header nav a')) if (a.getAttribute('href') === '/' + view) a.setAttribute('aria-current', 'page');
+// Each view names its tab (the host page names the host).
+document.title = ({ board: 'Board', admin: 'Administration', compare: 'Compare' }[view] || 'Board') + ' · LogPit';
 
 function fmtTime(ms) {
   const d = new Date(ms);
@@ -190,6 +192,7 @@ async function board() {
           return [r.host, l[0] ? l[0].message : ''];
         } catch { return [r.host, '']; }
       })));
+      const focused = document.activeElement && document.activeElement.closest('td.host') ? document.activeElement.textContent : null;
       body.replaceChildren(...(rows.length ? rows.map(r => {
         const [label] = STATES[r.state];
         const tr = h('tr', null,
@@ -202,6 +205,7 @@ async function board() {
         tr.onclick = () => { location.href = '/host/' + encodeURIComponent(r.host); };
         return tr;
       }) : [empty(6, 'No host has sent logs in the last week.')]));
+      if (focused) for (const a of body.querySelectorAll('td.host a')) if (a.textContent === focused) a.focus();
       say('updated ' + new Date().toLocaleTimeString([], { hour12: false }));
     } catch (e) { failed(e, 'read'); }
   }
@@ -262,7 +266,7 @@ async function admin() {
     const winRows = windows.length ? windows.map(w => h('tr', null,
       h('td', 'mono', w.hosts.join(', ')), h('td', null, w.reason || ''), h('td', 'muted', schedule(w)),
       h('td', w.active ? 'w' : 'muted', w.active ? 'active' : 'waiting'), h('td', 'muted', w.source),
-      h('td', null, w.id !== undefined ? Object.assign(h('button', { type: 'button', class: 'small' }, 'End'), { onclick: () => endWindow(w.id) }) : null))) : [empty(6, 'No maintenance window.')];
+      h('td', null, w.id !== undefined ? Object.assign(h('button', { type: 'button', class: 'small', 'aria-label': 'End the window for ' + w.hosts.join(', ') }, 'End'), { onclick: () => endWindow(w.id) }) : null))) : [empty(6, 'No maintenance window.')];
     const form = h('form', 'row',
       h('label', null, 'Hosts (names or patterns)', h('input', { name: 'hosts', required: '', placeholder: 'web*, db1', size: '22' })),
       h('label', null, 'Minutes', h('input', { name: 'minutes', type: 'number', min: '1', max: '10080', value: '60', required: '', style: 'width:7em' })),
@@ -283,7 +287,7 @@ async function admin() {
       h('td', 'n' + (rejected[t.name] ? ' e' : ' muted'), (rejected[t.name] || 0).toLocaleString())));
     const auditBody = h('tbody');
     const refusedOnly = h('input', { type: 'checkbox', id: 'refused' });
-    const who = h('select', { id: 'who' }, h('option', { value: '' }, 'All tokens'), ...tokens.map(t => h('option', { value: t.name }, t.name)));
+    const who = h('select', { id: 'who', 'aria-label': 'Token' }, h('option', { value: '' }, 'All tokens'), ...tokens.map(t => h('option', { value: t.name }, t.name)));
     async function loadAudit() {
       try {
         const ev = await api('/api/audit?' + q({ limit: 100, refused: refusedOnly.checked ? 'true' : '', token: who.value }));
