@@ -389,10 +389,40 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `q` | Search text over the message and its fields, see below |
 | `host`, `app` | Exact match |
 | `level` | Maximum severity number: 0 emergency … 3 error … 6 info … 7 debug |
-| `f` | `key:value` exact match on a structured field; repeat to combine (e.g. `f=act:blocked&f=proto:TCP`) |
+| `f` | Condition on a structured field: `key:value` exact match, or a [comparison](#field-comparisons-and-regular-expressions); repeat to combine (e.g. `f=act:blocked&f=proto:TCP`) |
+| `re` | Regular expression the message must match, see [below](#field-comparisons-and-regular-expressions) |
 | `since`, `until` | Unix timestamps in milliseconds |
 | `limit` | 1–1000, default 100 |
 | `before` | Paging cursor `<ts>:<id>`: only entries older than that one, as given by the `X-Next-Cursor` header |
+
+### Field comparisons and regular expressions
+
+`f` also takes comparisons, to answer things the exact match cannot, and `re` filters on the message
+with a regular expression:
+
+| Expression | Keeps entries whose field `key`… |
+|---|---|
+| `key:value` (or `key=value`) | equals `value` |
+| `key!=value` | is present and differs from `value` |
+| `key>N`, `key>=N`, `key<N`, `key<=N` | is a number in that relation to `N` (`503`, `2.5`, `-1`, `1e3`) |
+| `key~regex` | matches the regular expression (anywhere in the value; anchor with `^` and `$`) |
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" -G http://localhost:8080/api/logs \
+  --data-urlencode 'f=status>=500' --data-urlencode 'f=duration<2.5' \
+  --data-urlencode 'f=src~^10\.0\.' --data-urlencode 're=timeout|refused'
+```
+
+All conditions must hold (they are ANDed, with the text search and the other filters). An entry that
+lacks the field never matches, `!=` included, and a value that is not a number (`2.5s`) matches no
+ordering. Regular expressions use Rust's [regex syntax](https://docs.rs/regex/latest/regex/#syntax)
+(no look-around or back-references; `(?i)` makes one case-insensitive), run in linear time whatever the
+pattern, and are limited to 500 bytes and a bounded compiled size; a bad one is refused with `400`. They
+cannot use the full-text index: they scan the entries the other filters leave, so combine them with a
+time range, a host or `q` on large databases. The same conditions work in every endpoint that takes the
+search filters (`/api/stats`, `/api/hosts`, `/api/top`, `/api/patterns`, `/api/export`), in saved views, the
+live tail, and the web UI: the *field* box takes any of the forms above and the *Regex on message* box
+next to it takes `re`.
 
 ### Search text
 

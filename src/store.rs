@@ -59,8 +59,37 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     conn.busy_timeout(Duration::from_secs(5))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
+    register_functions(&conn)?;
     migrate(&conn)?;
     Ok(conn)
+}
+
+/// SQL functions used by search filters: `regexp(pattern, text)` (the `REGEXP` operator, the
+/// pattern compiled once per statement) and `logpit_num(value)`, a value as a number or NULL.
+fn register_functions(conn: &Connection) -> rusqlite::Result<()> {
+    use rusqlite::functions::FunctionFlags;
+    use rusqlite::types::ValueRef;
+    let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
+    conn.create_scalar_function("regexp", 2, flags, |ctx| {
+        let re: std::sync::Arc<regex::Regex> = ctx.get_or_create_aux(0, |pattern| {
+            let pattern = pattern.as_str().map_err(|e| e.to_string())?;
+            crate::filters::compile_regex(pattern)
+        })?;
+        Ok(match ctx.get_raw(1) {
+            ValueRef::Text(t) => Some(re.is_match(&String::from_utf8_lossy(t))),
+            _ => None,
+        })
+    })?;
+    conn.create_scalar_function("logpit_num", 1, flags, |ctx| {
+        Ok(match ctx.get_raw(0) {
+            ValueRef::Integer(i) => Some(i as f64),
+            ValueRef::Real(r) => Some(r),
+            ValueRef::Text(t) => std::str::from_utf8(t)
+                .ok()
+                .and_then(crate::filters::parse_number),
+            _ => None,
+        })
+    })
 }
 
 fn migrate(conn: &Connection) -> anyhow::Result<()> {
@@ -736,6 +765,10 @@ pub struct Query {
     pub until_ms: Option<i64>,
     /// Exact-match filters on structured fields, as `(key, value)`; all must match.
     pub fields: Vec<(String, String)>,
+    /// Comparisons and regular expressions on structured fields; all must match as well.
+    pub compare: Vec<crate::filters::FieldFilter>,
+    /// The message must match this regular expression.
+    pub message_re: Option<regex::Regex>,
     /// Cursor for paging: keep only entries older than `(ts, id)`, as in search order.
     pub before: Option<(i64, i64)>,
     /// What the caller may read, on top of the filters above (unrestricted by default).
@@ -770,6 +803,14 @@ impl Query {
             .fields
             .iter()
             .all(|(k, v)| e.fields.get(k).is_some_and(|x| x == v))
+        {
+            return false;
+        }
+        if !self.compare.iter().all(|f| f.matches(&e.fields))
+            || self
+                .message_re
+                .as_ref()
+                .is_some_and(|re| !re.is_match(&e.message))
         {
             return false;
         }
@@ -888,6 +929,43 @@ impl Filter {
             f.conds.push("json_extract(l.fields, ?) = ?");
             f.args.push(Box::new(format!("$.\"{key}\"")));
             f.args.push(Box::new(value.clone()));
+        }
+        for cf in &q.compare {
+            use crate::filters::Op;
+            if !valid_field_key(&cf.key) {
+                return Err(rusqlite::Error::InvalidParameterName(cf.key.clone()));
+            }
+            let path = format!("$.\"{}\"", cf.key);
+            // A field the entry does not have never satisfies a comparison (NULL is not true).
+            match cf.op {
+                Op::Ne => {
+                    f.conds.push(
+                        "(json_extract(l.fields, ?) IS NOT NULL AND json_extract(l.fields, ?) != ?)",
+                    );
+                    f.args.push(Box::new(path.clone()));
+                    f.args.push(Box::new(path));
+                    f.args.push(Box::new(cf.value.clone()));
+                }
+                Op::Re => {
+                    f.conds.push("json_extract(l.fields, ?) REGEXP ?");
+                    f.args.push(Box::new(path));
+                    f.args.push(Box::new(cf.value.clone()));
+                }
+                op => {
+                    f.conds.push(match op {
+                        Op::Gt => "logpit_num(json_extract(l.fields, ?)) > ?",
+                        Op::Ge => "logpit_num(json_extract(l.fields, ?)) >= ?",
+                        Op::Lt => "logpit_num(json_extract(l.fields, ?)) < ?",
+                        _ => "logpit_num(json_extract(l.fields, ?)) <= ?",
+                    });
+                    f.args.push(Box::new(path));
+                    f.args.push(Box::new(cf.number.unwrap_or(0.0)));
+                }
+            }
+        }
+        if let Some(re) = &q.message_re {
+            f.conds.push("l.message REGEXP ?");
+            f.args.push(Box::new(re.as_str().to_string()));
         }
         let (dynamic, args) = access_conditions(&q.access, None);
         f.dynamic = dynamic;
@@ -1023,6 +1101,7 @@ mod tests {
 
     fn mem() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
+        register_functions(&conn).unwrap();
         migrate(&conn).unwrap();
         conn
     }
@@ -1736,6 +1815,83 @@ mod tests {
         assert_eq!(c.before.len() + c.after.len(), 2);
         let c = context(&conn, id(3), 5, false, &wide).unwrap().unwrap();
         assert_eq!(c.before.len() + c.after.len(), 5);
+    }
+
+    #[test]
+    fn comparisons_and_regular_expressions_filter_in_sql_and_live() {
+        use crate::filters::{Expr, parse_expr};
+        let mut conn = mem();
+        let rows = [
+            ("a", "GET /x 200", Some("200"), Some("0.5s"), Some("web")),
+            ("a", "GET /y 503", Some("503"), Some("2.5"), Some("web")),
+            ("b", "GET /z 404", Some("404"), Some("10"), Some("db")),
+            ("b", "no fields here", None, None, None),
+            ("c", "GET /w 500", Some("500"), Some("1e1"), Some("cache")),
+        ];
+        let batch: Vec<LogEntry> = rows
+            .iter()
+            .enumerate()
+            .map(|(i, (host, msg, status, d, role))| {
+                let mut e = entry(i as i64 + 1, host, 6, msg);
+                for (k, v) in [("status", status), ("d", d), ("role", role)] {
+                    if let Some(v) = v {
+                        e.fields.insert(k.into(), v.to_string());
+                    }
+                }
+                e
+            })
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let with = |exprs: &[&str], re: Option<&str>| {
+            let mut query = q(100);
+            for x in exprs {
+                match parse_expr(x).unwrap() {
+                    Expr::Equals(k, v) => query.fields.push((k, v)),
+                    Expr::Compare(f) => query.compare.push(f),
+                }
+            }
+            query.message_re = re.map(|r| crate::filters::compile_regex(r).unwrap());
+            query
+        };
+        // The SQL result and the in-memory one (live tail) must agree.
+        let check = |query: Query, expect: &[i64]| {
+            let mut ts: Vec<i64> = search(&conn, &query)
+                .unwrap()
+                .iter()
+                .map(|r| r.ts)
+                .collect();
+            ts.sort();
+            assert_eq!(ts, expect);
+            let live: Vec<i64> = batch
+                .iter()
+                .filter(|e| query.matches(e))
+                .map(|e| e.ts)
+                .collect();
+            assert_eq!(live, expect, "live tail disagrees");
+        };
+        check(with(&["status>=500"], None), &[2, 5]);
+        check(with(&["status>500"], None), &[2]);
+        check(with(&["status<=404"], None), &[1, 3]);
+        check(with(&["status<300"], None), &[1]);
+        // A value that is not a number matches no ordering ("0.5s"), and "1e1" is ten.
+        check(with(&["d>=1"], None), &[2, 3, 5]);
+        check(with(&["d<1"], None), &[]);
+        // Entries without the field never match, `!=` included.
+        check(with(&["role!=web"], None), &[3, 5]);
+        check(with(&["role~^(db|cache)$"], None), &[3, 5]);
+        check(with(&["status>=400", "role:web"], None), &[2]);
+        check(with(&["status>=400", "status<=503"], None), &[2, 3, 5]);
+        check(with(&[], Some(r"GET /[xy] ")), &[1, 2]);
+        check(with(&[], Some("(?i)NO FIELDS")), &[4]);
+        check(with(&["status>=500"], Some("/w")), &[5]);
+        // Combined with free text, host and access limits.
+        let mut text = with(&["status>=400"], None);
+        text.text = Some("GET".into());
+        text.access = access(&["a", "c"], &[]);
+        check(text, &[2, 5]);
+        // Counting and grouping follow the same filters.
+        let top = top_values(&conn, &with(&["status>=500"], None), &GroupBy::Host, 10).unwrap();
+        assert_eq!((top.matching, top.distinct), (2, 2));
     }
 
     #[test]

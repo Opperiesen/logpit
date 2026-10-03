@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Search: `f=` accepts comparisons on structured fields (`status>=500`, `duration<2.5`, `act!=block`,
+  `src~^10\.`) and the new `re=` filters the message with a regular expression (linear-time engine, size
+  bounded). They work in every search endpoint, saved views, the live tail and the web UI, which gets a
+  *Regex on message* box.
+
 - The audit trail is now stored in the database (`http.audit_retention_days`, default 30, purged hourly),
   survives restarts and can be filtered on `/api/audit` with `since`, `until`, `token` and `refused`.
   `audit_retention_days = 0` keeps the previous in-memory behaviour.

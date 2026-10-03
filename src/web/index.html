@@ -91,7 +91,8 @@
   <input id="q" type="search" placeholder="Search messages…" autofocus title="Words must all match. Use OR between alternatives, -word or NOT word to exclude, &quot;a phrase&quot; for adjacent words, and prefix* for prefixes. Example: disk error OR timeout -debug">
   <input id="host" type="search" placeholder="Host" size="12">
   <input id="app" type="search" placeholder="App" size="12">
-  <input id="f" type="search" placeholder="field:value" size="14" title="Filter on a structured field, e.g. act:blocked">
+  <input id="f" type="search" placeholder="field:value" size="14" title="Filter on a structured field: act:blocked (exact), status>=500 (also &gt;, &lt;, &lt;=, numbers only), act!=block, src~^10\. (regular expression). The field must be present.">
+  <input id="re" type="search" placeholder="Regex on message" size="14" title="Keep messages matching a regular expression, e.g. timeout|refused or (?i)error [0-9]+. It scans the entries left by the other filters, so narrow the time range first.">
   <select id="level" title="Minimum severity">
     <option value="">All levels</option>
     <option value="3">Error and above</option>
@@ -324,7 +325,7 @@ async function startTail() {
 // Filters of the last search, so the chart keeps matching the table even if the inputs are
 // edited without searching. The time window slides with the clock (used by live refresh).
 let snap = null;
-const SNAP_KEYS = ['q', 'host', 'app', 'level', 'f'];
+const SNAP_KEYS = ['q', 'host', 'app', 'level', 'f', 're'];
 function takeSnapshot() {
   snap = { range: $('range').value };
   if (snap.range === 'custom' && zoomWindow) Object.assign(snap, zoomWindow);
@@ -545,7 +546,7 @@ function topParams(field) {
   if (field === 'host') p.delete('host');
   if (field === 'app') p.delete('app');
   const f = p.get('f');
-  if (f && f.split(':')[0] === field) p.delete('f');
+  if (f && f.match(/^[^:=!<>~]*/)[0] === field) p.delete('f');
   return p;
 }
 
@@ -912,7 +913,7 @@ async function load() {
   if (snap.range === 'custom') $('live').checked = false;
   syncUrl();
   const p = new URLSearchParams({ limit: String(PAGE_SIZE) });
-  for (const k of ['q', 'host', 'app', 'level', 'f']) if ($(k).value.trim()) p.set(k, $(k).value.trim());
+  for (const k of SNAP_KEYS) if ($(k).value.trim()) p.set(k, $(k).value.trim());
   applyWindow(p, snap);
   const headers = authHeaders();
   const token = $('token').value;
@@ -956,7 +957,7 @@ async function load() {
 
 $('go').onclick = load;
 $('token').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
-for (const id of ['q', 'host', 'app', 'f']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+for (const id of ['q', 'host', 'app', 'f', 're']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 $('level').onchange = load;
 $('range').onchange = () => { if ($('range').value !== 'custom') leaveZoom(); load(); };
 $('live').onchange = () => { if ($('live').checked) load(); else { stopTail(); load(); } };

@@ -580,13 +580,13 @@ fn parse_search(params: Vec<(String, String)>) -> Result<Query, String> {
             "limit" if !v.is_empty() => {
                 q.limit = num("limit", &v)?.clamp(1, MAX_LIMIT as i64) as usize
             }
-            "f" if !v.is_empty() => {
-                let (key, value) = v.split_once(':').ok_or("f must be key:value")?;
-                if !crate::store::valid_field_key(key) {
-                    return Err(format!("invalid field name {key:?}"));
-                }
-                q.fields.push((key.to_string(), value.to_string()));
-            }
+            // `key:value`, or a comparison or regular expression on a field (see `filters`).
+            "f" if !v.is_empty() => match crate::filters::parse_expr(&v)? {
+                crate::filters::Expr::Equals(key, value) => q.fields.push((key, value)),
+                crate::filters::Expr::Compare(f) => q.compare.push(f),
+            },
+            // A regular expression the message must match.
+            "re" if !v.is_empty() => q.message_re = Some(crate::filters::compile_regex(&v)?),
             _ => {}
         }
     }
@@ -809,8 +809,8 @@ async fn hosts(
 }
 
 /// Query-string keys a saved view may hold: what the web UI puts in its address bar.
-const VIEW_KEYS: [&str; 9] = [
-    "q", "host", "app", "level", "f", "range", "since", "until", "group",
+const VIEW_KEYS: [&str; 10] = [
+    "q", "host", "app", "level", "f", "re", "range", "since", "until", "group",
 ];
 const MAX_VIEW_NAME_CHARS: usize = 80;
 const MAX_VIEW_QUERY_BYTES: usize = 2000;
@@ -1625,6 +1625,38 @@ mod tests {
         assert!(parse_audit(p(&[("since", "x")])).is_err());
         assert!(parse_audit(p(&[("refused", "maybe")])).is_err());
         assert!(!parse_audit(p(&[("refused", "")])).unwrap().refused);
+    }
+
+    #[test]
+    fn field_comparisons_and_regex_params_parse() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let q = parse_search(p(&[
+            ("f", "act:block"),
+            ("f", "status>=500"),
+            ("f", "src~^10\\."),
+            ("re", "timeout|refused"),
+        ]))
+        .unwrap();
+        assert_eq!(q.fields, [("act".to_string(), "block".to_string())]);
+        assert_eq!(q.compare.len(), 2);
+        assert!(q.message_re.unwrap().is_match("connection refused"));
+        assert!(parse_search(p(&[("f", "status>=abc")])).is_err());
+        assert!(parse_search(p(&[("f", "novalue")])).is_err());
+        assert!(parse_search(p(&[("re", "(")])).is_err());
+        assert!(parse_search(p(&[("re", "")])).unwrap().message_re.is_none());
+        // The search page's own filters pass through the other endpoints' parsers too.
+        assert_eq!(
+            parse_top(p(&[("field", "host"), ("f", "d<2.5"), ("re", "x")]))
+                .unwrap()
+                .0
+                .compare
+                .len(),
+            1
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ pub mod auth;
 pub mod cef;
 pub mod config;
 pub mod export;
+pub mod filters;
 pub mod framing;
 pub mod gelf;
 pub mod health;
