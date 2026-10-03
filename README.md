@@ -894,11 +894,11 @@ Without a config file the defaults listen on loopback only.
 ## Limitations
 
 - RFC 3164 timestamps carry no year or zone, so reception time is used.
-- TCP syslog supports newline-delimited framing only (no octet counting).
-- Retention is age-based only; there is no size cap yet.
 - Entries stored before CEF support keep their raw message; only new ones are parsed.
-- Single node, no alerting, no multi-user accounts, no built-in TLS
-  (use a reverse proxy).
+- Single node, no user accounts (access is by token), and no built-in TLS for the HTTP port
+  (use a reverse proxy). Retention is by age and optionally by size; see
+  [Retention by severity](#retention-by-severity) and [Disk size cap](#disk-size-cap).
+- The audit trail is kept in memory only, and read restrictions are exact host and app names.
 
 ## Development
 
