@@ -3,3 +3,5 @@
 *.db-wal
 *.db-shm
 /logpit.toml
+/.impeccable/review/
+/.impeccable/questions/
