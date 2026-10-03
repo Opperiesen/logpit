@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- RFC 3164 syslog timestamps: `syslog.timezone` (`reception` by default, `utc`, `local` or a fixed offset
+  such as `+02:00`) reads the year-less, zone-less `Oct  3 14:00:00` stamp in the sender's zone, taking
+  the current year unless that is more than a day ahead. Impossible dates fall back to the arrival time;
+  applied by `SIGHUP`.
+
 ## 0.12.1 - 2026-10-03
 
 - Fix: shutdown no longer hangs while a syslog TCP connection, a live tail or any other HTTP

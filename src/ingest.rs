@@ -232,7 +232,7 @@ impl Sink {
 
     /// Parses a raw syslog message and enqueues it.
     pub fn push_syslog(&self, raw: &str, peer: &str) {
-        match syslog::parse(raw, peer, now_ms()) {
+        match syslog::parse_in(raw, peer, now_ms(), *self.settings.syslog_zone.get()) {
             Some(entry) => self.push(entry),
             None => Metrics::inc(&self.metrics.rejected, 1),
         }

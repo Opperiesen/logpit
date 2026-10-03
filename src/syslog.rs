@@ -3,9 +3,90 @@
 //! Parsing never fails on malformed input: anything that is not recognised is
 //! kept verbatim as the message, attributed to the sending peer.
 
-use chrono::DateTime;
+use chrono::{DateTime, Datelike, NaiveDate, TimeZone};
 
 use crate::model::LogEntry;
+
+/// How the timestamp of an RFC 3164 message, which has no year and no zone, is read.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Rfc3164Zone {
+    /// Ignore it and use the reception time (the default: always plausible, never skewed).
+    #[default]
+    Reception,
+    /// The clock of the sender is in UTC.
+    Utc,
+    /// The clock of the sender is in this machine's local zone, DST included (`TZ`, or the
+    /// system zone; a container without zone data is UTC).
+    Local,
+    /// The sender's clock is a fixed offset from UTC, in seconds east.
+    Fixed(i32),
+}
+
+impl Rfc3164Zone {
+    /// `reception`, `utc`, `local`, or an offset such as `+02:00`, `-0500` or `+1`.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let t = text.trim().to_ascii_lowercase();
+        match t.as_str() {
+            "" | "reception" => return Ok(Self::Reception),
+            "utc" | "z" => return Ok(Self::Utc),
+            "local" => return Ok(Self::Local),
+            _ => {}
+        }
+        let bad = || format!("{text:?} is not reception, utc, local or an offset like +02:00");
+        let sign = match t.chars().next() {
+            Some('+') => 1,
+            Some('-') => -1,
+            _ => return Err(bad()),
+        };
+        let digits: String = t[1..].chars().filter(|c| *c != ':').collect();
+        let (h, m) = match digits.len() {
+            1 | 2 => (digits.as_str(), "0"),
+            3 => (&digits[..1], &digits[1..]),
+            4 => (&digits[..2], &digits[2..]),
+            _ => return Err(bad()),
+        };
+        let (h, m): (i32, i32) = (h.parse().map_err(|_| bad())?, m.parse().map_err(|_| bad())?);
+        if h > 14 || m > 59 {
+            return Err(bad());
+        }
+        Ok(Self::Fixed(sign * (h * 3600 + m * 60)))
+    }
+
+    /// The Unix ms of a wall-clock time in this zone, `None` when it does not exist there (a DST
+    /// gap) or the zone is `Reception`.
+    fn to_ms(self, naive: chrono::NaiveDateTime) -> Option<i64> {
+        match self {
+            Self::Reception => None,
+            Self::Utc => Some(naive.and_utc().timestamp_millis()),
+            Self::Fixed(secs) => Some(naive.and_utc().timestamp_millis() - i64::from(secs) * 1000),
+            Self::Local => chrono::Local
+                .from_local_datetime(&naive)
+                .earliest()
+                .map(|t| t.timestamp_millis()),
+        }
+    }
+}
+
+/// Reads `Mmm dd hh:mm:ss` (as `has_3164_timestamp` recognised it) in `zone`. The year is the
+/// current one, or the previous one when that would put the message more than a day in the future
+/// (a message from late December read in early January).
+fn timestamp_3164(s: &str, zone: Rfc3164Zone, now_ms: i64) -> Option<i64> {
+    let b = s.as_bytes();
+    let month = MONTHS.iter().position(|m| &b[..3] == *m)? as u32 + 1;
+    let num = |range: std::ops::Range<usize>| -> Option<u32> {
+        std::str::from_utf8(&b[range]).ok()?.trim().parse().ok()
+    };
+    let (day, hour, min, sec) = (num(4..6)?, num(7..9)?, num(10..12)?, num(13..15)?);
+    let now_year = chrono::DateTime::from_timestamp_millis(now_ms)?.year();
+    let at = |year: i32| {
+        let naive = NaiveDate::from_ymd_opt(year, month, day)?.and_hms_opt(hour, min, sec)?;
+        zone.to_ms(naive)
+    };
+    match at(now_year) {
+        Some(ts) if ts > now_ms + 86_400_000 => at(now_year - 1).or(Some(ts)),
+        other => other,
+    }
+}
 
 const DEFAULT_SEVERITY: u8 = 6;
 const MONTHS: [&[u8; 3]; 12] = [
@@ -16,8 +97,13 @@ const MONTHS: [&[u8; 3]; 12] = [
 ///
 /// `peer` is used as host when the message does not carry one; `now_ms` is used
 /// when the message has no usable timestamp (RFC 3164 timestamps carry no year
-/// or zone, so the reception time is used instead).
+/// or zone, so the reception time is used instead unless a zone is given to [`parse_in`]).
 pub fn parse(raw: &str, peer: &str, now_ms: i64) -> Option<LogEntry> {
+    parse_in(raw, peer, now_ms, Rfc3164Zone::Reception)
+}
+
+/// Like [`parse`], reading the timestamps of RFC 3164 messages in `zone`.
+pub fn parse_in(raw: &str, peer: &str, now_ms: i64, zone: Rfc3164Zone) -> Option<LogEntry> {
     let s = raw.trim_end_matches(['\n', '\r', '\0']);
     let (severity, rest) = parse_pri(s);
 
@@ -25,7 +111,7 @@ pub fn parse(raw: &str, peer: &str, now_ms: i64) -> Option<LogEntry> {
         Some(body) => parse_5424(body, severity, peer, now_ms),
         None => None,
     }
-    .or_else(|| parse_3164(rest, severity, peer, now_ms))?;
+    .or_else(|| parse_3164(rest, severity, peer, now_ms, zone))?;
 
     (!entry.message.is_empty()).then_some(entry)
 }
@@ -121,7 +207,18 @@ fn has_3164_timestamp(s: &str) -> bool {
         && b[15] == b' '
 }
 
-fn parse_3164(s: &str, severity: u8, peer: &str, now_ms: i64) -> Option<LogEntry> {
+fn parse_3164(
+    s: &str,
+    severity: u8,
+    peer: &str,
+    now_ms: i64,
+    zone: Rfc3164Zone,
+) -> Option<LogEntry> {
+    let ts = if has_3164_timestamp(s) {
+        timestamp_3164(s, zone, now_ms).unwrap_or(now_ms)
+    } else {
+        now_ms
+    };
     let (host, body) = if has_3164_timestamp(s) {
         let after = &s[16..];
         match after.split_once(' ') {
@@ -142,7 +239,7 @@ fn parse_3164(s: &str, severity: u8, peer: &str, now_ms: i64) -> Option<LogEntry
     };
 
     Some(LogEntry {
-        ts: now_ms,
+        ts,
         host,
         app,
         severity,
@@ -185,6 +282,128 @@ mod tests {
             (NOW, "10.1.1.1", "")
         );
         assert_eq!(e.message, "hello");
+    }
+
+    // 2026-10-03T12:00:00Z
+    const OCT3: i64 = 1_791_028_800_000;
+
+    fn ts(raw: &str, now: i64, zone: Rfc3164Zone) -> i64 {
+        parse_in(raw, "p", now, zone).unwrap().ts
+    }
+
+    #[test]
+    fn rfc3164_timestamps_are_read_in_the_configured_zone() {
+        let raw = "<13>Oct  3 14:00:00 pve sshd[1]: hi";
+        // The default ignores the stamp.
+        assert_eq!(ts(raw, OCT3, Rfc3164Zone::Reception), OCT3);
+        assert_eq!(parse(raw, "p", OCT3).unwrap().ts, OCT3);
+        assert_eq!(ts(raw, OCT3, Rfc3164Zone::Utc), OCT3 + 2 * 3_600_000);
+        assert_eq!(ts(raw, OCT3, Rfc3164Zone::Fixed(2 * 3600)), OCT3);
+        assert_eq!(
+            ts(raw, OCT3, Rfc3164Zone::Fixed(-5 * 3600 - 1800)),
+            OCT3 + 7 * 3_600_000 + 1_800_000
+        );
+        // `local` is whatever the machine's zone says; compare with chrono's own conversion.
+        let naive = NaiveDate::from_ymd_opt(2026, 10, 3)
+            .unwrap()
+            .and_hms_opt(14, 0, 0)
+            .unwrap();
+        let expected = chrono::Local
+            .from_local_datetime(&naive)
+            .earliest()
+            .unwrap()
+            .timestamp_millis();
+        assert_eq!(ts(raw, OCT3, Rfc3164Zone::Local), expected);
+        // Host, app and message are unaffected.
+        let e = parse_in(raw, "p", OCT3, Rfc3164Zone::Utc).unwrap();
+        assert_eq!(
+            (e.host.as_str(), e.app.as_str(), e.message.as_str()),
+            ("pve", "sshd", "hi")
+        );
+        // RFC 5424 keeps its own zone-aware time, and so do messages without a stamp.
+        assert_eq!(
+            ts(
+                "<14>1 2003-10-11T22:14:15.003Z h a - - - m",
+                OCT3,
+                Rfc3164Zone::Fixed(3600)
+            ),
+            1_065_910_455_003
+        );
+        assert_eq!(ts("<13>no stamp here", OCT3, Rfc3164Zone::Utc), OCT3);
+    }
+
+    #[test]
+    fn the_year_is_the_current_one_unless_that_is_in_the_future() {
+        let utc = Rfc3164Zone::Utc;
+        // Early January, a message from the last day of December: last year.
+        let jan2 = 1_767_312_000_000; // 2026-01-02T00:00:00Z
+        assert_eq!(
+            ts("<13>Dec 31 23:59:00 h a: m", jan2, utc),
+            1_767_225_540_000
+        ); // 2025-12-31T23:59:00Z
+        // A little clock skew ahead (under a day) stays in the current year.
+        assert_eq!(
+            ts("<13>Oct  4 11:00:00 h a: m", OCT3, utc),
+            OCT3 + 23 * 3_600_000
+        );
+        // More than a day ahead is last year's.
+        assert_eq!(
+            ts("<13>Oct  5 12:00:00 h a: m", OCT3, utc),
+            1_759_665_600_000
+        ); // 2025-10-05T12:00:00Z
+        // Earlier in the year is simply this year.
+        assert_eq!(
+            ts("<13>Jan  1 00:00:00 h a: m", OCT3, utc),
+            1_767_225_600_000
+        );
+    }
+
+    #[test]
+    fn impossible_dates_fall_back_to_the_reception_time() {
+        let utc = Rfc3164Zone::Utc;
+        for raw in [
+            "<13>Feb 30 12:00:00 h a: m",
+            "<13>Feb 29 12:00:00 h a: m", // 2026 is not a leap year
+            "<13>Oct 32 12:00:00 h a: m",
+            "<13>Oct  3 25:00:00 h a: m",
+            "<13>Oct  3 12:61:00 h a: m",
+        ] {
+            assert_eq!(ts(raw, OCT3, utc), OCT3, "{raw}");
+        }
+        // 2028 is: a leap day parses.
+        let in_2028 = 1_835_000_000_000; // 2028-02-29T09:... well inside 2028
+        assert_ne!(ts("<13>Feb 29 12:00:00 h a: m", in_2028, utc), in_2028);
+    }
+
+    #[test]
+    fn zone_settings_parse() {
+        for (text, zone) in [
+            ("reception", Rfc3164Zone::Reception),
+            ("", Rfc3164Zone::Reception),
+            ("UTC", Rfc3164Zone::Utc),
+            ("z", Rfc3164Zone::Utc),
+            ("Local", Rfc3164Zone::Local),
+            ("+02:00", Rfc3164Zone::Fixed(7200)),
+            ("+0200", Rfc3164Zone::Fixed(7200)),
+            ("+2", Rfc3164Zone::Fixed(7200)),
+            ("-05:30", Rfc3164Zone::Fixed(-19_800)),
+            ("-530", Rfc3164Zone::Fixed(-19_800)),
+            ("+14", Rfc3164Zone::Fixed(14 * 3600)),
+        ] {
+            assert_eq!(Rfc3164Zone::parse(text), Ok(zone), "{text:?}");
+        }
+        for bad in [
+            "Europe/Paris",
+            "02:00",
+            "+15:00",
+            "+02:60",
+            "+",
+            "+12345",
+            "gmt+1",
+            "+a",
+        ] {
+            assert!(Rfc3164Zone::parse(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

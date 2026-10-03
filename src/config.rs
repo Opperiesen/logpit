@@ -71,6 +71,9 @@ pub struct SyslogConfig {
     pub tls_key: Option<PathBuf>,
     /// PEM file of CAs: when set, clients must present a certificate issued by one of them.
     pub tls_client_ca: Option<PathBuf>,
+    /// How RFC 3164 timestamps (`Oct  3 12:00:00`, no year, no zone) are read: `reception` (use
+    /// the time the message arrived, the default), `utc`, `local`, or a fixed offset like `+02:00`.
+    pub timezone: String,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -224,6 +227,7 @@ impl Default for SyslogConfig {
             tls_cert: None,
             tls_key: None,
             tls_client_ca: None,
+            timezone: "reception".into(),
         }
     }
 }
@@ -324,6 +328,9 @@ impl Config {
                 "0" | "false" | "no" | "off" => false,
                 _ => bail!("invalid LOGPIT_VOLUME_ALERTS {v:?} (use true or false)"),
             };
+        }
+        if let Some(v) = get("LOGPIT_SYSLOG_TIMEZONE") {
+            self.syslog.timezone = v.trim().to_string();
         }
         if let Some(v) = get("LOGPIT_PARSE_STRUCTURED") {
             self.ingest.parse_structured = match v.trim().to_ascii_lowercase().as_str() {
@@ -502,6 +509,8 @@ impl Config {
         crate::logmetrics::LogMetrics::from_config(&self.metrics, &tags)?;
         crate::parsers::Parsers::from_config(&self.parsers)?;
         crate::forward::validate(&self.forward)?;
+        crate::syslog::Rfc3164Zone::parse(&self.syslog.timezone)
+            .map_err(|e| anyhow::anyhow!("syslog.timezone: {e}"))?;
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
             bail!("syslog.tls_listen needs syslog.tls_cert and syslog.tls_key");
@@ -953,6 +962,27 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn syslog_timezone_config() {
+        assert_eq!(Config::parse("").unwrap().syslog.timezone, "reception");
+        for ok in ["utc", "local", "+02:00", "-0530", "reception"] {
+            assert!(
+                Config::parse(&format!("[syslog]\ntimezone = \"{ok}\"")).is_ok(),
+                "{ok}"
+            );
+        }
+        for bad in ["Europe/Paris", "+25:00", "gmt"] {
+            assert!(
+                Config::parse(&format!("[syslog]\ntimezone = \"{bad}\"")).is_err(),
+                "{bad}"
+            );
+        }
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[("LOGPIT_SYSLOG_TIMEZONE", " +01:00 ")]))
+            .unwrap();
+        assert_eq!(cfg.syslog.timezone, "+01:00");
     }
 
     #[test]

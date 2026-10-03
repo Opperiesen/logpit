@@ -95,6 +95,7 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_SYSLOG_UDP_LISTEN` | `0.0.0.0:5514` | Empty string disables UDP syslog |
 | `LOGPIT_SYSLOG_TCP_LISTEN` | `0.0.0.0:5514` | Empty string disables TCP syslog |
 | `LOGPIT_GELF_UDP_LISTEN`, `LOGPIT_GELF_TCP_LISTEN` | *(off)* | GELF listeners, e.g. `0.0.0.0:12201` (see [Loki and GELF](#loki-and-gelf)) |
+| `LOGPIT_SYSLOG_TIMEZONE` | `reception` | How RFC 3164 timestamps are read: `reception`, `utc`, `local` or an offset like `+02:00` (see [RFC 3164 timestamps](#rfc-3164-timestamps)) |
 | `LOGPIT_SYSLOG_TLS_LISTEN` | *(off)* | Address of the syslog-over-TLS listener, e.g. `0.0.0.0:6514`; needs the next two |
 | `LOGPIT_SYSLOG_TLS_CERT`, `LOGPIT_SYSLOG_TLS_KEY` | | PEM certificate chain and private key for the TLS listener |
 | `LOGPIT_SYSLOG_TLS_CLIENT_CA` | | PEM CA file: clients must then present a certificate issued by it |
@@ -310,6 +311,32 @@ octet counting (`<length> <message>`, which RFC 5425 requires) and newline-delim
 TCP syslog understands both too. Failed handshakes are counted in
 `logpit_tls_handshake_failures_total`. Certificates are read at startup, so replacing them
 means restarting LogPit; a bad path or key stops it immediately with an explanation.
+
+### RFC 3164 timestamps
+
+Old-style (BSD) syslog messages carry `Oct  3 14:00:00`: no year and no time zone. By default LogPit
+ignores it and stamps the entry with the time it **arrived**, which is always plausible (and the right
+answer when the sender and LogPit are in the same room). When the delay matters (a device that buffers
+and replays, or logs that arrive in bursts) or the entries come from several time zones, tell LogPit
+how to read the sender's clock:
+
+```toml
+[syslog]
+timezone = "+02:00"     # or: reception (default), utc, local; env LOGPIT_SYSLOG_TIMEZONE
+```
+
+- **`utc`** and **a fixed offset** (`+02:00`, `-0530`, `+2`) read the stamp as wall-clock time in that
+  zone. **`local`** uses this machine's own zone, DST included, from `TZ` or the system (a minimal
+  container has no zone data and then means UTC; set `TZ` and mount `/usr/share/zoneinfo`, or use an
+  offset). Names such as `Europe/Paris` are not accepted: LogPit carries no zone database.
+- **The year** is the current one, or the previous one when that would make the message more than a
+  day later than now (a message stamped `Dec 31` read in early January). A stamp that cannot exist
+  (`Feb 30`, or `Feb 29` in a year that is not a leap year, a DST gap) falls back to the arrival time.
+- It only concerns RFC 3164 messages. RFC 5424 messages carry their own zone-aware time and are read
+  as before, and a message with no stamp keeps the arrival time. The setting applies to every syslog
+  listener (UDP, TCP, TLS) and to the next messages after a reload.
+- A sender with a wrong clock now writes wrong times into your history, and an entry older than the
+  retention period is purged at the next pass: that is why `reception` is the default.
 
 Other sources:
 
@@ -1351,7 +1378,7 @@ podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
 kill -HUP "$(pidof logpit)"
 ```
 
-**Applied by a reload**: `[volume]`, `[[ingest.rules]]`, `[[parsers]]`, `[[tags]]` (and the tokens that use them), `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
+**Applied by a reload**: `[volume]`, `syslog.timezone`, `[[ingest.rules]]`, `[[parsers]]`, `[[tags]]` (and the tokens that use them), `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
 `ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
 (`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
 key and client CA files. The last two are read again on every reload, so renewing a certificate or
@@ -1393,12 +1420,13 @@ Without a config file the defaults listen on loopback only.
 
 ## Limitations
 
-- RFC 3164 timestamps carry no year or zone, so reception time is used.
+- RFC 3164 timestamps carry no year or zone, so reception time is used unless `syslog.timezone` says how
+  to read them (see [RFC 3164 timestamps](#rfc-3164-timestamps)); named time zones are not supported.
 - Entries stored before CEF support keep their raw message; only new ones are parsed.
 - Single node, no user accounts (access is by token), and no built-in TLS for the HTTP port
   (use a reverse proxy). Retention is by age and optionally by size; see
   [Retention by severity](#retention-by-severity) and [Disk size cap](#disk-size-cap).
-- Read restrictions are exact host and app names, not patterns.
+- Read restrictions take host names or patterns (`*`, `?`) and tags, but apps are exact names.
 
 ## Development
 

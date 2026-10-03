@@ -99,6 +99,8 @@ pub struct LiveSettings {
     pub dedup: Dedup,
     /// Per-host volume watch; settings are swapped in place so baselines survive a reload.
     pub volume: crate::volume::VolumeWatch,
+    /// How RFC 3164 syslog timestamps are read.
+    pub syslog_zone: Reloadable<crate::syslog::Rfc3164Zone>,
     /// The acceptor of the syslog TLS listener, when it is enabled.
     pub tls: Option<Arc<Reloadable<TlsAcceptor>>>,
 }
@@ -141,6 +143,7 @@ impl LiveSettings {
             watch: PatternWatch::new(&cfg.new_patterns, crate::ingest::now_ms())?,
             dedup: Dedup::new(&cfg.ingest.dedup),
             volume: crate::volume::VolumeWatch::new(&cfg.volume),
+            syslog_zone: Reloadable::new(zone_of(cfg)?),
             tls: tls_acceptor(cfg)?.map(|a| Arc::new(Reloadable::new(a))),
         })
     }
@@ -224,6 +227,9 @@ impl LiveSettings {
         let tags = (old.tags != new.tags)
             .then(|| crate::tags::Tags::from_config(&new.tags).map(Arc::new))
             .transpose()?;
+        let zone = (old.syslog.timezone != new.syslog.timezone)
+            .then(|| zone_of(new).map(Arc::new))
+            .transpose()?;
         // Checked here so a bad value fails the reload before anything is applied.
         new.new_patterns.validate()?;
         new.ingest.dedup.validate()?;
@@ -263,6 +269,10 @@ impl LiveSettings {
             self.silence.set(silence);
             report.applied.push("silence alerts and webhook");
         }
+        if let Some(zone) = zone {
+            self.syslog_zone.set(zone);
+            report.applied.push("syslog timezone");
+        }
         if old.volume != new.volume {
             self.volume.reconfigure(&new.volume);
             report.applied.push("volume alerts");
@@ -287,6 +297,11 @@ impl LiveSettings {
         }
         Ok(report)
     }
+}
+
+fn zone_of(cfg: &Config) -> anyhow::Result<crate::syslog::Rfc3164Zone> {
+    crate::syslog::Rfc3164Zone::parse(&cfg.syslog.timezone)
+        .map_err(|e| anyhow::anyhow!("syslog.timezone: {e}"))
 }
 
 fn tls_configured(cfg: &Config) -> bool {
@@ -590,6 +605,22 @@ mod tests {
         let mut bad = new.clone();
         bad.volume.window_secs = 1;
         assert!(live.reload(&new, &bad).is_err());
+    }
+
+    #[test]
+    fn the_syslog_timezone_follows_a_reload() {
+        use crate::syslog::Rfc3164Zone;
+        let old = cfg("");
+        let live = LiveSettings::from_config(&old).unwrap();
+        assert_eq!(*live.syslog_zone.get(), Rfc3164Zone::Reception);
+        let new = cfg("[syslog]\ntimezone = \"+02:00\"");
+        let report = live.reload(&old, &new).unwrap();
+        assert_eq!(report.applied, ["syslog timezone"]);
+        assert_eq!(*live.syslog_zone.get(), Rfc3164Zone::Fixed(7200));
+        let mut bad = new.clone();
+        bad.syslog.timezone = "Mars/Olympus".into();
+        assert!(live.reload(&new, &bad).is_err());
+        assert_eq!(*live.syslog_zone.get(), Rfc3164Zone::Fixed(7200));
     }
 
     #[test]
