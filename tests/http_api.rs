@@ -899,3 +899,69 @@ async fn a_token_over_its_quota_gets_429_until_the_budget_is_back() {
         .unwrap();
     assert_eq!(capped["events_per_day"], 3);
 }
+
+#[tokio::test]
+async fn maintenance_windows_are_managed_by_admins() {
+    let cfg = format!(
+        "{TOKENS}\n[[maintenance]]\nhosts = [\"db*\"]\nreason = \"nightly\"\nbetween = \"02:00-04:00\"\ndays = [\"sun\"]\n"
+    );
+    let s = start(&cfg).await;
+    let send = |method: &'static str, path: String, token: &'static str, body: String| {
+        let addr = s.addr;
+        async move { call(addr, method, &path, Some(&bearer(token)), body.as_bytes()).await }
+    };
+    let make = |body: &str| send("POST", "/api/maintenance".into(), ADMIN, body.into());
+    // Only admins manage windows.
+    for token in [READER, WRITER] {
+        let r = send("GET", "/api/maintenance".into(), token, String::new()).await;
+        assert_eq!(r.status, 403, "{token}");
+        let r = send("POST", "/api/maintenance".into(), token, "{}".into()).await;
+        assert_eq!(r.status, 403, "{token}");
+    }
+    let created = make(r#"{"hosts":["web*"],"minutes":30,"reason":"deploy"}"#).await;
+    assert_eq!(created.status, 201, "{}", created.body);
+    let window = created.json();
+    assert_eq!(
+        (window["source"].as_str(), window["active"].as_bool()),
+        (Some("api"), Some(true))
+    );
+    let id = window["id"].as_u64().unwrap();
+    for bad in [
+        r#"{"hosts":[],"minutes":30}"#,
+        r#"{"hosts":["a"],"minutes":0}"#,
+        r#"{"hosts":["a"],"minutes":999999}"#,
+        r#"{"hosts":["a"],"minutes":5,"extra":1}"#,
+        "not json",
+    ] {
+        assert!(make(bad).await.status >= 400, "{bad}");
+    }
+    let listed = send("GET", "/api/maintenance".into(), ADMIN, String::new())
+        .await
+        .json();
+    let listed = listed.as_array().unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0]["source"], "config");
+    assert_eq!(listed[0]["between"], "02:00-04:00");
+    assert_eq!(listed[0]["days"], serde_json::json!(["sun"]));
+    assert_eq!(listed[1]["id"].as_u64(), Some(id));
+    let gone = send(
+        "DELETE",
+        format!("/api/maintenance/{id}"),
+        ADMIN,
+        String::new(),
+    )
+    .await;
+    assert_eq!(gone.status, 204);
+    let again = send(
+        "DELETE",
+        format!("/api/maintenance/{id}"),
+        ADMIN,
+        String::new(),
+    )
+    .await;
+    assert_eq!(again.status, 404);
+    let listed = send("GET", "/api/maintenance".into(), ADMIN, String::new())
+        .await
+        .json();
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+}

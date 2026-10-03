@@ -49,6 +49,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Forwarding**: `[[forward]]` sends a filtered copy of the entries to another LogPit, a collector or a SIEM,
   over HTTP (NDJSON) or syslog (RFC 5424, UDP or TCP).
 - **Ingestion quotas**: per-token limits on events per second and per day, answered `429` beyond them.
+- **Maintenance windows**: hold the notifications about some hosts back during planned work, from the
+  configuration or the API.
 - **Retention rules**: `[[retention]]` keeps entries of some hosts, apps or severities for a different time.
 - **Cold archive**: entries leaving through retention or the size cap are first written to daily gzip files,
   readable with `zcat` and reloadable with `logpit restore`.
@@ -173,7 +175,7 @@ Hosts panel only cover what the token may read. `GET /api/stats` still starts at
 whole database when `since` is absent. Restrictions are exact names, not patterns, and are reloaded
 by `SIGHUP` with the tokens.
 
-The `admin` scope opens two endpoints:
+The `admin` scope opens the audit and token lists below, and the [maintenance windows](#maintenance-windows) API:
 
 ```sh
 curl -s -H "Authorization: Bearer $ADMIN" 'http://localhost:8080/api/audit?limit=50&refused=true'
@@ -1252,6 +1254,45 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/alerts?kind
 - **Web UI.** The collapsible *Alerts* panel lists the latest 50 with their age, kind, host (click to
   filter) and whether the webhook took them; it does not depend on the search filters or time range.
 
+### Maintenance windows
+
+During planned work a host going quiet or noisy is expected. A window holds back the notifications about
+the hosts it covers (silence and recovery, pattern alerts, new patterns and surges, volume alerts): they
+reach neither the webhook nor the e-mail, but are still written to the log and recorded in the
+[alert history](#alert-history), with `"muted"` and the window's reason in `details`.
+
+```toml
+[[maintenance]]
+hosts = ["web*", "db1"]          # names or patterns; tags = ["prod"] adds the hosts of [[tags]]
+reason = "kernel upgrade"        # shown in the alert history
+from = "2026-10-05T02:00:00Z"    # a one-off period, RFC 3339 …
+until = "2026-10-05T04:00:00Z"
+
+[[maintenance]]
+hosts = ["nas"]
+between = "02:00-04:30"          # … or a time of day in UTC, every day
+days = ["sun"]                   # or only on these days (mon … sun); an end before the start runs past midnight
+```
+
+A window needs `hosts` or `tags` (`"*"` for every host), and either `from` and `until` or `between`.
+Alerts that name no host (a pattern alert without one) are never muted. The alert is muted when it is
+raised, so a host that went silent during a window and is still silent afterwards is not announced again
+when the window ends; its `logpit_host_silent` gauge stays accurate throughout. `SIGHUP` applies the
+windows.
+
+Windows can also be started on the fly with the `admin` scope; they live in memory until they end or
+LogPit restarts:
+
+```sh
+curl -s -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/maintenance \
+  -d '{"hosts":["web*"],"minutes":60,"reason":"deploy"}'     # 201 {"id":1,"source":"api","active":true,…}
+curl -s -H "Authorization: Bearer $ADMIN" http://localhost:8080/api/maintenance     # configured and API windows
+curl -s -H "Authorization: Bearer $ADMIN" -X DELETE http://localhost:8080/api/maintenance/1   # 204
+```
+
+`minutes` is 1 to 10080 (a week) and at most 100 such windows exist at once.
+
 ## Pattern alerts
 
 Silence alerts watch for logs that stop; pattern alerts watch for logs that pile up, such as five
@@ -1635,7 +1676,7 @@ podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
 kill -HUP "$(pidof logpit)"
 ```
 
-**Applied by a reload**: `[volume]`, `syslog.timezone`, the HTTPS certificates, `[[ingest.rules]]`, `[[parsers]]`, `[[tags]]` (and the tokens that use them), `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
+**Applied by a reload**: `[volume]`, `[[maintenance]]`, `syslog.timezone`, the HTTPS certificates, `[[ingest.rules]]`, `[[parsers]]`, `[[tags]]` (and the tokens that use them), `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
 `ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
 (`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
 key and client CA files. The last two are read again on every reload, so renewing a certificate or

@@ -112,6 +112,14 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
     let admin = Router::new()
         .route("/api/audit", get(audit_trail))
         .route("/api/tokens", get(token_list))
+        .route(
+            "/api/maintenance",
+            get(maintenance_list).post(maintenance_add),
+        )
+        .route(
+            "/api/maintenance/{id}",
+            axum::routing::delete(maintenance_remove),
+        )
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Admin),
             require_scope,
@@ -378,6 +386,46 @@ async fn token_list(State(state): State<AppState>) -> Response {
         })
         .collect();
     Json(tokens).into_response()
+}
+
+/// The maintenance windows, those of the configuration and those created here.
+async fn maintenance_list(State(state): State<AppState>) -> Response {
+    Json(state.settings.maintenance.list(now_ms())).into_response()
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MaintenanceInput {
+    hosts: Vec<String>,
+    minutes: u32,
+    #[serde(default)]
+    reason: String,
+}
+
+/// Starts a window: `{"hosts": ["web*"], "minutes": 60, "reason": "kernel upgrade"}`.
+async fn maintenance_add(
+    State(state): State<AppState>,
+    Json(input): Json<MaintenanceInput>,
+) -> Response {
+    match state
+        .settings
+        .maintenance
+        .add(input.hosts, input.minutes, input.reason, now_ms())
+    {
+        Ok((_, info)) => (StatusCode::CREATED, Json(info)).into_response(),
+        Err(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
+    }
+}
+
+async fn maintenance_remove(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<u64>,
+) -> Response {
+    if state.settings.maintenance.remove(id) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        (StatusCode::NOT_FOUND, "no such window").into_response()
+    }
 }
 
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {

@@ -112,6 +112,19 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # min_baseline = 20
 # cooldown_secs = 3600
 
+# Hold the notifications about some hosts back during planned work (they are still recorded in the
+# alert history as muted). `/api/maintenance` starts windows on the fly.
+# [[maintenance]]
+# hosts = ["web*"]
+# reason = "kernel upgrade"
+# from = "2026-10-05T02:00:00Z"
+# until = "2026-10-05T04:00:00Z"
+#
+# [[maintenance]]
+# hosts = ["nas"]
+# between = "02:00-04:30"     # UTC, every day or only on `days`
+# days = ["sun"]
+
 # Host tags: names for sets of hosts (exact names or * and ? patterns), usable as `tag=` filters,
 # metric labels and token restrictions.
 # [[tags]]

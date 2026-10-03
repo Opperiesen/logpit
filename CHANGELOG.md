@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Maintenance windows (`[[maintenance]]`, `/api/maintenance`): notifications about the hosts a one-off or
+  recurring (daily or weekly, UTC) window covers are held back from the webhook and e-mail, and recorded
+  in the alert history as muted. Windows can also be started and ended through the admin API.
+
 - Ingestion quotas per token (`events_per_sec`, `events_per_day` in `[[http.tokens]]`): a write token over
   its budget gets `429` with `Retry-After`; `logpit_quota_rejected_total{token}` counts the refusals.
 

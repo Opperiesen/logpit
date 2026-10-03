@@ -151,6 +151,18 @@ pub fn dispatch(event: Event, live: &Arc<LiveSettings>, log: &Arc<AlertLog>) {
         Event::Silent { .. } => tracing::warn!("silence alert: {message}"),
         _ => tracing::warn!("{message}"),
     }
+    // A host under maintenance still gets its alert logged and recorded, but nobody is told.
+    let muted = event.payload()["host"]
+        .as_str()
+        .and_then(|host| live.maintenance.muting(host, ts));
+    if let Some(reason) = muted {
+        tracing::info!("muted by maintenance ({reason}): {message}");
+        let mut entry = AlertEntry::from_event(&event, ts, None);
+        entry.details["muted"] = Value::String(reason);
+        let log = log.clone();
+        tokio::spawn(async move { log.record(entry).await });
+        return;
+    }
     let settings = live.silence.get();
     let (hook, mailer) = (settings.webhook.clone(), settings.email.clone());
     let log = log.clone();
@@ -280,6 +292,51 @@ mod tests {
         assert_eq!(q(&|q| q.since_ms = Some(210)).len(), 10);
         assert_eq!(q(&|q| q.until_ms = Some(30)).len(), 11);
         assert_eq!(q(&|q| q.limit = 3).len(), 3);
+    }
+
+    #[tokio::test]
+    async fn alerts_for_hosts_under_maintenance_are_recorded_but_muted() {
+        let live = Arc::new(
+            LiveSettings::from_config(
+                &crate::config::Config::parse(
+                    "[[maintenance]]\nhosts = [\"web*\"]\nreason = \"upgrade\"\n\
+                     from = \"2020-01-01T00:00:00Z\"\nuntil = \"2100-01-01T00:00:00Z\"",
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+        let log = Arc::new(AlertLog::new(None, 30));
+        let silent = |host: &str| Event::Silent {
+            host: host.into(),
+            silent_for_ms: 125_000,
+            threshold_ms: 120_000,
+        };
+        dispatch(silent("web1"), &live, &log);
+        dispatch(silent("db1"), &live, &log);
+        let q = AlertQuery {
+            limit: 10,
+            ..Default::default()
+        };
+        for _ in 0..100 {
+            if log.search_memory(&q).len() == 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let entries = log.search_memory(&q);
+        assert_eq!(entries.len(), 2);
+        let muted = entries
+            .iter()
+            .find(|e| e.host.as_deref() == Some("web1"))
+            .unwrap();
+        assert_eq!(muted.details["muted"], "upgrade");
+        assert_eq!(muted.delivered, None);
+        let other = entries
+            .iter()
+            .find(|e| e.host.as_deref() == Some("db1"))
+            .unwrap();
+        assert!(other.details.get("muted").is_none());
     }
 
     #[tokio::test]

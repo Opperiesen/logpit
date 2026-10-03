@@ -106,6 +106,8 @@ pub struct LiveSettings {
     pub dedup: Dedup,
     /// Per-host volume watch; settings are swapped in place so baselines survive a reload.
     pub volume: crate::volume::VolumeWatch,
+    /// Maintenance windows that hold notifications back.
+    pub maintenance: crate::maintenance::Maintenance,
     /// How RFC 3164 syslog timestamps are read.
     pub syslog_zone: Reloadable<crate::syslog::Rfc3164Zone>,
     /// The acceptor of the syslog TLS listener, when it is enabled.
@@ -163,6 +165,12 @@ impl LiveSettings {
             watch: PatternWatch::new(&cfg.new_patterns, crate::ingest::now_ms())?,
             dedup: Dedup::new(&cfg.ingest.dedup),
             volume: crate::volume::VolumeWatch::new(&cfg.volume),
+            maintenance: crate::maintenance::Maintenance::new(
+                crate::maintenance::Maintenance::windows(
+                    &cfg.maintenance,
+                    &crate::tags::Tags::from_config(&cfg.tags)?,
+                )?,
+            ),
             syslog_zone: Reloadable::new(zone_of(cfg)?),
             tls: tls_acceptor(cfg)?.map(|a| Arc::new(Reloadable::new(a))),
             http_tls: http_tls_acceptor(cfg)?.map(|a| Arc::new(Reloadable::new(a))),
@@ -272,6 +280,12 @@ impl LiveSettings {
         let zone = (old.syslog.timezone != new.syslog.timezone)
             .then(|| zone_of(new).map(Arc::new))
             .transpose()?;
+        let maintenance = (old.maintenance != new.maintenance || old.tags != new.tags)
+            .then(|| {
+                let tags = crate::tags::Tags::from_config(&new.tags)?;
+                crate::maintenance::Maintenance::windows(&new.maintenance, &tags)
+            })
+            .transpose()?;
         // Checked here so a bad value fails the reload before anything is applied.
         new.new_patterns.validate()?;
         new.ingest.dedup.validate()?;
@@ -310,6 +324,10 @@ impl LiveSettings {
         if let Some(silence) = silence {
             self.silence.set(silence);
             report.applied.push("silence alerts and webhook");
+        }
+        if let Some(windows) = maintenance {
+            self.maintenance.reconfigure(windows);
+            report.applied.push("maintenance windows");
         }
         if let Some(zone) = zone {
             self.syslog_zone.set(zone);

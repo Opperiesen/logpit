@@ -28,6 +28,8 @@ pub struct Config {
     pub retention: Vec<RetentionRule>,
     /// Names for sets of hosts (`[[tags]]`), to filter on and to restrict tokens with.
     pub tags: Vec<crate::tags::TagConfig>,
+    /// Periods when the notifications about some hosts are held back (`[[maintenance]]`).
+    pub maintenance: Vec<crate::maintenance::MaintenanceConfig>,
     /// Notifications for hosts sending far more or far fewer logs than usual (`[volume]`).
     pub volume: crate::volume::VolumeConfig,
     /// Scheduled backups of the database (`[backup]`).
@@ -627,6 +629,7 @@ impl Config {
         self.backup.validate()?;
         self.email.validate()?;
         let tags = crate::tags::Tags::from_config(&self.tags)?;
+        crate::maintenance::Maintenance::windows(&self.maintenance, &tags)?;
         crate::logmetrics::LogMetrics::from_config(&self.metrics, &tags)?;
         crate::parsers::Parsers::from_config(&self.parsers)?;
         crate::forward::validate(&self.forward)?;
