@@ -118,6 +118,8 @@ pub struct IngestConfig {
     pub rules: Vec<crate::rules::RuleConfig>,
     /// Per-host and global limits on how fast entries are accepted.
     pub rate_limit: crate::ratelimit::RateLimitConfig,
+    /// Collapses runs of identical messages into one entry and a summary (`[ingest.dedup]`).
+    pub dedup: crate::dedup::DedupConfig,
 }
 
 impl Default for IngestConfig {
@@ -126,6 +128,7 @@ impl Default for IngestConfig {
             parse_structured: true,
             rules: Vec::new(),
             rate_limit: Default::default(),
+            dedup: Default::default(),
         }
     }
 }
@@ -452,6 +455,7 @@ impl Config {
         self.ingest.rate_limit.validate()?;
         crate::alerts::AlertRules::from_config(&self.alerts)?;
         self.new_patterns.validate()?;
+        self.ingest.dedup.validate()?;
         crate::logmetrics::LogMetrics::from_config(&self.metrics)?;
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
@@ -895,6 +899,19 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn dedup_config() {
+        let cfg = Config::parse("").unwrap();
+        assert!(!cfg.ingest.dedup.enabled);
+        assert_eq!(cfg.ingest.dedup.window_secs, 30);
+        let cfg = Config::parse("[ingest.dedup]\nenabled = true\nwindow_secs = 5\nmax_keys = 100")
+            .unwrap();
+        assert!(cfg.ingest.dedup.enabled && cfg.ingest.dedup.max_keys == 100);
+        assert!(Config::parse("[ingest.dedup]\nwindow_secs = 0").is_err());
+        assert!(Config::parse("[ingest.dedup]\nmax_keys = 0").is_err());
+        assert!(Config::parse("[ingest.dedup]\nbogus = 1").is_err());
     }
 
     #[test]

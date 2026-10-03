@@ -34,6 +34,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **New-pattern alerts**: get notified when a message pattern never seen before appears, or a known one
   suddenly surges.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
+- **Deduplication**: runs of identical messages are stored once, with a summary entry for the repeats.
 - **Observability**: Prometheus metrics at `/metrics`, health at `/healthz`, and counters derived from the
   logs themselves (`[[metrics]]`).
 
@@ -992,6 +993,39 @@ pattern = '\b\d{1,3}(\.\d{1,3}){3}\b'
 Rules apply to what LogPit receives from now on; entries already stored are not rewritten.
 They are TOML-only (there is no environment variable for a list of rules).
 
+## Collapsing repeated messages
+
+A flapping link or a crash loop can write the same line thousands of times. `[ingest.dedup]` stores
+the first one as usual, only counts the identical ones that follow, and replaces them with a single
+summary entry when the window ends, the way syslogd's "last message repeated N times" does:
+
+```toml
+[ingest.dedup]
+enabled = true       # off by default, when every repeat is stored
+window_secs = 30     # how long repeats are counted after the first one
+max_keys = 10000     # distinct messages tracked at once
+```
+
+```
+12:00:00  sw1  link down port 7                                     <- the first one
+12:00:30  sw1  link down port 7 [repeated 412 more times over 29s]  <- the summary, field repeats=412
+```
+
+- **Identical** means the same host, app, severity and message (after masking and field extraction,
+  so numbers in the text count: `retry 3` and `retry 4` are different). The summary takes the severity
+  and host, the timestamp of the last repeat, and a `repeats` field you can filter on (`f=repeats>100`).
+  The window starts at the first entry; when it ends the next identical entry is stored and starts a new
+  run, and a run with no repeats leaves nothing behind. Summaries are also written when LogPit stops.
+- **What still sees every entry.** Rate limits, [pattern alerts](#pattern-alerts),
+  [new-pattern alerts](#new-pattern-alerts), [metrics from logs](#metrics-from-logs) and silence tracking
+  run before it, so counts and alerts are unchanged; only what is stored, listed and shown in the live
+  tail is reduced.
+- **Limits.** Messages over 2 KiB are never collapsed, and when `max_keys` messages are being tracked
+  further new ones are stored without collapsing. State is in memory: a restart ends the runs (their
+  summaries are written first on a normal stop). Counters: `logpit_dedup_suppressed_total`,
+  `logpit_dedup_summaries_total` and `logpit_dedup_groups`. A reload (`SIGHUP`) applies the section, and
+  runs in progress finish with the window they started with.
+
 ## Rate limiting
 
 A sender that loops, or a misconfigured debug level, can send thousands of lines a second and
@@ -1033,7 +1067,7 @@ podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
 kill -HUP "$(pidof logpit)"
 ```
 
-**Applied by a reload**: `[[ingest.rules]]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
+**Applied by a reload**: `[[ingest.rules]]`, `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
 `ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
 (`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
 key and client CA files. The last two are read again on every reload, so renewing a certificate or

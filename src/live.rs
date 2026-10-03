@@ -13,6 +13,7 @@ use tokio_rustls::TlsAcceptor;
 use crate::alerts::AlertRules;
 use crate::auth::Auth;
 use crate::config::Config;
+use crate::dedup::Dedup;
 use crate::logmetrics::LogMetrics;
 use crate::ratelimit::RateLimiter;
 use crate::rules::Rules;
@@ -89,6 +90,8 @@ pub struct LiveSettings {
     /// New-pattern and surge notifications; its settings are swapped in place so that the
     /// templates it has learned survive a reload.
     pub watch: PatternWatch,
+    /// Collapsing of repeated messages; settings are swapped in place so open runs survive.
+    pub dedup: Dedup,
     /// The acceptor of the syslog TLS listener, when it is enabled.
     pub tls: Option<Arc<Reloadable<TlsAcceptor>>>,
 }
@@ -124,6 +127,7 @@ impl LiveSettings {
             auth: Reloadable::new(cfg.auth()),
             silence: Reloadable::new(SilenceSettings::from_config(cfg)?),
             watch: PatternWatch::new(&cfg.new_patterns, crate::ingest::now_ms())?,
+            dedup: Dedup::new(&cfg.ingest.dedup),
             tls: tls_acceptor(cfg)?.map(|a| Arc::new(Reloadable::new(a))),
         })
     }
@@ -196,6 +200,7 @@ impl LiveSettings {
         let auth = Arc::new(new.auth());
         // Checked here so a bad value fails the reload before anything is applied.
         new.new_patterns.validate()?;
+        new.ingest.dedup.validate()?;
 
         // 2. Swap.
         if let Some(rules) = rules {
@@ -222,6 +227,10 @@ impl LiveSettings {
         if let Some(silence) = silence {
             self.silence.set(silence);
             report.applied.push("silence alerts and webhook");
+        }
+        if old.ingest.dedup != new.ingest.dedup {
+            self.dedup.reconfigure(&new.ingest.dedup);
+            report.applied.push("dedup");
         }
         if old.new_patterns != new.new_patterns {
             self.watch
@@ -396,6 +405,36 @@ mod tests {
         let mut bad = changed.clone();
         bad.metrics[0].name = "Bad".into();
         assert!(live.reload(&changed, &bad).is_err());
+    }
+
+    #[test]
+    fn dedup_settings_follow_a_reload_and_keep_open_runs() {
+        let old = cfg("[ingest.dedup]\nenabled = true\nwindow_secs = 60");
+        let live = LiveSettings::from_config(&old).unwrap();
+        let e = crate::model::LogEntry {
+            ts: 1000,
+            host: "h".into(),
+            message: "same".into(),
+            ..Default::default()
+        };
+        assert!(live.dedup.observe(&e, 1000).0);
+        assert!(!live.dedup.observe(&e, 2000).0);
+        let new = cfg("[ingest.dedup]\nenabled = true\nwindow_secs = 30");
+        let report = live.reload(&old, &new).unwrap();
+        assert_eq!(report.applied, ["dedup"]);
+        assert!(
+            !live.dedup.observe(&e, 3000).0,
+            "the open run kept counting"
+        );
+        let off = cfg("");
+        live.reload(&new, &off).unwrap();
+        assert!(
+            live.dedup.observe(&e, 4000).0,
+            "turned off: everything is stored"
+        );
+        let mut bad = new.clone();
+        bad.ingest.dedup.window_secs = 0;
+        assert!(live.reload(&off, &bad).is_err());
     }
 
     #[test]

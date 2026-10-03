@@ -96,6 +96,12 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # cooldown_secs = 1800       # quiet period afterwards (default: window_secs)
 # per_host = true
 
+# Collapse runs of identical messages into the first one plus a "repeated N more times" summary.
+# [ingest.dedup]
+# enabled = true
+# window_secs = 30
+# max_keys = 10000
+
 # Rate limits at ingestion (0 = off). A host may burst, then is held to the sustained rate.
 # [ingest.rate_limit]
 # per_host_per_sec = 500

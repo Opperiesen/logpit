@@ -137,6 +137,14 @@ impl Sink {
                 let _ = tx.try_send(event);
             }
         }
+        // Identical repeats are counted, not stored; a run that just ended is summarized.
+        let (store, summary) = self.settings.dedup.observe(&entry, now);
+        if let Some(summary) = summary {
+            self.push_summary(summary);
+        }
+        if !store {
+            return;
+        }
         truncate_utf8(&mut entry.message, self.max_message_bytes);
         let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));
         match self.tx.try_send(entry) {
@@ -151,6 +159,22 @@ impl Sink {
                 tracing::error!("write queue closed; dropping entry");
                 Metrics::inc(&self.metrics.dropped, 1);
             }
+        }
+    }
+
+    /// Enqueues a summary of collapsed repeats. It skips the pipeline, whose stages already saw
+    /// every one of the entries it stands for.
+    pub fn push_summary(&self, mut entry: LogEntry) {
+        truncate_utf8(&mut entry.message, self.max_message_bytes);
+        let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));
+        match self.tx.try_send(entry) {
+            Ok(()) => {
+                Metrics::inc(&self.metrics.received, 1);
+                if let Some(entry) = live {
+                    let _ = self.live.send(entry);
+                }
+            }
+            Err(_) => Metrics::inc(&self.metrics.dropped, 1),
         }
     }
 

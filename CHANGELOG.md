@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Deduplication (`[ingest.dedup]`, off by default): runs of identical messages (same host, app,
+  severity and text) are stored once, the repeats within `window_secs` are counted, and one summary
+  entry (`… [repeated N more times over Ds]`, field `repeats`) replaces them. Alerts, metrics and rate
+  limits still see every entry. Summaries are flushed at shutdown; applied by `SIGHUP`.
+
 - Metrics from logs: `[[metrics]]` rules count the entries that match a regex, host, app or severity as
   Prometheus counters on `/metrics` (`logpit_log_<name>_total`), per `host`, `app`, `level` or structured
   field labels with a series cap, and can sum a numeric field. Applied by `SIGHUP`.

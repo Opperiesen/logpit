@@ -6,6 +6,7 @@ pub mod audit;
 pub mod auth;
 pub mod cef;
 pub mod config;
+pub mod dedup;
 pub mod export;
 pub mod filters;
 pub mod framing;

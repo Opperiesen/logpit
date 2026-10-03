@@ -361,6 +361,20 @@ async fn main() -> anyhow::Result<()> {
     if let (Some(addr), Some(acceptor)) = (tls, settings.tls.clone()) {
         tasks.spawn(ingest::run_tls(addr, sink.clone(), acceptor));
     }
+    // Summaries of collapsed repeats are written when their window ends, and once more at exit.
+    let flush_sink = sink.clone();
+    {
+        let (sink, settings) = (sink.clone(), settings.clone());
+        tasks.spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                tick.tick().await;
+                for summary in settings.dedup.flush(now_ms()) {
+                    sink.push_summary(summary);
+                }
+            }
+        });
+    }
     drop(sink);
 
     let listener = tokio::net::TcpListener::bind(http)
@@ -432,6 +446,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Stop producers, drop their queue handles, then let the writer drain and exit.
     tasks.shutdown().await;
+    for summary in settings.dedup.flush_all() {
+        flush_sink.push_summary(summary);
+    }
+    drop(flush_sink);
     tokio::task::spawn_blocking(move || writer.join())
         .await?
         .map_err(|_| anyhow::anyhow!("writer thread panicked"))?;
