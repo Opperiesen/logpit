@@ -203,18 +203,35 @@ pub fn insert_batch(conn: &mut Connection, entries: &[LogEntry]) -> rusqlite::Re
     tx.commit()
 }
 
-/// Drains the queue into the database until every sender is dropped, then flushes.
+/// How often the writer checks for a stop request while it waits for entries.
+const STOP_POLL: Duration = Duration::from_millis(100);
+/// Entries the writer keeps for a retry while the database is locked; beyond this a failing
+/// batch is dropped (and counted), so a database that stays locked cannot exhaust memory.
+const MAX_RETAINED_FACTOR: usize = 10;
+
+/// Drains the queue into the database until every sender is dropped or `stop` is set, then
+/// flushes. On `stop` the entries already queued are written first; senders that are still
+/// alive (an open TCP or HTTP connection) do not keep it running.
 pub fn run_writer(
     mut conn: Connection,
     rx: Receiver<LogEntry>,
     batch_size: usize,
     flush_interval: Duration,
     metrics: Arc<Metrics>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
 ) {
     let mut batch: Vec<LogEntry> = Vec::with_capacity(batch_size);
     let mut deadline = Instant::now() + flush_interval;
+    let max_retained = batch_size.saturating_mul(MAX_RETAINED_FACTOR);
     loop {
-        let timeout = deadline.saturating_duration_since(Instant::now());
+        if stop.load(Ordering::Acquire) {
+            batch.extend(rx.try_iter());
+            flush(&mut conn, &mut batch, &metrics, 0);
+            return;
+        }
+        let timeout = deadline
+            .saturating_duration_since(Instant::now())
+            .min(STOP_POLL);
         let disconnected = match rx.recv_timeout(timeout) {
             Ok(entry) => {
                 batch.push(entry);
@@ -224,7 +241,12 @@ pub fn run_writer(
             Err(RecvTimeoutError::Disconnected) => true,
         };
         if disconnected || batch.len() >= batch_size || Instant::now() >= deadline {
-            flush(&mut conn, &mut batch, &metrics);
+            flush(
+                &mut conn,
+                &mut batch,
+                &metrics,
+                if disconnected { 0 } else { max_retained },
+            );
             deadline = Instant::now() + flush_interval;
         }
         if disconnected {
@@ -233,15 +255,29 @@ pub fn run_writer(
     }
 }
 
-fn flush(conn: &mut Connection, batch: &mut Vec<LogEntry>, metrics: &Metrics) {
+/// Writes `batch`. When the database is busy or locked (a purge, a backup, another process)
+/// the batch is kept for the next attempt as long as it holds fewer than `retain` entries;
+/// any other failure drops it.
+fn flush(conn: &mut Connection, batch: &mut Vec<LogEntry>, metrics: &Metrics, retain: usize) {
     if batch.is_empty() {
         return;
     }
     match insert_batch(conn, batch) {
         Ok(()) => Metrics::inc(&metrics.stored, batch.len() as u64),
         Err(e) => {
-            tracing::error!("failed to write batch of {}: {e}", batch.len());
             metrics.write_errors.fetch_add(1, Ordering::Relaxed);
+            let busy = matches!(
+                e.sqlite_error_code(),
+                Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+            );
+            if busy && batch.len() < retain {
+                tracing::warn!(
+                    "database busy, keeping {} entries for the next write: {e}",
+                    batch.len()
+                );
+                return;
+            }
+            tracing::error!("failed to write batch of {}: {e}", batch.len());
         }
     }
     batch.clear();
@@ -253,52 +289,22 @@ pub fn known_hosts(conn: &Connection, limit: usize) -> rusqlite::Result<Vec<Stri
     stmt.query_map([limit as i64], |r| r.get(0))?.collect()
 }
 
-/// Deletes entries older than the cutoff of their severity (`cutoffs[severity]`, in Unix ms;
-/// `None` keeps that severity forever). Returns the number removed.
-pub fn purge(conn: &Connection, cutoffs: &[Option<i64>; 8]) -> rusqlite::Result<usize> {
-    let mut removed = 0;
-    let mut done = [false; 8];
-    for first in 0..8 {
-        let Some(cutoff) = cutoffs[first] else {
-            continue;
-        };
-        if done[first] {
-            continue;
-        }
-        // One statement per distinct cutoff, covering every severity that shares it.
-        let group: Vec<String> = (first..8)
-            .filter(|&s| cutoffs[s] == Some(cutoff))
-            .inspect(|&s| done[s] = true)
-            .map(|s| s.to_string())
-            .collect();
-        removed += conn.execute(
-            &format!(
-                "DELETE FROM logs WHERE ts < ?1 AND severity IN ({})",
-                group.join(",")
-            ),
-            params![cutoff],
-        )?;
-    }
-    Ok(removed)
-}
-
 /// Called with each chunk of entries about to be deleted; an error stops the deletion.
 pub type ArchiveHook<'a> = &'a dyn Fn(&[Row]) -> anyhow::Result<()>;
 
-/// Entries archived and deleted per step when archiving.
-const ARCHIVE_CHUNK: i64 = 5000;
+/// Entries deleted (and archived) per transaction by [`purge`].
+const PURGE_CHUNK: i64 = 5000;
 
-/// Like [`purge`], but hands the entries to `archive` first, a chunk at a time, deleting a chunk
-/// only after `archive` accepted it. Entries inserted meanwhile are left for the next run. A
-/// failing `archive` stops the purge and nothing more is deleted.
-pub fn purge_with(
+/// Deletes entries older than the cutoff of their severity (`cutoffs[severity]`, in Unix ms;
+/// `None` keeps that severity forever) and returns how many. With `archive`, each chunk is handed
+/// to it first and deleted only once it accepted it; a failing `archive` stops the purge.
+/// Work goes a chunk at a time, each a short transaction, so the writer never waits on a long
+/// purge (an hour of backlog, or a lowered retention, can be millions of entries).
+pub fn purge(
     conn: &Connection,
     cutoffs: &[Option<i64>; 8],
     archive: Option<ArchiveHook<'_>>,
 ) -> anyhow::Result<usize> {
-    let Some(archive) = archive else {
-        return Ok(purge(conn, cutoffs)?);
-    };
     let mut removed = 0;
     let mut done = [false; 8];
     for first in 0..8 {
@@ -308,6 +314,7 @@ pub fn purge_with(
         if done[first] {
             continue;
         }
+        // One pass per distinct cutoff, covering every severity that shares it.
         let severities: Vec<String> = (first..8)
             .filter(|&s| cutoffs[s] == Some(cutoff))
             .inspect(|&s| done[s] = true)
@@ -315,24 +322,36 @@ pub fn purge_with(
             .collect();
         let predicate = format!("ts < ?1 AND severity IN ({})", severities.join(","));
         loop {
-            let rows = {
-                let mut stmt = conn.prepare(&format!(
-                    "SELECT id, ts, host, app, severity, message, fields FROM logs \
-                     WHERE {predicate} ORDER BY id LIMIT {ARCHIVE_CHUNK}"
-                ))?;
-                stmt.query_map(params![cutoff], map_row)?
-                    .collect::<rusqlite::Result<Vec<_>>>()?
+            let n = match archive {
+                None => conn.execute(
+                    &format!(
+                        "DELETE FROM logs WHERE id IN \
+                         (SELECT id FROM logs WHERE {predicate} LIMIT {PURGE_CHUNK})"
+                    ),
+                    params![cutoff],
+                )?,
+                Some(archive) => {
+                    let rows = {
+                        let mut stmt = conn.prepare(&format!(
+                            "SELECT id, ts, host, app, severity, message, fields FROM logs \
+                             WHERE {predicate} ORDER BY id LIMIT {PURGE_CHUNK}"
+                        ))?;
+                        stmt.query_map(params![cutoff], map_row)?
+                            .collect::<rusqlite::Result<Vec<_>>>()?
+                    };
+                    let Some(last) = rows.last().map(|r| r.id) else {
+                        break;
+                    };
+                    archive(&rows)?;
+                    // The chunk is the first rows by id that match, so this is exactly that chunk.
+                    conn.execute(
+                        &format!("DELETE FROM logs WHERE {predicate} AND id <= ?2"),
+                        params![cutoff, last],
+                    )?
+                }
             };
-            let Some(last) = rows.last().map(|r| r.id) else {
-                break;
-            };
-            archive(&rows)?;
-            // The chunk is the first rows by id that match, so this is exactly that chunk.
-            removed += conn.execute(
-                &format!("DELETE FROM logs WHERE {predicate} AND id <= ?2"),
-                params![cutoff, last],
-            )?;
-            if (rows.len() as i64) < ARCHIVE_CHUNK {
+            removed += n;
+            if (n as i64) < PURGE_CHUNK {
                 break;
             }
         }
@@ -1492,6 +1511,9 @@ mod tests {
             "OR",
             "NOT",
             "-\"a b\"*",
+            "a\0b",
+            "\"x\0y\"",
+            "-\0",
         ] {
             let query = Query {
                 text: Some(text.into()),
@@ -1627,7 +1649,7 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(purge(&conn, &[Some(500); 8]).unwrap(), 1);
+        assert_eq!(purge(&conn, &[Some(500); 8], None).unwrap(), 1);
         let rows = search(
             &conn,
             &Query {
@@ -2545,7 +2567,7 @@ mod tests {
         // Info is kept 500 ms back from now=1_000_500; errors forever.
         let mut cutoffs = [None; 8];
         cutoffs[6] = Some(500_000);
-        let removed = purge_with(&conn, &cutoffs, Some(&hook)).unwrap();
+        let removed = purge(&conn, &cutoffs, Some(&hook)).unwrap();
         assert_eq!(removed, 12_000);
         let archived = archived.into_inner();
         assert_eq!(archived.len(), 12_000);
@@ -2566,12 +2588,9 @@ mod tests {
             *seen.borrow_mut() += rows.len();
             Ok(())
         };
-        assert_eq!(
-            purge_with(&conn, &[Some(500_000); 8], Some(&count)).unwrap(),
-            5
-        );
+        assert_eq!(purge(&conn, &[Some(500_000); 8], Some(&count)).unwrap(), 5);
         assert_eq!(*seen.borrow(), 5);
-        assert_eq!(purge_with(&conn, &[Some(2_000_000); 8], None).unwrap(), 7);
+        assert_eq!(purge(&conn, &[Some(2_000_000); 8], None).unwrap(), 7);
         assert!(search(&conn, &q(100)).unwrap().is_empty());
     }
 
@@ -2581,7 +2600,7 @@ mod tests {
         let batch: Vec<LogEntry> = (0..10).map(|i| entry(i, "h", 6, "x")).collect();
         insert_batch(&mut conn, &batch).unwrap();
         let fail = |_: &[Row]| -> anyhow::Result<()> { anyhow::bail!("disk full") };
-        let err = purge_with(&conn, &[Some(100); 8], Some(&fail)).unwrap_err();
+        let err = purge(&conn, &[Some(100); 8], Some(&fail)).unwrap_err();
         assert!(err.to_string().contains("disk full"));
         assert_eq!(search(&conn, &q(100)).unwrap().len(), 10);
     }
@@ -2668,7 +2687,7 @@ mod tests {
         cutoffs[6] = Some(500);
         cutoffs[3] = Some(50);
         assert_eq!(
-            purge(&conn, &cutoffs).unwrap(),
+            purge(&conn, &cutoffs, None).unwrap(),
             2,
             "only old debug and info go"
         );
@@ -2697,8 +2716,8 @@ mod tests {
         .unwrap();
         assert_eq!(old.len(), 6);
         // Cutoffs sharing a value are applied together; with none set nothing happens.
-        assert_eq!(purge(&conn, &[None; 8]).unwrap(), 0);
-        assert_eq!(purge(&conn, &[Some(950); 8]).unwrap(), 14);
+        assert_eq!(purge(&conn, &[None; 8], None).unwrap(), 0);
+        assert_eq!(purge(&conn, &[Some(950); 8], None).unwrap(), 14);
     }
 
     #[test]
@@ -2779,7 +2798,7 @@ mod tests {
         .unwrap();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].fields.is_none());
-        assert_eq!(purge(&conn, &[Some(100); 8]).unwrap(), 1);
+        assert_eq!(purge(&conn, &[Some(100); 8], None).unwrap(), 1);
         assert!(
             search(
                 &conn,
@@ -2891,7 +2910,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::sync_channel(16);
         let m = metrics.clone();
         let handle = std::thread::spawn(move || {
-            run_writer(conn, rx, 100, Duration::from_secs(60), m);
+            run_writer(conn, rx, 100, Duration::from_secs(60), m, Arc::default());
         });
         tx.send(entry(1, "h", 6, "hello")).unwrap();
         tx.send(entry(2, "h", 6, "world")).unwrap();
@@ -2901,5 +2920,84 @@ mod tests {
         let read = open(&path).unwrap();
         assert_eq!(search(&read, &q(10)).unwrap().len(), 2);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn temp_db(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("logpit-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.db");
+        (dir, path)
+    }
+
+    #[test]
+    fn writer_stops_on_request_while_senders_are_alive() {
+        let (dir, path) = temp_db("writer-stop");
+        let conn = open(&path).unwrap();
+        let metrics = Arc::new(Metrics::default());
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::sync_channel(16);
+        let (m, s) = (metrics.clone(), stop.clone());
+        let handle = std::thread::spawn(move || {
+            run_writer(conn, rx, 100, Duration::from_secs(60), m, s);
+        });
+        tx.send(entry(1, "h", 6, "queued before the stop")).unwrap();
+        stop.store(true, Ordering::Release);
+        // `tx` is still alive, like the sink of an open connection: the writer exits anyway,
+        // after writing what was queued.
+        let started = Instant::now();
+        handle.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(metrics.stored.load(Ordering::Relaxed), 1);
+        drop(tx);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn writer_keeps_its_batch_while_the_database_is_locked() {
+        let (dir, path) = temp_db("writer-busy");
+        let conn = open(&path).unwrap();
+        conn.busy_timeout(Duration::from_millis(20)).unwrap();
+        let metrics = Arc::new(Metrics::default());
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // Another connection holds the write lock, as a long purge or a backup would.
+        let blocker = open(&path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let (tx, rx) = std::sync::mpsc::sync_channel(16);
+        let (m, s) = (metrics.clone(), stop.clone());
+        let handle = std::thread::spawn(move || {
+            run_writer(conn, rx, 100, Duration::from_millis(30), m, s);
+        });
+        tx.send(entry(1, "h", 6, "one")).unwrap();
+        tx.send(entry(2, "h", 6, "two")).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while metrics.write_errors.load(Ordering::Relaxed) == 0 {
+            assert!(Instant::now() < deadline, "the writer never hit the lock");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        blocker.execute_batch("COMMIT").unwrap();
+        drop(tx);
+        handle.join().unwrap();
+        assert_eq!(
+            metrics.stored.load(Ordering::Relaxed),
+            2,
+            "no entry was lost"
+        );
+        assert_eq!(search(&blocker, &q(10)).unwrap().len(), 2);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn purge_removes_more_than_one_chunk() {
+        let mut conn = mem();
+        let n = PURGE_CHUNK as usize * 2 + 7;
+        let entries: Vec<LogEntry> = (0..n)
+            .map(|i| entry(i as i64, "h", 6, "old"))
+            .chain([entry(1_000_000, "h", 6, "recent")])
+            .collect();
+        insert_batch(&mut conn, &entries).unwrap();
+        assert_eq!(purge(&conn, &[Some(1_000_000); 8], None).unwrap(), n);
+        let left = search(&conn, &q(10)).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].message, "recent");
     }
 }

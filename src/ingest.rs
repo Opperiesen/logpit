@@ -23,6 +23,9 @@ const MAX_TCP_CONNECTIONS: usize = 256;
 const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_LINE_BYTES: usize = 64 * 1024;
+/// Longest host or app name kept (a DNS name is at most 253 bytes); longer ones are cut, so a
+/// hostile sender cannot make every per-host table and pattern match work on huge keys.
+pub const MAX_NAME_BYTES: usize = 255;
 /// Entries a live-tail subscriber may fall behind before it starts losing some.
 const LIVE_CAPACITY: usize = 1024;
 
@@ -124,6 +127,8 @@ impl Sink {
 
     pub fn push(&self, mut entry: LogEntry) {
         let now = now_ms();
+        truncate_utf8(&mut entry.host, MAX_NAME_BYTES);
+        truncate_utf8(&mut entry.app, MAX_NAME_BYTES);
         // A host that is being limited is still alive, so it counts for silence alerts.
         self.silence.touch(&entry.host, now);
         self.settings.volume.count(&entry.host);
@@ -170,6 +175,9 @@ impl Sink {
             return;
         }
         truncate_utf8(&mut entry.message, self.max_message_bytes);
+        // A parser or a rule may have set them from the message.
+        truncate_utf8(&mut entry.host, MAX_NAME_BYTES);
+        truncate_utf8(&mut entry.app, MAX_NAME_BYTES);
         if let Some(forwarders) = &self.forwarders {
             forwarders.offer(&entry);
         }

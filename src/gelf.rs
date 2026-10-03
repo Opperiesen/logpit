@@ -11,10 +11,9 @@ use serde_json::Value;
 use tokio_util::codec::Decoder;
 
 use crate::model::{LogEntry, truncate_utf8};
+use crate::structured::MAX_VALUE_BYTES;
 
 const MAX_FIELDS: usize = 64;
-const MAX_KEY_BYTES: usize = 64;
-const MAX_VALUE_BYTES: usize = 1024;
 /// A compressed message may not expand beyond this.
 const MAX_MESSAGE_BYTES: usize = 1 << 20;
 
@@ -28,36 +27,17 @@ const APP_KEYS: [&str; 6] = [
     "_tag",
 ];
 
+/// A non-empty string, a number or a boolean as text.
+fn scalar(v: &Value) -> Option<String> {
+    crate::structured::json_scalar(v).filter(|s| !s.is_empty())
+}
+
 fn number(v: &Value) -> Option<f64> {
     match v {
         Value::Number(n) => n.as_f64(),
         Value::String(s) => s.trim().parse().ok(),
         _ => None,
     }
-}
-
-fn scalar(v: &Value) -> Option<String> {
-    match v {
-        Value::String(s) if !s.is_empty() => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        Value::Bool(b) => Some(b.to_string()),
-        _ => None,
-    }
-}
-
-fn field_key(key: &str) -> Option<String> {
-    let mut k: String = key
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    truncate_utf8(&mut k, MAX_KEY_BYTES);
-    (!k.trim_matches('_').is_empty()).then_some(k)
 }
 
 /// Parses one GELF message. `now_ms` is used when it carries no timestamp.
@@ -144,7 +124,7 @@ pub fn parse(data: &[u8], now_ms: i64) -> Result<LogEntry, &'static str> {
         if name == "id" || Some(key.as_str()) == app_key || e.fields.len() >= MAX_FIELDS {
             continue;
         }
-        if let (Some(k), Some(mut v)) = (field_key(name), scalar(value)) {
+        if let (Some(k), Some(mut v)) = (crate::structured::sanitize_key(name), scalar(value)) {
             truncate_utf8(&mut v, MAX_VALUE_BYTES);
             e.fields.insert(k, v);
         }

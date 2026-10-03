@@ -22,6 +22,15 @@ pub struct Parsed {
 /// words. `-x` and `NOT x` exclude, `AND` is accepted and does nothing (it is the default),
 /// and an unterminated quote runs to the end of the input.
 pub fn parse(input: &str) -> Parsed {
+    // FTS5 reads its expression as a C string: a NUL would end it inside a quoted term and make
+    // the whole query fail, so it separates words like a space.
+    let spaced;
+    let input = if input.contains('\0') {
+        spaced = input.replace('\0', " ");
+        spaced.as_str()
+    } else {
+        input
+    };
     let mut out = Parsed::default();
     let mut group: Vec<Term> = Vec::new();
     let mut negate = false;

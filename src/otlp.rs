@@ -6,10 +6,9 @@ use serde_json::{Map, Value};
 
 use crate::model::{LogEntry, level_severity, truncate_utf8};
 use crate::proto::{Reader, utf8};
+use crate::structured::MAX_VALUE_BYTES;
 
 const MAX_FIELDS: usize = 64;
-const MAX_KEY_BYTES: usize = 64;
-const MAX_VALUE_BYTES: usize = 1024;
 const MAX_DEPTH: usize = 4;
 
 /// Resource attributes checked, in order, for the host and the application.
@@ -367,21 +366,6 @@ fn text(v: &Value) -> Option<String> {
     Some(s)
 }
 
-fn field_key(key: &str) -> Option<String> {
-    let mut k: String = key
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    truncate_utf8(&mut k, MAX_KEY_BYTES);
-    (!k.trim_matches('_').is_empty()).then_some(k)
-}
-
 fn to_entry(resource: &[(String, Value)], scope: &str, rec: Record, now_ms: i64) -> LogEntry {
     let find = |keys: &[&str]| {
         keys.iter().find_map(|k| {
@@ -441,7 +425,7 @@ fn to_entry(resource: &[(String, Value)], scope: &str, rec: Record, now_ms: i64)
         if e.fields.len() >= MAX_FIELDS && !e.fields.contains_key(&k) {
             continue;
         }
-        if let (Some(key), Some(value)) = (field_key(&k), text(&v)) {
+        if let (Some(key), Some(value)) = (crate::structured::sanitize_key(&k), text(&v)) {
             e.fields.insert(key, value);
         }
     }
@@ -452,31 +436,8 @@ fn to_entry(resource: &[(String, Value)], scope: &str, rec: Record, now_ms: i64)
 mod tests {
     use super::*;
 
-    // A small protobuf encoder for the tests, written from the OTLP definitions.
-    fn varint(mut v: u64, out: &mut Vec<u8>) {
-        loop {
-            let b = (v & 0x7f) as u8;
-            v >>= 7;
-            if v == 0 {
-                out.push(b);
-                return;
-            }
-            out.push(b | 0x80);
-        }
-    }
-    fn len_field(no: u32, payload: &[u8], out: &mut Vec<u8>) {
-        varint(u64::from(no << 3 | 2), out);
-        varint(payload.len() as u64, out);
-        out.extend_from_slice(payload);
-    }
-    fn num_field(no: u32, v: u64, out: &mut Vec<u8>) {
-        varint(u64::from(no << 3), out);
-        varint(v, out);
-    }
-    fn fixed64_field(no: u32, v: u64, out: &mut Vec<u8>) {
-        varint(u64::from(no << 3 | 1), out);
-        out.extend_from_slice(&v.to_le_bytes());
-    }
+    use crate::proto::encode::{fixed64_field, len_field, num_field};
+
     fn string_value(s: &str) -> Vec<u8> {
         let mut v = Vec::new();
         len_field(1, s.as_bytes(), &mut v);

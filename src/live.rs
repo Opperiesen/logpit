@@ -597,20 +597,29 @@ mod tests {
         let old = cfg("[http]\ntoken = \"old-secret\"");
         let live = LiveSettings::from_config(&old).unwrap();
         assert_eq!(
-            live.auth.get().check(Some("old-secret"), Scope::Read),
-            crate::auth::Decision::Allowed
+            live.auth
+                .get()
+                .identify(Some("old-secret"), Scope::Read)
+                .err(),
+            None
         );
         let new = cfg("[http]\ntoken = \"new-secret\"");
         let report = live.reload(&old, &new).unwrap();
         assert_eq!(report.applied, ["API tokens"]);
         use crate::auth::Decision::*;
         assert_eq!(
-            live.auth.get().check(Some("old-secret"), Scope::Read),
-            Unauthorized
+            live.auth
+                .get()
+                .identify(Some("old-secret"), Scope::Read)
+                .err(),
+            Some(Unauthorized)
         );
         assert_eq!(
-            live.auth.get().check(Some("new-secret"), Scope::Write),
-            Allowed
+            live.auth
+                .get()
+                .identify(Some("new-secret"), Scope::Write)
+                .err(),
+            None
         );
     }
 

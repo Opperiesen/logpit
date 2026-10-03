@@ -386,17 +386,7 @@ impl Webhook {
 
     /// Connects (and negotiates TLS for `https`), sends `request` and returns the status code.
     async fn send_request(&self, request: &str) -> anyhow::Result<u16> {
-        let tcp = timeout(self.timeout, TcpStream::connect(&self.connect_addr)).await??;
-        match &self.tls_name {
-            None => self.exchange(&mut { tcp }, request).await,
-            Some(name) => {
-                let server_name = ServerName::try_from(name.clone())
-                    .with_context(|| format!("{name:?} is not a valid server name"))?;
-                let mut tls =
-                    timeout(self.timeout, self.connector.connect(server_name, tcp)).await??;
-                self.exchange(&mut tls, request).await
-            }
-        }
+        self.exchange(&mut self.connect().await?, request).await
     }
 
     pub async fn post_once(&self, event: &Event) -> anyhow::Result<()> {

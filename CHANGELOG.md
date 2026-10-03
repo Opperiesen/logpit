@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Fix: shutdown no longer hangs while a syslog TCP connection, a live tail or any other HTTP
+  connection is open (`docker stop` used to end in a `SIGKILL` that lost the last batch); the
+  entries already queued are still written.
+- Fix: a batch the writer could not store because the database was busy (a long purge, a backup) is
+  kept and retried instead of being dropped, and retention deletes expired entries a chunk at a time,
+  so the writer never waits on one huge transaction.
+- Fix: a NUL byte in the search text made the search fail with a server error.
+- Fix: extreme `since`/`until` values could overflow in `/api/stats`; time bounds are now clamped.
+- Host and app names longer than 255 bytes are cut on ingestion.
+- The web UI is served with a Content-Security-Policy, `X-Frame-Options: DENY`, `nosniff` and
+  `Referrer-Policy: no-referrer`.
+- Tests: end-to-end HTTP API tests (scopes, restricted tokens, audit, limits) and a deterministic
+  fuzz smoke test of every parser that reads untrusted input.
+
 ## 0.12.0 - 2026-10-03
 
 - Command line: `logpit search` prints the entries matching the usual filters (text, host, app, level,

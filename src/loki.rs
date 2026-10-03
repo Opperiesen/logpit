@@ -9,10 +9,9 @@ use serde_json::Value;
 
 use crate::model::{LogEntry, level_severity, truncate_utf8};
 use crate::proto::{Reader, utf8};
+use crate::structured::MAX_VALUE_BYTES;
 
 const MAX_FIELDS: usize = 64;
-const MAX_KEY_BYTES: usize = 64;
-const MAX_VALUE_BYTES: usize = 1024;
 /// Largest snappy-decompressed push accepted.
 pub const MAX_DECOMPRESSED_BYTES: usize = 32 * 1024 * 1024;
 
@@ -168,15 +167,6 @@ pub fn decode_protobuf(buf: &[u8]) -> Result<Vec<Stream>, &'static str> {
 
 // ---- JSON ---------------------------------------------------------------------------------
 
-fn json_string(v: &Value) -> Option<String> {
-    match v {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        Value::Bool(b) => Some(b.to_string()),
-        _ => None,
-    }
-}
-
 /// Decodes `{"streams":[{"stream":{...},"values":[["<ns>","line",{metadata}?],...]}]}`.
 pub fn decode_json(body: &[u8]) -> Result<Vec<Stream>, &'static str> {
     let v: Value = serde_json::from_slice(body).map_err(|_| "invalid JSON")?;
@@ -191,7 +181,7 @@ pub fn decode_json(body: &[u8]) -> Result<Vec<Stream>, &'static str> {
             .and_then(Value::as_object)
             .map(|m| {
                 m.iter()
-                    .filter_map(|(k, v)| Some((k.clone(), json_string(v)?)))
+                    .filter_map(|(k, v)| Some((k.clone(), crate::structured::json_scalar(v)?)))
                     .collect()
             })
             .unwrap_or_default();
@@ -208,7 +198,7 @@ pub fn decode_json(body: &[u8]) -> Result<Vec<Stream>, &'static str> {
             let (Some(ts), Some(line)) = (pair.first(), pair.get(1)) else {
                 return Err("a value must be [timestamp, line]");
             };
-            let ts_ms = json_string(ts)
+            let ts_ms = crate::structured::json_scalar(ts)
                 .and_then(|t| t.parse::<i128>().ok())
                 .and_then(|ns| i64::try_from(ns / 1_000_000).ok());
             let metadata = pair
@@ -216,7 +206,7 @@ pub fn decode_json(body: &[u8]) -> Result<Vec<Stream>, &'static str> {
                 .and_then(Value::as_object)
                 .map(|m| {
                     m.iter()
-                        .filter_map(|(k, v)| Some((k.clone(), json_string(v)?)))
+                        .filter_map(|(k, v)| Some((k.clone(), crate::structured::json_scalar(v)?)))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -248,21 +238,6 @@ const APP_LABELS: [&str; 7] = [
     "syslog_identifier",
 ];
 const LEVEL_LABELS: [&str; 4] = ["level", "severity", "detected_level", "log_level"];
-
-fn field_key(key: &str) -> Option<String> {
-    let mut k: String = key
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    truncate_utf8(&mut k, MAX_KEY_BYTES);
-    (!k.trim_matches('_').is_empty()).then_some(k)
-}
 
 /// Builds a LogPit entry from a stream's labels and one of its lines. Labels that name the host,
 /// the application or the level fill those; the others (and structured metadata) become fields.
@@ -306,7 +281,7 @@ pub fn to_entry(
         if e.fields.len() >= MAX_FIELDS && !e.fields.contains_key(k) {
             continue;
         }
-        if let (Some(key), false) = (field_key(k), v.is_empty()) {
+        if let (Some(key), false) = (crate::structured::sanitize_key(k), v.is_empty()) {
             let mut value = v.clone();
             truncate_utf8(&mut value, MAX_VALUE_BYTES);
             e.fields.insert(key, value);
@@ -319,55 +294,20 @@ pub fn to_entry(
 mod tests {
     use super::*;
 
-    // A minimal protobuf encoder, written independently of the decoder above, for the tests.
-    fn varint(mut v: u64, out: &mut Vec<u8>) {
-        loop {
-            let b = (v & 0x7f) as u8;
-            v >>= 7;
-            if v == 0 {
-                out.push(b);
-                return;
-            }
-            out.push(b | 0x80);
-        }
-    }
-    fn field(no: u32, wire: u8, payload: &[u8], out: &mut Vec<u8>) {
-        varint(u64::from(no << 3 | u32::from(wire)), out);
-        if wire == 2 {
-            varint(payload.len() as u64, out);
-        }
-        out.extend_from_slice(payload);
-    }
+    use crate::proto::encode::{len_field, num_field};
+
     fn entry_bytes(secs: i64, nanos: i32, line: &str, meta: &[(&str, &str)]) -> Vec<u8> {
         let mut ts = Vec::new();
-        field(
-            1,
-            0,
-            &{
-                let mut v = Vec::new();
-                varint(secs as u64, &mut v);
-                v
-            },
-            &mut ts,
-        );
-        field(
-            2,
-            0,
-            &{
-                let mut v = Vec::new();
-                varint(nanos as u64, &mut v);
-                v
-            },
-            &mut ts,
-        );
+        num_field(1, secs as u64, &mut ts);
+        num_field(2, nanos as u64, &mut ts);
         let mut e = Vec::new();
-        field(1, 2, &ts, &mut e);
-        field(2, 2, line.as_bytes(), &mut e);
+        len_field(1, &ts, &mut e);
+        len_field(2, line.as_bytes(), &mut e);
         for (k, v) in meta {
             let mut pair = Vec::new();
-            field(1, 2, k.as_bytes(), &mut pair);
-            field(2, 2, v.as_bytes(), &mut pair);
-            field(3, 2, &pair, &mut e);
+            len_field(1, k.as_bytes(), &mut pair);
+            len_field(2, v.as_bytes(), &mut pair);
+            len_field(3, &pair, &mut e);
         }
         e
     }
@@ -375,12 +315,12 @@ mod tests {
         let mut req = Vec::new();
         for (labels, entries) in streams {
             let mut s = Vec::new();
-            field(1, 2, labels.as_bytes(), &mut s);
+            len_field(1, labels.as_bytes(), &mut s);
             for e in entries {
-                field(2, 2, e, &mut s);
+                len_field(2, e, &mut s);
             }
-            field(3, 0, &[7], &mut s); // the stream hash, which is ignored
-            field(1, 2, &s, &mut req);
+            num_field(3, 7, &mut s); // the stream hash, which is ignored
+            len_field(1, &s, &mut req);
         }
         req
     }

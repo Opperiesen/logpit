@@ -16,7 +16,6 @@ pub enum Scope {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Decision {
-    Allowed,
     /// Missing or unknown token.
     Unauthorized,
     /// Known token that lacks the required scope.
@@ -117,17 +116,10 @@ impl Auth {
         self.tokens.iter().map(|(_, e)| e)
     }
 
-    /// Checks `presented` (the bearer token, if any) against the required scope.
-    /// Every configured token is compared, so timing does not reveal which one matched.
-    pub fn check(&self, presented: Option<&str>, required: Scope) -> Decision {
-        match self.identify(presented, required) {
-            Ok(_) => Decision::Allowed,
-            Err(d) => d,
-        }
-    }
-
-    /// Like [`check`](Self::check), and says who the caller is. `Err` carries the refusal; for a
-    /// known token that lacks the scope the name is still available through [`name_of`](Self::name_of).
+    /// Checks `presented` (the bearer token, if any) against the required scope and says who the
+    /// caller is. Every configured token is compared, so timing does not reveal which one matched.
+    /// `Err` carries the refusal; for a known token that lacks the scope the name is still
+    /// available through [`name_of`](Self::name_of).
     pub fn identify(&self, presented: Option<&str>, required: Scope) -> Result<Identity, Decision> {
         if !self.enabled() {
             return Ok(Identity::anonymous());
@@ -182,27 +174,42 @@ mod tests {
     #[test]
     fn scopes_are_enforced() {
         let a = auth();
-        assert_eq!(a.check(Some("admin"), Scope::Read), Decision::Allowed);
-        assert_eq!(a.check(Some("admin"), Scope::Write), Decision::Allowed);
-        assert_eq!(a.check(Some("shipper"), Scope::Write), Decision::Allowed);
-        assert_eq!(a.check(Some("shipper"), Scope::Read), Decision::Forbidden);
-        assert_eq!(a.check(Some("viewer"), Scope::Read), Decision::Allowed);
-        assert_eq!(a.check(Some("viewer"), Scope::Write), Decision::Forbidden);
+        assert_eq!(a.identify(Some("admin"), Scope::Read).err(), None);
+        assert_eq!(a.identify(Some("admin"), Scope::Write).err(), None);
+        assert_eq!(a.identify(Some("shipper"), Scope::Write).err(), None);
+        assert_eq!(
+            a.identify(Some("shipper"), Scope::Read).err(),
+            Some(Decision::Forbidden)
+        );
+        assert_eq!(a.identify(Some("viewer"), Scope::Read).err(), None);
+        assert_eq!(
+            a.identify(Some("viewer"), Scope::Write).err(),
+            Some(Decision::Forbidden)
+        );
     }
 
     #[test]
     fn unknown_or_missing_tokens_are_unauthorized() {
         let a = auth();
-        assert_eq!(a.check(Some("nope"), Scope::Read), Decision::Unauthorized);
-        assert_eq!(a.check(Some(""), Scope::Read), Decision::Unauthorized);
-        assert_eq!(a.check(None, Scope::Write), Decision::Unauthorized);
+        assert_eq!(
+            a.identify(Some("nope"), Scope::Read).err(),
+            Some(Decision::Unauthorized)
+        );
+        assert_eq!(
+            a.identify(Some(""), Scope::Read).err(),
+            Some(Decision::Unauthorized)
+        );
+        assert_eq!(
+            a.identify(None, Scope::Write).err(),
+            Some(Decision::Unauthorized)
+        );
     }
 
     #[test]
     fn no_tokens_means_open() {
         let a = Auth::default();
         assert!(!a.enabled());
-        assert_eq!(a.check(None, Scope::Write), Decision::Allowed);
+        assert_eq!(a.identify(None, Scope::Write).err(), None);
     }
 
     #[test]

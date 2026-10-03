@@ -27,6 +27,9 @@ use crate::stats;
 use crate::store::{self, GroupBy, HostSort, HostSortKey, Query};
 
 const MAX_LIMIT: usize = 1000;
+/// Time bounds are clamped to ±10^15 ms (about 30,000 years either side of 1970): beyond that no
+/// entry can exist, and bucket arithmetic on the bounds stays far from overflowing.
+const MAX_TS: i64 = 1_000_000_000_000_000;
 const DEFAULT_LIMIT: usize = 100;
 const MAX_TAIL_SUBSCRIBERS: usize = 32;
 const DEFAULT_TOP_VALUES: usize = 10;
@@ -112,11 +115,56 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
     let protected = write.merge(read).merge(admin);
 
     Router::new()
-        .route("/", get(|| async { Html(INDEX_HTML) }))
+        .route("/", get(index))
         .route("/healthz", get(|| async { "ok" }))
         .route("/metrics", get(metrics))
         .merge(protected)
         .with_state(state)
+}
+
+/// The page's script and styles are inline and it only talks to its own origin, so the policy
+/// keeps it from loading or sending anything elsewhere, and from being framed (clickjacking).
+const INDEX_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; \
+    style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; \
+    base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+/// The web UI, with headers that keep a browser from framing it or sniffing other types.
+async fn index() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_SECURITY_POLICY, INDEX_CSP),
+            (header::X_FRAME_OPTIONS, "DENY"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::REFERRER_POLICY, "no-referrer"),
+        ],
+        Html(INDEX_HTML),
+    )
+}
+
+/// Runs `job` on the blocking pool with its own connection to the database at `path`. A failure
+/// is logged and becomes the 500 response naming `what`.
+pub(crate) async fn with_db<T: Send + 'static>(
+    path: &std::path::Path,
+    what: &'static str,
+    job: impl FnOnce(&rusqlite::Connection) -> anyhow::Result<T> + Send + 'static,
+) -> Result<T, (StatusCode, String)> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || job(&store::open(&path)?))
+        .await
+        .unwrap_or_else(|e| Err(e.into()))
+        .map_err(|e| {
+            tracing::error!("{what} failed: {e:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("{what} failed"))
+        })
+}
+
+/// A `limit` parameter: a positive number, capped at `max`.
+fn positive_limit(v: &str, max: usize) -> Result<usize, &'static str> {
+    v.parse::<usize>()
+        .ok()
+        .filter(|n| *n > 0)
+        .map(|n| n.min(max))
+        .ok_or("invalid limit")
 }
 
 /// Standard base64 (RFC 4648, padding optional); `None` for anything else.
@@ -225,14 +273,7 @@ fn parse_audit(params: Vec<(String, String)>) -> Result<audit::AuditQuery, Strin
     for (k, v) in params {
         match (k.as_str(), v.as_str()) {
             (_, "") => {}
-            ("limit", v) => {
-                q.limit = v
-                    .parse::<usize>()
-                    .ok()
-                    .filter(|n| *n > 0)
-                    .ok_or("invalid limit")?
-                    .min(audit::MAX_QUERY_LIMIT);
-            }
+            ("limit", v) => q.limit = positive_limit(v, audit::MAX_QUERY_LIMIT)?,
             ("since", v) => q.since_ms = Some(num("since", v)?),
             ("until", v) => q.until_ms = Some(num("until", v)?),
             ("token", v) => q.token = Some(v.to_string()),
@@ -255,24 +296,16 @@ async fn audit_trail(
         Ok(q) => q,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
-    let Some(path) = state.audit.persistent_path().map(|p| p.to_path_buf()) else {
+    let Some(path) = state.audit.persistent_path() else {
         return Json(state.audit.search(&query)).into_response();
     };
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
-        store::audit_events(&conn, &query).map_err(anyhow::Error::from)
+    match with_db(path, "audit query", move |conn| {
+        store::audit_events(conn, &query).map_err(anyhow::Error::from)
     })
-    .await;
-    match result {
-        Ok(Ok(events)) => Json(events).into_response(),
-        Ok(Err(e)) => {
-            tracing::error!("audit query failed: {e:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "audit query failed").into_response()
-        }
-        Err(e) => {
-            tracing::error!("audit query task failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "audit query failed").into_response()
-        }
+    .await
+    {
+        Ok(events) => Json(events).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -354,15 +387,7 @@ pub fn entry_from_json(v: &Value, now: i64) -> Option<LogEntry> {
         .map(|m| {
             m.iter()
                 .filter(|(k, _)| crate::store::valid_field_key(k))
-                .filter_map(|(k, v)| {
-                    let v = match v {
-                        Value::String(s) => s.clone(),
-                        Value::Number(n) => n.to_string(),
-                        Value::Bool(b) => b.to_string(),
-                        _ => return None,
-                    };
-                    Some((k.clone(), v))
-                })
+                .filter_map(|(k, v)| Some((k.clone(), crate::structured::json_scalar(v)?)))
                 .take(64)
                 .collect()
         })
@@ -594,8 +619,8 @@ fn parse_search(params: Vec<(String, String)>) -> Result<Query, String> {
             "app" if !v.is_empty() => q.app = Some(v),
             // Maximum severity number (0 = emergency … 7 = debug).
             "level" if !v.is_empty() => q.max_severity = Some(num("level", &v)?.clamp(0, 7) as u8),
-            "since" if !v.is_empty() => q.since_ms = Some(num("since", &v)?),
-            "until" if !v.is_empty() => q.until_ms = Some(num("until", &v)?),
+            "since" if !v.is_empty() => q.since_ms = Some(num("since", &v)?.clamp(-MAX_TS, MAX_TS)),
+            "until" if !v.is_empty() => q.until_ms = Some(num("until", &v)?.clamp(-MAX_TS, MAX_TS)),
             // Paging cursor `ts:id`, as returned in the `X-Next-Cursor` header.
             "before" if !v.is_empty() => {
                 let bad = || "before must be <ts>:<id>".to_string();
@@ -675,15 +700,12 @@ async fn search(
         return r;
     }
     let limit = query.limit;
-    let path = state.db_path.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
-        store::search(&conn, &query).map_err(anyhow::Error::from)
+    match with_db(&state.db_path, "search", move |conn| {
+        store::search(conn, &query).map_err(anyhow::Error::from)
     })
-    .await;
-
-    match result {
-        Ok(Ok(rows)) => {
+    .await
+    {
+        Ok(rows) => {
             // A full page means there may be more: hand out the cursor for the next one.
             let next = rows
                 .last()
@@ -695,14 +717,7 @@ async fn search(
             }
             resp
         }
-        Ok(Err(e)) => {
-            tracing::error!("search failed: {e:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "search failed").into_response()
-        }
-        Err(e) => {
-            tracing::error!("search task failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "search failed").into_response()
-        }
+        Err(e) => e.into_response(),
     }
 }
 
@@ -759,58 +774,47 @@ async fn stats(
     if let Some(r) = resolve_tags(&state, &mut req.query) {
         return r;
     }
-    let path = state.db_path.clone();
-    let result =
-        tokio::task::spawn_blocking(move || -> anyhow::Result<Result<stats::Stats, String>> {
-            let conn = store::open(&path)?;
-            let until = req.query.until_ms.unwrap_or_else(now_ms);
-            let since = match req.query.since_ms {
-                Some(s) => s,
-                None => store::min_ts(&conn)?
-                    .unwrap_or(until - 3_600_000)
-                    .min(until),
-            };
-            if since > until {
-                return Ok(Err("since must not be after until".into()));
-            }
-            let bucket_ms = req
-                .bucket_ms
-                .unwrap_or_else(|| stats::auto_bucket_ms(until - since));
-            if until.div_euclid(bucket_ms) - since.div_euclid(bucket_ms) >= stats::MAX_BUCKETS {
-                return Ok(Err(format!(
-                    "range needs more than {} buckets; use a larger bucket or a shorter range",
-                    stats::MAX_BUCKETS
-                )));
-            }
-            let query = Query {
-                since_ms: Some(since),
-                until_ms: Some(until),
-                ..req.query
-            };
-            let mut rows = store::stats(&conn, &query, bucket_ms, &req.group)?;
-            if req.group == GroupBy::Severity {
-                for (_, g, _) in &mut rows {
-                    if let Ok(n) = g.parse::<u8>() {
-                        *g = crate::model::severity_name(n).to_string();
-                    }
+    match with_db(&state.db_path, "stats", move |conn| {
+        let until = req.query.until_ms.unwrap_or_else(now_ms);
+        let since = match req.query.since_ms {
+            Some(s) => s,
+            None => store::min_ts(conn)?
+                .unwrap_or(until.saturating_sub(3_600_000))
+                .min(until),
+        };
+        if since > until {
+            return Ok(Err("since must not be after until".into()));
+        }
+        let bucket_ms = req
+            .bucket_ms
+            .unwrap_or_else(|| stats::auto_bucket_ms(until.saturating_sub(since)));
+        if until.div_euclid(bucket_ms) - since.div_euclid(bucket_ms) >= stats::MAX_BUCKETS {
+            return Ok(Err(format!(
+                "range needs more than {} buckets; use a larger bucket or a shorter range",
+                stats::MAX_BUCKETS
+            )));
+        }
+        let query = Query {
+            since_ms: Some(since),
+            until_ms: Some(until),
+            ..req.query
+        };
+        let mut rows = store::stats(conn, &query, bucket_ms, &req.group)?;
+        if req.group == GroupBy::Severity {
+            for (_, g, _) in &mut rows {
+                if let Ok(n) = g.parse::<u8>() {
+                    *g = crate::model::severity_name(n).to_string();
                 }
             }
-            let grouped = req.group != GroupBy::None;
-            Ok(Ok(stats::assemble(rows, since, until, bucket_ms, grouped)))
-        })
-        .await;
-
-    match result {
-        Ok(Ok(Ok(s))) => Json(s).into_response(),
-        Ok(Ok(Err(msg))) => (StatusCode::BAD_REQUEST, msg).into_response(),
-        Ok(Err(e)) => {
-            tracing::error!("stats failed: {e:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "stats failed").into_response()
         }
-        Err(e) => {
-            tracing::error!("stats task failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "stats failed").into_response()
-        }
+        let grouped = req.group != GroupBy::None;
+        Ok(Ok(stats::assemble(rows, since, until, bucket_ms, grouped)))
+    })
+    .await
+    {
+        Ok(Ok(s)) => Json(s).into_response(),
+        Ok(Err(msg)) => (StatusCode::BAD_REQUEST, msg).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -861,14 +865,12 @@ async fn hosts(
     if let Some(r) = resolve_tags(&state, &mut query) {
         return r;
     }
-    let path = state.db_path.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
-        store::host_summary(&conn, &query, sort).map_err(anyhow::Error::from)
+    match with_db(&state.db_path, "host summary", move |conn| {
+        store::host_summary(conn, &query, sort).map_err(anyhow::Error::from)
     })
-    .await;
-    match result {
-        Ok(Ok(mut rows)) => {
+    .await
+    {
+        Ok(mut rows) => {
             let tags = state.settings.tags.get();
             for r in &mut rows {
                 r.silent = state.sink.silence().is_silent(&r.host);
@@ -880,14 +882,7 @@ async fn hosts(
             }
             Json(rows).into_response()
         }
-        Ok(Err(e)) => {
-            tracing::error!("host summary failed: {e:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "host summary failed").into_response()
-        }
-        Err(e) => {
-            tracing::error!("host summary task failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "host summary failed").into_response()
-        }
+        Err(e) => e.into_response(),
     }
 }
 
@@ -965,15 +960,13 @@ async fn list_views(
     if let Some(refused) = views_refused(&who) {
         return refused;
     }
-    let path = state.db_path.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
-        store::list_views(&conn).map_err(anyhow::Error::from)
+    match with_db(&state.db_path, "listing views", move |conn| {
+        store::list_views(conn).map_err(anyhow::Error::from)
     })
-    .await;
-    match result {
-        Ok(Ok(views)) => Json(views).into_response(),
-        _ => (StatusCode::INTERNAL_SERVER_ERROR, "could not list views").into_response(),
+    .await
+    {
+        Ok(views) => Json(views).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -990,15 +983,13 @@ async fn save_view(
         Ok(v) => v,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
-    let path = state.db_path.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
-        store::save_view(&conn, &name, &query, now_ms()).map_err(anyhow::Error::from)
+    match with_db(&state.db_path, "saving the view", move |conn| {
+        store::save_view(conn, &name, &query, now_ms()).map_err(anyhow::Error::from)
     })
-    .await;
-    match result {
-        Ok(Ok(Some(view))) => Json(view).into_response(),
-        Ok(Ok(None)) => (
+    .await
+    {
+        Ok(Some(view)) => Json(view).into_response(),
+        Ok(None) => (
             StatusCode::CONFLICT,
             format!(
                 "at most {} views can be saved; delete one first",
@@ -1006,11 +997,7 @@ async fn save_view(
             ),
         )
             .into_response(),
-        Ok(Err(e)) => {
-            tracing::error!("saving a view failed: {e:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "could not save the view").into_response()
-        }
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not save the view").into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -1022,20 +1009,14 @@ async fn delete_view(
     if let Some(refused) = views_refused(&who) {
         return refused;
     }
-    let path = state.db_path.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
-        store::delete_view(&conn, id).map_err(anyhow::Error::from)
+    match with_db(&state.db_path, "deleting the view", move |conn| {
+        store::delete_view(conn, id).map_err(anyhow::Error::from)
     })
-    .await;
-    match result {
-        Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
-        Ok(Ok(false)) => (StatusCode::NOT_FOUND, "no such view").into_response(),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "could not delete the view",
-        )
-            .into_response(),
+    .await
+    {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such view").into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -1062,14 +1043,7 @@ fn parse_top(params: Vec<(String, String)>) -> Result<(Query, GroupBy, usize), S
                     }
                 });
             }
-            "limit" if !v.is_empty() => {
-                limit = v
-                    .parse::<usize>()
-                    .ok()
-                    .filter(|n| *n > 0)
-                    .ok_or("invalid limit")?
-                    .min(MAX_TOP_VALUES);
-            }
+            "limit" if !v.is_empty() => limit = positive_limit(&v, MAX_TOP_VALUES)?,
             "field" | "limit" => {}
             _ => rest.push((k, v)),
         }
@@ -1102,15 +1076,13 @@ async fn top(
     if let Some(r) = resolve_tags(&state, &mut query) {
         return r;
     }
-    let path = state.db_path.clone();
     let for_db = group.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
-        store::top_values(&conn, &query, &for_db, limit).map_err(anyhow::Error::from)
+    match with_db(&state.db_path, "top values", move |conn| {
+        store::top_values(conn, &query, &for_db, limit).map_err(anyhow::Error::from)
     })
-    .await;
-    match result {
-        Ok(Ok(mut top)) => {
+    .await
+    {
+        Ok(mut top) => {
             if group == GroupBy::Severity {
                 for v in &mut top.values {
                     if let Ok(n) = v.value.parse::<u8>() {
@@ -1129,14 +1101,7 @@ async fn top(
             let other = top.with_field.saturating_sub(listed);
             Json(TopResponse { field, top, other }).into_response()
         }
-        Ok(Err(e)) => {
-            tracing::error!("top values failed: {e:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "top values failed").into_response()
-        }
-        Err(e) => {
-            tracing::error!("top values task failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "top values failed").into_response()
-        }
+        Err(e) => e.into_response(),
     }
 }
 
@@ -1157,9 +1122,9 @@ async fn fields(
     let mut rest = Vec::new();
     for (k, v) in params {
         match (k.as_str(), v.as_str()) {
-            ("limit", v) if !v.is_empty() => match v.parse::<usize>().ok().filter(|n| *n > 0) {
-                Some(n) => limit = n.min(MAX_FIELD_NAMES),
-                None => return (StatusCode::BAD_REQUEST, "invalid limit").into_response(),
+            ("limit", v) if !v.is_empty() => match positive_limit(v, MAX_FIELD_NAMES) {
+                Ok(n) => limit = n,
+                Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
             },
             ("limit", _) => {}
             _ => rest.push((k, v)),
@@ -1173,28 +1138,19 @@ async fn fields(
     if let Some(r) = resolve_tags(&state, &mut query) {
         return r;
     }
-    let path = state.db_path.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
-        store::field_names(&conn, &query, limit).map_err(anyhow::Error::from)
+    match with_db(&state.db_path, "field names", move |conn| {
+        store::field_names(conn, &query, limit).map_err(anyhow::Error::from)
     })
-    .await;
-    match result {
-        Ok(Ok(names)) => Json(
+    .await
+    {
+        Ok(names) => Json(
             names
                 .into_iter()
                 .map(|(key, count)| FieldName { key, count })
                 .collect::<Vec<_>>(),
         )
         .into_response(),
-        Ok(Err(e)) => {
-            tracing::error!("field names failed: {e:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "field names failed").into_response()
-        }
-        Err(e) => {
-            tracing::error!("field names task failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "field names failed").into_response()
-        }
+        Err(e) => e.into_response(),
     }
 }
 
@@ -1205,14 +1161,7 @@ fn parse_patterns(params: Vec<(String, String)>) -> Result<(Query, usize), Strin
     for (k, v) in params {
         match (k.as_str(), v.as_str()) {
             ("limit", "") => {}
-            ("limit", v) => {
-                limit = v
-                    .parse::<usize>()
-                    .ok()
-                    .filter(|n| *n > 0)
-                    .ok_or("invalid limit")?
-                    .min(MAX_PATTERNS);
-            }
+            ("limit", v) => limit = positive_limit(v, MAX_PATTERNS)?,
             _ => rest.push((k, v)),
         }
     }
@@ -1234,11 +1183,9 @@ async fn patterns(
     if let Some(r) = resolve_tags(&state, &mut query) {
         return r;
     }
-    let path = state.db_path.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
+    match with_db(&state.db_path, "patterns", move |conn| {
         let (samples, truncated) =
-            store::recent_samples(&conn, &query, PATTERN_SCAN, PATTERN_MESSAGE_CHARS)?;
+            store::recent_samples(conn, &query, PATTERN_SCAN, PATTERN_MESSAGE_CHARS)?;
         let until = query.until_ms.unwrap_or_else(now_ms);
         anyhow::Ok(crate::patterns::analyse(
             &samples,
@@ -1248,17 +1195,10 @@ async fn patterns(
             limit,
         ))
     })
-    .await;
-    match result {
-        Ok(Ok(p)) => Json(p).into_response(),
-        Ok(Err(e)) => {
-            tracing::error!("patterns failed: {e:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "patterns failed").into_response()
-        }
-        Err(e) => {
-            tracing::error!("patterns task failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "patterns failed").into_response()
-        }
+    .await
+    {
+        Ok(p) => Json(p).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -1296,23 +1236,14 @@ async fn log_context(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     let access = who.access;
-    let path = state.db_path.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = store::open(&path)?;
-        store::context(&conn, id, lines, same_host, &access).map_err(anyhow::Error::from)
+    match with_db(&state.db_path, "context", move |conn| {
+        store::context(conn, id, lines, same_host, &access).map_err(anyhow::Error::from)
     })
-    .await;
-    match result {
-        Ok(Ok(Some(ctx))) => Json(ctx).into_response(),
-        Ok(Ok(None)) => (StatusCode::NOT_FOUND, "no such entry").into_response(),
-        Ok(Err(e)) => {
-            tracing::error!("context failed: {e:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "context failed").into_response()
-        }
-        Err(e) => {
-            tracing::error!("context task failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "context failed").into_response()
-        }
+    .await
+    {
+        Ok(Some(ctx)) => Json(ctx).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no such entry").into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -1326,12 +1257,7 @@ fn parse_export(params: Vec<(String, String)>) -> Result<(Query, Format, Option<
         match k.as_str() {
             "format" => format = Format::parse(&v).ok_or("format must be ndjson or csv")?,
             "limit" if !v.is_empty() => {
-                limit = Some(
-                    v.parse::<u64>()
-                        .ok()
-                        .filter(|n| *n > 0)
-                        .ok_or("invalid limit")?,
-                );
+                limit = Some(positive_limit(&v, usize::MAX)? as u64);
             }
             // Search's own limit (capped at 1000) does not apply to exports.
             "limit" => {}

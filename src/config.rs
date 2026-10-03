@@ -754,17 +754,23 @@ mod tests {
         cfg.validate().unwrap();
         let a = cfg.auth();
         use crate::auth::Decision::*;
-        assert_eq!(a.check(Some("admin"), Scope::Read), Allowed);
-        assert_eq!(a.check(Some("ship"), Scope::Write), Allowed);
-        assert_eq!(a.check(Some("ship"), Scope::Read), Forbidden);
-        assert_eq!(a.check(Some("view"), Scope::Read), Allowed);
-        assert_eq!(a.check(Some("view"), Scope::Write), Forbidden);
+        assert_eq!(a.identify(Some("admin"), Scope::Read).err(), None);
+        assert_eq!(a.identify(Some("ship"), Scope::Write).err(), None);
+        assert_eq!(a.identify(Some("ship"), Scope::Read).err(), Some(Forbidden));
+        assert_eq!(a.identify(Some("view"), Scope::Read).err(), None);
+        assert_eq!(
+            a.identify(Some("view"), Scope::Write).err(),
+            Some(Forbidden)
+        );
 
         // Only scoped tokens still turn authentication on.
         let mut only = Config::default();
         only.apply_env(&env(&[("LOGPIT_HTTP_TOKEN_WRITE", "w")]))
             .unwrap();
-        assert_eq!(only.auth().check(None, Scope::Read), Unauthorized);
+        assert_eq!(
+            only.auth().identify(None, Scope::Read).err(),
+            Some(Unauthorized)
+        );
 
         assert!(Config::parse("[[http.tokens]]\ntoken = \"a\"\nscopes = []").is_err());
         assert!(Config::parse("[[http.tokens]]\ntoken = \"\"\nscopes = [\"read\"]").is_err());

@@ -90,63 +90,6 @@ fn param<'a>(params: &'a [(String, String)], name: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
-/// Days since 1970-01-01 of a civil date.
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
-}
-
-/// `2026-10-03T12:00:00Z`, with optional fraction and `±hh:mm` offset, as Unix ms.
-fn parse_rfc3339(text: &str) -> Option<i64> {
-    let (date, rest) = text.split_once(['T', 't', ' '])?;
-    let mut d = date.split('-');
-    let (y, mo, da): (i64, i64, i64) = (
-        d.next()?.parse().ok()?,
-        d.next()?.parse().ok()?,
-        d.next()?.parse().ok()?,
-    );
-    if d.next().is_some() || !(1..=12).contains(&mo) || !(1..=31).contains(&da) {
-        return None;
-    }
-    let (clock, offset_min) = if let Some(c) = rest.strip_suffix(['Z', 'z']) {
-        (c, 0)
-    } else {
-        let at = rest.rfind(['+', '-'])?;
-        let (c, off) = rest.split_at(at);
-        let sign = if off.starts_with('-') { -1 } else { 1 };
-        let (oh, om) = off[1..].split_once(':')?;
-        (
-            c,
-            sign * (oh.parse::<i64>().ok()? * 60 + om.parse::<i64>().ok()?),
-        )
-    };
-    let (hms, frac) = clock.split_once('.').unwrap_or((clock, ""));
-    let mut t = hms.split(':');
-    let (h, mi, s): (i64, i64, i64) = (
-        t.next()?.parse().ok()?,
-        t.next()?.parse().ok()?,
-        t.next()?.parse().ok()?,
-    );
-    if t.next().is_some() || h > 23 || mi > 59 || s > 60 {
-        return None;
-    }
-    let millis = if frac.is_empty() {
-        0
-    } else if frac.bytes().all(|b| b.is_ascii_digit()) {
-        format!("{:0<3}", &frac[..frac.len().min(3)])
-            .parse::<i64>()
-            .ok()?
-    } else {
-        return None;
-    };
-    let secs = days_from_civil(y, mo, da) * 86_400 + h * 3600 + mi * 60 + s - offset_min * 60;
-    Some(secs * 1000 + millis)
-}
-
 /// A Loki time: Unix seconds (maybe fractional), milliseconds, microseconds or nanoseconds
 /// (told apart by size), or RFC 3339. Returns Unix ms.
 pub fn parse_time(text: &str) -> Result<i64, String> {
@@ -166,7 +109,9 @@ pub fn parse_time(text: &str) -> Result<i64, String> {
         };
         return Ok(ms.floor() as i64);
     }
-    parse_rfc3339(t).ok_or_else(|| format!("invalid time {text:?}"))
+    chrono::DateTime::parse_from_rfc3339(t)
+        .map(|d| d.timestamp_millis())
+        .map_err(|_| format!("invalid time {text:?}"))
 }
 
 /// A step: seconds (maybe fractional) or a duration such as `1m`. Returns ms.
@@ -183,11 +128,6 @@ fn parse_step(text: &str) -> Result<i64, String> {
 
 fn bad(msg: impl Into<String>) -> Response {
     (StatusCode::BAD_REQUEST, msg.into()).into_response()
-}
-
-fn server_failure(what: &str, e: impl std::fmt::Display) -> (StatusCode, String) {
-    tracing::error!("loki {what} failed: {e}");
-    (StatusCode::INTERNAL_SERVER_ERROR, format!("{what} failed"))
 }
 
 fn success(data: Value) -> Response {
@@ -480,19 +420,10 @@ async fn run_blocking<T: Send + 'static>(
     what: &'static str,
     job: impl FnOnce(&rusqlite::Connection) -> Result<T, String> + Send + 'static,
 ) -> Result<T, (StatusCode, String)> {
-    let path = state.db_path.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<Result<T, String>, String> {
-        let conn = store::open(&path).map_err(|e| format!("{e:#}"))?;
-        Ok(job(&conn))
-    })
-    .await;
-    match result {
-        Ok(Ok(Ok(v))) => Ok(v),
-        // What the job itself reports is about the query (a bad regex, too many series).
-        Ok(Ok(Err(msg))) => Err((StatusCode::BAD_REQUEST, msg)),
-        Ok(Err(msg)) => Err(server_failure(what, msg)),
-        Err(e) => Err(server_failure(what, e)),
-    }
+    // What the job itself reports is about the query (a bad regex, too many series).
+    crate::api::with_db(&state.db_path, what, move |conn| Ok(job(conn)))
+        .await?
+        .map_err(|msg| (StatusCode::BAD_REQUEST, msg))
 }
 
 /// `GET|POST /loki/api/v1/query_range`: log streams for a log query, a matrix for a metric one.

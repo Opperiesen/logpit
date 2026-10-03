@@ -74,3 +74,35 @@ impl<'a> Reader<'a> {
 pub(crate) fn utf8(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
+
+/// A minimal protobuf encoder for the tests, written independently of the decoder above.
+#[cfg(test)]
+pub(crate) mod encode {
+    pub(crate) fn varint(mut v: u64, out: &mut Vec<u8>) {
+        loop {
+            let b = (v & 0x7f) as u8;
+            v >>= 7;
+            if v == 0 {
+                out.push(b);
+                return;
+            }
+            out.push(b | 0x80);
+        }
+    }
+
+    pub(crate) fn len_field(no: u32, payload: &[u8], out: &mut Vec<u8>) {
+        varint(u64::from(no << 3 | 2), out);
+        varint(payload.len() as u64, out);
+        out.extend_from_slice(payload);
+    }
+
+    pub(crate) fn num_field(no: u32, v: u64, out: &mut Vec<u8>) {
+        varint(u64::from(no << 3), out);
+        varint(v, out);
+    }
+
+    pub(crate) fn fixed64_field(no: u32, v: u64, out: &mut Vec<u8>) {
+        varint(u64::from(no << 3 | 1), out);
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+}

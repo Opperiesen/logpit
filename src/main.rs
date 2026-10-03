@@ -117,7 +117,7 @@ async fn retention_loop(
             };
             let hook: Option<store::ArchiveHook<'_>> = archiver.is_some().then_some(&write);
             let aged = if purge_by_age {
-                store::purge_with(&conn, &cutoffs, hook)?
+                store::purge(&conn, &cutoffs, hook)?
             } else {
                 0
             };
@@ -244,11 +244,20 @@ async fn reload_on_sighup(
 async fn main() -> anyhow::Result<()> {
     // `logpit ship ...` is a log shipper, not the server: it has its own options.
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    if raw.first().map(String::as_str) == Some("ship") {
-        if raw[1..].iter().any(|a| a == "--help" || a == "-h") {
-            println!("{}", logpit::shipper::USAGE);
-            return Ok(());
-        }
+    let command = raw.first().map(String::as_str);
+    let usage = match command {
+        Some("ship") => Some(logpit::shipper::USAGE),
+        Some("search" | "tail") => Some(logpit::cli::SEARCH_USAGE),
+        Some("restore") => Some(logpit::restore::USAGE),
+        _ => None,
+    };
+    if let Some(usage) = usage
+        && raw[1..].iter().any(|a| a == "--help" || a == "-h")
+    {
+        println!("{usage}");
+        return Ok(());
+    }
+    if command == Some("ship") {
         let cfg = logpit::shipper::ShipConfig::from_args(&raw[1..], &|k| std::env::var(k).ok())?;
         tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
@@ -257,11 +266,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // `logpit search ...` and `logpit tail ...` query a running server from the terminal.
-    if matches!(raw.first().map(String::as_str), Some("search" | "tail")) {
-        if raw[1..].iter().any(|a| a == "--help" || a == "-h") {
-            println!("{}", logpit::cli::SEARCH_USAGE);
-            return Ok(());
-        }
+    if matches!(command, Some("search" | "tail")) {
         let cli = logpit::cli::Cli::from_args(&raw[1..], &|k| std::env::var(k).ok(), now_ms())?;
         let mut out = std::io::stdout().lock();
         let result = if raw[0] == "search" {
@@ -285,11 +290,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // `logpit restore ...` loads archive files into a server.
-    if raw.first().map(String::as_str) == Some("restore") {
-        if raw[1..].iter().any(|a| a == "--help" || a == "-h") {
-            println!("{}", logpit::restore::USAGE);
-            return Ok(());
-        }
+    if command == Some("restore") {
         let cfg = logpit::restore::RestoreConfig::from_args(&raw[1..], &|k| std::env::var(k).ok())?;
         let dry = cfg.dry_run;
         let summary = logpit::restore::run(cfg).await?;
@@ -352,13 +353,16 @@ async fn main() -> anyhow::Result<()> {
     let metrics = Arc::new(Metrics::default());
     let (tx, rx) = sync_channel(cfg.storage.queue_capacity);
 
+    // Set at shutdown: connections still open keep queue senders alive, so the writer cannot
+    // wait for all of them to be dropped.
+    let stop_writer = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let writer = {
-        let metrics = metrics.clone();
+        let (metrics, stop) = (metrics.clone(), stop_writer.clone());
         let batch = cfg.storage.batch_size;
         let flush = Duration::from_millis(cfg.storage.flush_interval_ms);
         std::thread::Builder::new()
             .name("logpit-writer".into())
-            .spawn(move || store::run_writer(conn, rx, batch, flush, metrics))?
+            .spawn(move || store::run_writer(conn, rx, batch, flush, metrics, stop))?
     };
 
     let silence_rules = settings.silence.get();
@@ -565,6 +569,7 @@ async fn main() -> anyhow::Result<()> {
         flush_sink.push_summary(summary);
     }
     drop(flush_sink);
+    stop_writer.store(true, Ordering::Release);
     tokio::task::spawn_blocking(move || writer.join())
         .await?
         .map_err(|_| anyhow::anyhow!("writer thread panicked"))?;

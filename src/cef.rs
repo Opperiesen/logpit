@@ -8,10 +8,9 @@
 use std::collections::BTreeMap;
 
 use crate::model::LogEntry;
+use crate::structured::{MAX_KEY_BYTES, clip};
 
 const MAX_FIELDS: usize = 64;
-const MAX_KEY_BYTES: usize = 64;
-const MAX_VALUE_BYTES: usize = 1024;
 
 #[derive(Debug, PartialEq)]
 pub struct Cef {
@@ -129,12 +128,6 @@ pub fn parse(text: &str) -> Option<Cef> {
     })
 }
 
-fn clip(s: &str, max: usize) -> String {
-    let mut s = s.to_string();
-    crate::model::truncate_utf8(&mut s, max);
-    s
-}
-
 /// If the entry carries a CEF record, replaces its message with a readable summary
 /// and moves the structured data into `fields`. Other entries are left untouched.
 pub fn enrich(entry: &mut LogEntry) {
@@ -159,14 +152,14 @@ pub fn enrich(entry: &mut LogEntry) {
         ("cef_severity", &cef.severity),
     ];
     for (k, v) in header {
-        fields.insert(k.to_string(), clip(v, MAX_VALUE_BYTES));
+        fields.insert(k.to_string(), clip(v));
     }
     for (k, v) in &cef.extension {
         if fields.len() >= MAX_FIELDS {
             break;
         }
         if !k.is_empty() && k.len() <= MAX_KEY_BYTES {
-            fields.insert(k.clone(), clip(v, MAX_VALUE_BYTES));
+            fields.insert(k.clone(), clip(v));
         }
     }
 

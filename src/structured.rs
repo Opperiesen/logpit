@@ -7,8 +7,9 @@ use serde_json::Value;
 use crate::model::LogEntry;
 
 const MAX_FIELDS: usize = 64;
-const MAX_KEY_BYTES: usize = 64;
-const MAX_VALUE_BYTES: usize = 1024;
+/// Limits shared by every source of fields (JSON, logfmt, CEF, GELF, Loki, OTLP, parsers).
+pub(crate) const MAX_KEY_BYTES: usize = 64;
+pub(crate) const MAX_VALUE_BYTES: usize = 1024;
 const MAX_DEPTH: usize = 3;
 /// Messages longer than this are not scanned.
 const MAX_SCAN_BYTES: usize = 64 * 1024;
@@ -17,6 +18,16 @@ pub(crate) fn clip(s: &str) -> String {
     let mut v = s.to_string();
     crate::model::truncate_utf8(&mut v, MAX_VALUE_BYTES);
     v
+}
+
+/// A JSON string, number or boolean as text; `None` for null, arrays and objects.
+pub(crate) fn json_scalar(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
 }
 
 /// Turns a JSON/logfmt key into a valid field name (letters, digits, `_`, `.`, `-`).
