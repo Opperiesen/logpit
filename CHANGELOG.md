@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.0 - 2026-10-03
+
 - Access control: `[[http.tokens]]` entries can be named, given the new `admin` scope and limited to some
   `hosts` and `apps` for reading; every read endpoint (search, context, live tail, statistics, hosts, top
   values, patterns, export) keeps to what the token may see, and saved views are refused to a limited token.
