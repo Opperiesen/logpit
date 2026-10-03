@@ -201,6 +201,9 @@ impl LiveSettings {
         if old.forward != new.forward {
             out.push("forward");
         }
+        if old.retention != new.retention {
+            out.push("retention");
+        }
         if old.silence.history_days != new.silence.history_days {
             out.push("silence.history_days");
         }
@@ -683,6 +686,15 @@ mod tests {
             ["http.tls_cert"]
         );
         let _ = std::fs::remove_dir_all(&pki.dir);
+    }
+
+    #[test]
+    fn retention_rules_need_a_restart() {
+        let old = cfg("");
+        let live = LiveSettings::from_config(&old).unwrap();
+        let new = cfg("[[retention]]\nhost = \"fw*\"\ndays = 3");
+        let report = live.reload(&old, &new).unwrap();
+        assert_eq!(report.restart_required, ["retention"]);
     }
 
     #[test]

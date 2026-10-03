@@ -81,6 +81,7 @@ fn parse_addr(label: &str, s: &str) -> anyhow::Result<Option<SocketAddr>> {
 async fn retention_loop(
     path: PathBuf,
     retention_days: [u32; 8],
+    rules: Vec<(logpit::store::PurgeRule, u32)>,
     max_db_bytes: u64,
     metrics: Arc<Metrics>,
     archiver: Option<Arc<logpit::archive::Archiver>>,
@@ -91,11 +92,18 @@ async fn retention_loop(
     let mut n = 0u64;
     loop {
         tick.tick().await;
-        let purge_by_age =
-            n.is_multiple_of(TICKS_PER_PURGE) && retention_days.iter().any(|&d| d > 0);
+        let purge_by_age = n.is_multiple_of(TICKS_PER_PURGE)
+            && (retention_days.iter().any(|&d| d > 0) || rules.iter().any(|(_, d)| *d > 0));
         n += 1;
         let now = now_ms();
         let cutoffs = retention_days.map(|d| (d > 0).then(|| now - i64::from(d) * 86_400_000));
+        let rules: Vec<store::PurgeRule> = rules
+            .iter()
+            .map(|(r, d)| store::PurgeRule {
+                cutoff: (*d > 0).then(|| now - i64::from(*d) * 86_400_000),
+                ..r.clone()
+            })
+            .collect();
         let path = path.clone();
         let (archiver, archive_metrics) = (archiver.clone(), metrics.clone());
         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(usize, usize, u64)> {
@@ -117,7 +125,7 @@ async fn retention_loop(
             };
             let hook: Option<store::ArchiveHook<'_>> = archiver.is_some().then_some(&write);
             let aged = if purge_by_age {
-                store::purge(&conn, &cutoffs, hook)?
+                store::purge_rules(&conn, &rules, &cutoffs, hook)?
             } else {
                 0
             };
@@ -570,11 +578,17 @@ async fn main() -> anyhow::Result<()> {
         });
     }
     let retention = cfg.storage.retention_table()?;
+    let retention_rules = cfg
+        .retention
+        .iter()
+        .map(|r| Ok((r.to_purge_rule()?, r.days)))
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let max_db_bytes = cfg.storage.max_db_size_mb * 1_000_000;
     tasks.spawn(async move {
         retention_loop(
             db_path,
             retention,
+            retention_rules,
             max_db_bytes,
             retention_metrics,
             archiver,

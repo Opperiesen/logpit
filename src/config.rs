@@ -23,6 +23,9 @@ pub struct Config {
     pub metrics: Vec<crate::logmetrics::MetricConfig>,
     /// Regex parsers that turn named groups into fields (`[[parsers]]`).
     pub parsers: Vec<crate::parsers::ParserConfig>,
+    /// Retention rules for some hosts, apps or severities (`[[retention]]`), in front of the
+    /// per-severity retention.
+    pub retention: Vec<RetentionRule>,
     /// Names for sets of hosts (`[[tags]]`), to filter on and to restrict tokens with.
     pub tags: Vec<crate::tags::TagConfig>,
     /// Notifications for hosts sending far more or far fewer logs than usual (`[volume]`).
@@ -207,6 +210,47 @@ impl Default for StorageConfig {
             max_message_bytes: 16 * 1024,
             archive_dir: None,
         }
+    }
+}
+
+/// How long entries matching all of `host`, `app` and `severity` are kept. The first rule an entry
+/// matches decides; entries no rule matches use `storage.retention_days` and
+/// `storage.retention_by_severity`.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RetentionRule {
+    /// Host name or pattern with `*` and `?`.
+    pub host: Option<String>,
+    /// App name or pattern with `*` and `?`.
+    pub app: Option<String>,
+    /// Severities (names or numbers); empty means any.
+    #[serde(default)]
+    pub severity: Vec<crate::rules::SeveritySpec>,
+    /// Days to keep them; 0 keeps them forever.
+    pub days: u32,
+}
+
+impl RetentionRule {
+    /// The rule as the store applies it, without its cutoff (which depends on the time of the pass).
+    pub fn to_purge_rule(&self) -> anyhow::Result<crate::store::PurgeRule> {
+        let patterns = |what: &str, p: &Option<String>| -> anyhow::Result<Vec<String>> {
+            let list: Vec<String> = p.iter().cloned().collect();
+            crate::tags::validate_patterns(&format!("retention {what}"), &list)?;
+            Ok(list)
+        };
+        let severities = crate::rules::severity_set(&self.severity)?
+            .map(|set| (0u8..8).filter(|s| set[usize::from(*s)]).collect())
+            .unwrap_or_default();
+        let rule = crate::store::PurgeRule {
+            hosts: patterns("host", &self.host)?,
+            apps: patterns("app", &self.app)?,
+            severities,
+            cutoff: None,
+        };
+        if rule.hosts.is_empty() && rule.apps.is_empty() && rule.severities.is_empty() {
+            bail!("a [[retention]] rule needs at least one of host, app and severity");
+        }
+        Ok(rule)
     }
 }
 
@@ -532,6 +576,9 @@ impl Config {
             bail!("storage.max_message_bytes must be >= 64");
         }
         s.retention_table()?;
+        for rule in &self.retention {
+            rule.to_purge_rule()?;
+        }
         if s.max_db_size_mb != 0 && s.max_db_size_mb < 16 {
             bail!("storage.max_db_size_mb must be 0 (off) or at least 16");
         }
@@ -1009,6 +1056,30 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn retention_rules_config() {
+        assert!(Config::parse("").unwrap().retention.is_empty());
+        let cfg = Config::parse(
+            "[[retention]]\nhost = \"fw*\"\ndays = 3\n\
+             [[retention]]\napp = \"nginx\"\nseverity = [\"err\", 2]\ndays = 0",
+        )
+        .unwrap();
+        assert_eq!(cfg.retention.len(), 2);
+        let rule = cfg.retention[1].to_purge_rule().unwrap();
+        assert_eq!(
+            (rule.apps.as_slice(), rule.severities.as_slice()),
+            (&["nginx".to_string()][..], &[2u8, 3][..])
+        );
+        assert!(rule.hosts.is_empty() && rule.cutoff.is_none());
+        // Needs a condition and a number of days; severities and patterns are checked.
+        assert!(Config::parse("[[retention]]\ndays = 3").is_err());
+        assert!(Config::parse("[[retention]]\nhost = \"a\"").is_err());
+        assert!(Config::parse("[[retention]]\nhost = \"a\"\ndays = -1").is_err());
+        assert!(Config::parse("[[retention]]\nseverity = [\"loud\"]\ndays = 1").is_err());
+        assert!(Config::parse("[[retention]]\nhost = \"\"\ndays = 1").is_err());
+        assert!(Config::parse("[[retention]]\nhost = \"a\"\ndays = 1\nbogus = 1").is_err());
     }
 
     #[test]

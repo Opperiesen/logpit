@@ -47,6 +47,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Forwarding**: `[[forward]]` sends a filtered copy of the entries to another LogPit, a collector or a SIEM,
   over HTTP (NDJSON) or syslog (RFC 5424, UDP or TCP).
+- **Retention rules**: `[[retention]]` keeps entries of some hosts, apps or severities for a different time.
 - **Cold archive**: entries leaving through retention or the size cap are first written to daily gzip files,
   readable with `zcat` and reloadable with `logpit restore`.
 - **Deduplication**: runs of identical messages are stored once, with a summary entry for the repeats.
@@ -151,7 +152,7 @@ name = "web-team"            # shown in the audit trail; default token-1, token-
 scopes = ["read"]
 hosts = ["web1", "web*"]     # only these hosts (names or * and ? patterns); empty or absent: every host
 tags = ["dmz"]               # and the hosts of these [[tags]]
-apps = ["nginx"]             # and only these apps; hosts/tags and apps apply together
+apps = ["nginx*"]            # and only these apps (names or patterns); hosts/tags and apps apply together
 
 [[http.tokens]]
 token = "…"
@@ -453,6 +454,41 @@ levels can be dropped early while errors are kept longer:
 Severities are `emerg`, `alert`, `crit`, `err`, `warn`, `notice`, `info`, `debug` (or `0`–`7`),
 and a value of `0` keeps that severity forever. In the TOML file this is the
 `[storage.retention_by_severity]` table. Purging runs at startup and then hourly.
+
+### Rules per host and app
+
+`[[retention]]` rules keep some entries for a different time than their severity says: firewall chatter
+for three days, the audit app for ever, the production web servers for ninety:
+
+```toml
+[storage]
+retention_days = 14                 # what no rule below matches
+
+[[retention]]
+host = "fw*"                        # host name or pattern (* and ?)
+days = 3
+
+[[retention]]
+app = "audit"                       # app name or pattern
+days = 0                            # 0 = keep for ever
+
+[[retention]]
+host = "web*"
+severity = ["err", "crit"]          # names or numbers; all conditions of a rule must match
+days = 90
+```
+
+- **First match wins.** Rules are tried in file order and an entry is judged by the first one it
+  matches, whichever keeps it longer or shorter: above, a firewall's audit entry follows the first rule
+  (3 days). Entries that match no rule use `retention_days` and `retention_by_severity`, as before. A
+  rule needs at least one of `host`, `app` and `severity`; `days = 0` also shields what it matches from
+  the rules below it.
+- **Same pass.** Rules run in the hourly purge with the severity retention, in chunks that never hold
+  the database for long, and the [cold archive](#cold-archive) (if any) receives what they remove. The
+  [size cap](#disk-size-cap) still evicts the oldest entries whatever the rules say, so `days = 0` is
+  "never by age", not "never".
+- **Changing them** needs a restart (a reload says so); the next purge applies the new rules to
+  everything stored, including entries older than before.
 
 ## Disk size cap
 
@@ -1530,7 +1566,7 @@ Without a config file the defaults listen on loopback only.
 - Single node, no user accounts (access is by token), and no built-in certificate management
   (use [HTTPS](#https) or a reverse proxy). Retention is by age and optionally by size; see
   [Retention by severity](#retention-by-severity) and [Disk size cap](#disk-size-cap).
-- Read restrictions take host names or patterns (`*`, `?`) and tags, but apps are exact names.
+- Read restrictions take host and app names or patterns (`*`, `?`), and tags for hosts.
 
 ## Development
 

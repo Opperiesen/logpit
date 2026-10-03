@@ -352,6 +352,88 @@ pub type ArchiveHook<'a> = &'a dyn Fn(&[Row]) -> anyhow::Result<()>;
 /// Entries deleted (and archived) per transaction by [`purge`].
 const PURGE_CHUNK: i64 = 5000;
 
+/// A retention rule for [`purge_rules`]: entries matching all of its conditions are kept until
+/// `cutoff` (Unix ms), or forever when it is `None`. An empty list matches anything.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PurgeRule {
+    /// Host names or patterns (`*`, `?`).
+    pub hosts: Vec<String>,
+    /// App names or patterns.
+    pub apps: Vec<String>,
+    pub severities: Vec<u8>,
+    pub cutoff: Option<i64>,
+}
+
+/// The condition for entries matching `rule`, with its arguments appended to `args`.
+fn rule_match_sql(rule: &PurgeRule, args: &mut Vec<Box<dyn ToSql>>) -> String {
+    let mut parts = Vec::new();
+    parts.extend(pattern_condition("l.host", &rule.hosts, None, args));
+    parts.extend(pattern_condition("l.app", &rule.apps, None, args));
+    if !rule.severities.is_empty() {
+        let list: Vec<String> = rule.severities.iter().map(u8::to_string).collect();
+        parts.push(format!("l.severity IN ({})", list.join(",")));
+    }
+    if parts.is_empty() {
+        "1".to_string()
+    } else {
+        format!("({})", parts.join(" AND "))
+    }
+}
+
+/// Deletes the entries `predicate` selects (anonymous `?` placeholders filled from `args`, the
+/// table aliased `l`), a chunk at a time, archiving each chunk first when asked.
+fn purge_predicate(
+    conn: &Connection,
+    predicate: &str,
+    args: Vec<Box<dyn ToSql>>,
+    archive: Option<ArchiveHook<'_>>,
+) -> anyhow::Result<usize> {
+    fn refs<'a>(args: &'a [Box<dyn ToSql>], extra: Option<&'a i64>) -> Vec<&'a dyn ToSql> {
+        let mut v: Vec<&dyn ToSql> = args.iter().map(|a| a.as_ref()).collect();
+        v.extend(extra.map(|e| e as &dyn ToSql));
+        v
+    }
+    let mut removed = 0;
+    loop {
+        let n = match archive {
+            None => conn.execute(
+                &format!(
+                    "DELETE FROM logs WHERE id IN \
+                     (SELECT l.id FROM logs l WHERE {predicate} LIMIT {PURGE_CHUNK})"
+                ),
+                params_from_iter(refs(&args, None)),
+            )?,
+            Some(archive) => {
+                let rows = {
+                    let mut stmt = conn.prepare(&format!(
+                        "SELECT l.id, l.ts, l.host, l.app, l.severity, l.message, l.fields \
+                         FROM logs l WHERE {predicate} ORDER BY l.id LIMIT {PURGE_CHUNK}"
+                    ))?;
+                    stmt.query_map(params_from_iter(refs(&args, None)), map_row)?
+                        .collect::<rusqlite::Result<Vec<_>>>()?
+                };
+                let Some(last) = rows.last().map(|r| r.id) else {
+                    break;
+                };
+                archive(&rows)?;
+                // The chunk is the first rows by id that match, so this is exactly that chunk.
+                conn.execute(
+                    &format!(
+                        "DELETE FROM logs WHERE id IN \
+                         (SELECT l.id FROM logs l WHERE {predicate} AND l.id <= ?)"
+                    ),
+                    params_from_iter(refs(&args, Some(&last))),
+                )?
+            }
+        };
+        removed += n;
+        if (n as i64) < PURGE_CHUNK {
+            break;
+        }
+    }
+    Ok(removed)
+}
+
 /// Deletes entries older than the cutoff of their severity (`cutoffs[severity]`, in Unix ms;
 /// `None` keeps that severity forever) and returns how many. With `archive`, each chunk is handed
 /// to it first and deleted only once it accepted it; a failing `archive` stops the purge.
@@ -362,7 +444,39 @@ pub fn purge(
     cutoffs: &[Option<i64>; 8],
     archive: Option<ArchiveHook<'_>>,
 ) -> anyhow::Result<usize> {
+    purge_rules(conn, &[], cutoffs, archive)
+}
+
+/// Like [`purge`], with `rules` in front: an entry is judged by the first rule it matches (kept
+/// until its cutoff, or forever), and only entries that match no rule fall back to the cutoff of
+/// their severity.
+pub fn purge_rules(
+    conn: &Connection,
+    rules: &[PurgeRule],
+    cutoffs: &[Option<i64>; 8],
+    archive: Option<ArchiveHook<'_>>,
+) -> anyhow::Result<usize> {
     let mut removed = 0;
+    // The rules that come before: what an entry must not match to be judged by a later one.
+    let not_earlier = |upto: usize, args: &mut Vec<Box<dyn ToSql>>| -> String {
+        if upto == 0 {
+            return String::new();
+        }
+        let parts: Vec<String> = rules[..upto]
+            .iter()
+            .map(|r| rule_match_sql(r, args))
+            .collect();
+        format!(" AND NOT ({})", parts.join(" OR "))
+    };
+    for (i, rule) in rules.iter().enumerate() {
+        let Some(cutoff) = rule.cutoff else {
+            continue;
+        };
+        let mut args: Vec<Box<dyn ToSql>> = vec![Box::new(cutoff)];
+        let own = rule_match_sql(rule, &mut args);
+        let earlier = not_earlier(i, &mut args);
+        removed += purge_predicate(conn, &format!("l.ts < ? AND {own}{earlier}"), args, archive)?;
+    }
     let mut done = [false; 8];
     for first in 0..8 {
         let Some(cutoff) = cutoffs[first] else {
@@ -377,41 +491,17 @@ pub fn purge(
             .inspect(|&s| done[s] = true)
             .map(|s| s.to_string())
             .collect();
-        let predicate = format!("ts < ?1 AND severity IN ({})", severities.join(","));
-        loop {
-            let n = match archive {
-                None => conn.execute(
-                    &format!(
-                        "DELETE FROM logs WHERE id IN \
-                         (SELECT id FROM logs WHERE {predicate} LIMIT {PURGE_CHUNK})"
-                    ),
-                    params![cutoff],
-                )?,
-                Some(archive) => {
-                    let rows = {
-                        let mut stmt = conn.prepare(&format!(
-                            "SELECT id, ts, host, app, severity, message, fields FROM logs \
-                             WHERE {predicate} ORDER BY id LIMIT {PURGE_CHUNK}"
-                        ))?;
-                        stmt.query_map(params![cutoff], map_row)?
-                            .collect::<rusqlite::Result<Vec<_>>>()?
-                    };
-                    let Some(last) = rows.last().map(|r| r.id) else {
-                        break;
-                    };
-                    archive(&rows)?;
-                    // The chunk is the first rows by id that match, so this is exactly that chunk.
-                    conn.execute(
-                        &format!("DELETE FROM logs WHERE {predicate} AND id <= ?2"),
-                        params![cutoff, last],
-                    )?
-                }
-            };
-            removed += n;
-            if (n as i64) < PURGE_CHUNK {
-                break;
-            }
-        }
+        let mut args: Vec<Box<dyn ToSql>> = vec![Box::new(cutoff)];
+        let earlier = not_earlier(rules.len(), &mut args);
+        removed += purge_predicate(
+            conn,
+            &format!(
+                "l.ts < ? AND l.severity IN ({}){earlier}",
+                severities.join(",")
+            ),
+            args,
+            archive,
+        )?;
     }
     Ok(removed)
 }
@@ -1128,23 +1218,11 @@ fn access_conditions(
     first: Option<usize>,
 ) -> (Vec<String>, Vec<Box<dyn ToSql>>) {
     let (mut conds, mut args) = (Vec::new(), Vec::<Box<dyn ToSql>>::new());
-    if let Some(cond) = host_pattern_condition(&access.hosts, first, &mut args) {
+    if let Some(cond) = pattern_condition("l.host", &access.hosts, first, &mut args) {
         conds.push(cond);
     }
-    if !access.apps.is_empty() {
-        let marks: Vec<String> = (0..access.apps.len())
-            .map(|i| match first {
-                Some(n) => format!("?{}", n + args.len() + i),
-                None => "?".into(),
-            })
-            .collect();
-        conds.push(format!("l.app IN ({})", marks.join(",")));
-        args.extend(
-            access
-                .apps
-                .iter()
-                .map(|v| Box::new(v.clone()) as Box<dyn ToSql>),
-        );
+    if let Some(cond) = pattern_condition("l.app", &access.apps, first, &mut args) {
+        conds.push(cond);
     }
     (conds, args)
 }
@@ -1155,9 +1233,10 @@ fn glob_for_sql(pattern: &str) -> String {
     pattern.replace('[', "[[]")
 }
 
-/// `(l.host IN (…) OR l.host GLOB ? OR …)` for host names and patterns, pushing the arguments
+/// `(column IN (…) OR column GLOB ? OR …)` for names and patterns, pushing the arguments
 /// (placeholders are numbered from `first` when given); `None` for an empty list.
-fn host_pattern_condition(
+fn pattern_condition(
+    column: &str,
     patterns: &[String],
     first: Option<usize>,
     args: &mut Vec<Box<dyn ToSql>>,
@@ -1178,10 +1257,10 @@ fn host_pattern_condition(
             marks.push(mark(args));
             args.push(Box::new(p.clone()));
         }
-        parts.push(format!("l.host IN ({})", marks.join(",")));
+        parts.push(format!("{column} IN ({})", marks.join(",")));
     }
     for p in wild {
-        parts.push(format!("l.host GLOB {}", mark(args)));
+        parts.push(format!("{column} GLOB {}", mark(args)));
         args.push(Box::new(glob_for_sql(p)));
     }
     Some(format!("({})", parts.join(" OR ")))
@@ -1283,7 +1362,7 @@ impl Filter {
         let (dynamic, args) = access_conditions(&q.access, None);
         f.dynamic = dynamic;
         f.args.extend(args);
-        if let Some(cond) = host_pattern_condition(&q.host_globs, None, &mut f.args) {
+        if let Some(cond) = pattern_condition("l.host", &q.host_globs, None, &mut f.args) {
             f.dynamic.push(cond);
         }
         for lf in &q.line_filters {
@@ -2649,6 +2728,96 @@ mod tests {
         assert_eq!(*seen.borrow(), 5);
         assert_eq!(purge(&conn, &[Some(2_000_000); 8], None).unwrap(), 7);
         assert!(search(&conn, &q(100)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn retention_rules_judge_by_the_first_match_and_fall_back_to_the_severity_table() {
+        let mut conn = mem();
+        // (ts, host, app, severity): all old, so the cutoffs decide.
+        let rows = [
+            (1, "fw1", "dnsmasq", 6),
+            (2, "fw2", "kernel", 6),
+            (3, "web1", "nginx", 6),
+            (4, "web1", "nginx", 3),
+            (5, "db1", "pg", 7),
+            (6, "web2", "cron", 6),
+            (7, "web2", "cron", 3),
+        ];
+        let batch: Vec<LogEntry> = rows
+            .iter()
+            .map(|(ts, h, a, s)| {
+                let mut e = entry(*ts, h, *s, "m");
+                e.app = a.to_string();
+                e
+            })
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let rule = |hosts: &[&str], apps: &[&str], sev: &[u8], cutoff: Option<i64>| PurgeRule {
+            hosts: hosts.iter().map(|s| s.to_string()).collect(),
+            apps: apps.iter().map(|s| s.to_string()).collect(),
+            severities: sev.to_vec(),
+            cutoff,
+        };
+        // fw*: purge everything older than 100; web1 errors: keep forever (and shield them from the
+        // later rules); cron: purge at 100. Anything else follows the severity table: info at 100.
+        let rules = [
+            rule(&["fw*"], &[], &[], Some(100)),
+            rule(&["web1"], &[], &[3], None),
+            rule(&[], &["cron"], &[], Some(100)),
+            rule(&["web*"], &[], &[], Some(100)),
+        ];
+        let mut cutoffs = [None; 8];
+        cutoffs[6] = Some(100);
+        let left = |conn: &Connection| -> Vec<i64> {
+            let mut ts: Vec<i64> = search(conn, &q(100))
+                .unwrap()
+                .iter()
+                .map(|r| r.ts)
+                .collect();
+            ts.sort();
+            ts
+        };
+        let removed = purge_rules(&conn, &rules, &cutoffs, None).unwrap();
+        // Gone: fw1, fw2 (rule 1), web1 info (rule 4), web2 info and error (rule 3 for cron).
+        // Kept: web1 error (rule 2 keeps it, so rule 4 does not touch it) and db1 debug (severity
+        // table: only info has a cutoff).
+        assert_eq!(removed, 5);
+        assert_eq!(left(&conn), [4, 5]);
+    }
+
+    #[test]
+    fn retention_rules_archive_what_they_remove_and_stay_inside_their_cutoff() {
+        use std::cell::RefCell;
+        let mut conn = mem();
+        let mut batch = Vec::new();
+        for (ts, host) in [(10, "fw1"), (900, "fw1"), (10, "web1")] {
+            batch.push(entry(ts, host, 6, &format!("{host} {ts}")));
+        }
+        insert_batch(&mut conn, &batch).unwrap();
+        let archived = RefCell::new(Vec::<String>::new());
+        let hook = |rows: &[Row]| -> anyhow::Result<()> {
+            archived
+                .borrow_mut()
+                .extend(rows.iter().map(|r| r.message.clone()));
+            Ok(())
+        };
+        let rules = [PurgeRule {
+            hosts: vec!["fw*".into()],
+            cutoff: Some(500),
+            ..Default::default()
+        }];
+        assert_eq!(
+            purge_rules(&conn, &rules, &[None; 8], Some(&hook)).unwrap(),
+            1
+        );
+        assert_eq!(archived.into_inner(), ["fw1 10"]);
+        assert_eq!(
+            search(&conn, &q(10)).unwrap().len(),
+            2,
+            "fresh fw1 and web1 stay"
+        );
+        // An empty rule list is the plain severity purge.
+        assert_eq!(purge_rules(&conn, &[], &[Some(1000); 8], None).unwrap(), 2);
     }
 
     #[test]

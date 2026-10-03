@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Retention rules (`[[retention]]`: `host`, `app`, `severity`, `days`): entries are kept for the time of
+  the first rule they match (patterns with `*` and `?`, `days = 0` for ever), in front of the
+  per-severity retention, with the cold archive honoured. Token restrictions on `apps` now take patterns
+  like `hosts` do.
+
 ## 0.13.0 - 2026-10-03
 
 - HTTPS: `http.tls_cert` and `http.tls_key` (and optional `http.tls_client_ca` for mutual TLS) serve the

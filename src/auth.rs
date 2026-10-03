@@ -22,7 +22,7 @@ pub enum Decision {
     Forbidden,
 }
 
-/// Which entries a token may read: the hosts and apps it is limited to. Hosts are exact names or
+/// Which entries a token may read: the hosts and apps it is limited to, as exact names or
 /// patterns with `*` and `?`. An empty list means no limit on that dimension, so the default value
 /// restricts nothing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -38,7 +38,7 @@ impl Access {
 
     pub fn allows(&self, host: &str, app: &str) -> bool {
         (self.hosts.is_empty() || self.hosts.iter().any(|h| crate::tags::glob_match(h, host)))
-            && (self.apps.is_empty() || self.apps.iter().any(|a| a == app))
+            && (self.apps.is_empty() || self.apps.iter().any(|a| crate::tags::glob_match(a, app)))
     }
 }
 
@@ -260,6 +260,16 @@ mod tests {
             Auth::default().identify(None, Scope::Admin),
             Ok(Identity::anonymous())
         );
+    }
+
+    #[test]
+    fn apps_take_patterns_like_hosts() {
+        let a = Access {
+            hosts: vec![],
+            apps: vec!["nginx*".into(), "cron".into()],
+        };
+        assert!(a.allows("h", "nginx") && a.allows("h", "nginx-proxy") && a.allows("h", "cron"));
+        assert!(!a.allows("h", "cronjob") && !a.allows("h", "my-nginx"));
     }
 
     #[test]
