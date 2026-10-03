@@ -44,6 +44,7 @@ hosts = ["web*"]
 "#;
 
 struct Server {
+    alerts: Arc<logpit::alertlog::AlertLog>,
     addr: SocketAddr,
     dir: PathBuf,
     stop: Arc<AtomicBool>,
@@ -99,12 +100,14 @@ async fn start(extra_toml: &str) -> Server {
         Arc::new(Tracker::new(false)),
     )
     .with_settings(settings.clone());
+    let alerts = Arc::new(logpit::alertlog::AlertLog::default());
     let state = AppState {
         sink,
         db_path: db,
         settings,
         exports: Arc::new(tokio::sync::Semaphore::new(api::MAX_EXPORTS)),
         audit: Arc::new(AuditLog::default()),
+        alerts: alerts.clone(),
     };
     let app = api::router(state, cfg.http.max_body_bytes);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -118,6 +121,7 @@ async fn start(extra_toml: &str) -> Server {
         .unwrap();
     });
     Server {
+        alerts,
         addr,
         dir,
         stop,
@@ -391,6 +395,80 @@ async fn hostile_search_text_is_never_a_server_error() {
         let r = get(s.addr, &format!("/api/logs?q={q}"), "").await;
         assert_eq!(r.status, 200, "q={q}: {}", r.body);
     }
+}
+
+#[tokio::test]
+async fn the_alert_history_is_served_and_limited_to_the_hosts_of_the_token() {
+    use logpit::alertlog::AlertEntry;
+    let s = start(TOKENS).await;
+    let entry = |ts: i64, kind: &str, host: Option<&str>, delivered: Option<bool>| AlertEntry {
+        ts,
+        kind: kind.into(),
+        host: host.map(String::from),
+        message: format!("{kind} {ts}"),
+        delivered,
+        details: serde_json::json!({"event": kind}),
+    };
+    for e in [
+        entry(1, "host_silent", Some("web1"), Some(true)),
+        entry(2, "volume_surge", Some("db1"), Some(false)),
+        entry(3, "log_alert", None, None),
+        entry(4, "new_pattern", Some("web2"), None),
+    ] {
+        s.alerts.record(e).await;
+    }
+    let all = get(s.addr, "/api/alerts", READER).await;
+    assert_eq!(all.status, 200, "{}", all.body);
+    let kinds: Vec<String> = all
+        .json()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        kinds,
+        ["new_pattern", "log_alert", "volume_surge", "host_silent"]
+    );
+    // Delivery is reported, and absent when there was no webhook.
+    let first = &all.json()[2];
+    assert_eq!(first["delivered"], false);
+    assert!(all.json()[0].get("delivered").is_none());
+    // Filters.
+    let by = |q: &str| {
+        let q = q.to_string();
+        let addr = s.addr;
+        async move {
+            get(addr, &format!("/api/alerts?{q}"), READER)
+                .await
+                .json()
+                .as_array()
+                .unwrap()
+                .len()
+        }
+    };
+    assert_eq!(by("kind=host_silent").await, 1);
+    assert_eq!(by("host=db1").await, 1);
+    assert_eq!(by("since=3").await, 2);
+    assert_eq!(by("until=2").await, 2);
+    assert_eq!(by("limit=1").await, 1);
+    assert_eq!(get(s.addr, "/api/alerts?limit=0", READER).await.status, 400);
+    assert_eq!(get(s.addr, "/api/alerts?since=x", READER).await.status, 400);
+    // A token limited to web* sees the alerts about web hosts, and not the host-less one.
+    let web = get(s.addr, "/api/alerts", WEB_ONLY).await.json();
+    let hosts: Vec<&str> = web
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["host"].as_str().unwrap())
+        .collect();
+    assert_eq!(hosts, ["web2", "web1"]);
+    // Scopes: the write token cannot read them, a missing token is refused.
+    assert_eq!(get(s.addr, "/api/alerts", WRITER).await.status, 403);
+    assert_eq!(
+        call(s.addr, "GET", "/api/alerts", None, b"").await.status,
+        401
+    );
 }
 
 #[tokio::test]

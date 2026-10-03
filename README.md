@@ -40,6 +40,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Command line**: `logpit search` and `logpit tail` query a server from the terminal, with the same filters
   as the API, and text, JSON or NDJSON output.
 - **Volume alerts**: get notified when a host sends far more or far fewer logs than it usually does.
+- **Alert history**: every notification LogPit raises is kept and listed in `GET /api/alerts` and the web UI,
+  with whether the webhook took it.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Forwarding**: `[[forward]]` sends a filtered copy of the entries to another LogPit, a collector or a SIEM,
   over HTTP (NDJSON) or syslog (RFC 5424, UDP or TCP).
@@ -1024,6 +1026,34 @@ It notifies through the same [webhook](#alert-webhook) (and the log):
 - **Reloading.** `SIGHUP` applies the section, and keeps the baselines unless the window length changed
   (they would mean something else then). Turning it on by a reload starts without history.
 - **Metrics.** `logpit_volume_alerts_total{kind="surge"|"drop"}` and `logpit_volume_hosts`.
+
+### Alert history
+
+Every notification LogPit raises (a silent host and its recovery, [pattern alerts](#pattern-alerts),
+[new patterns and surges](#new-pattern-alerts), [volume alerts](#volume-alerts)) is recorded, whether or
+not a webhook is configured or reachable, so a missed message in your chat is not a missed alert:
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/alerts?kind=volume_surge&since=1700000000000&limit=20'
+# [{"ts":1791058984000,"kind":"volume_surge","host":"web1",
+#   "message":"web1 sent 2400 entries in 5m, far above its usual 300",
+#   "delivered":true,"details":{"event":"volume_surge","host":"web1","count":2400,…}}, …]
+```
+
+- **Fields.** `ts` (Unix ms), `kind` (`host_silent`, `host_recovered`, `log_alert`, `new_pattern`,
+  `pattern_surge`, `volume_surge`, `volume_drop`), `host` (absent for an alert that is not about one
+  host), `message`, `delivered` and `details` (the event as the `json` webhook format sends it).
+  `delivered` is `true` when the webhook accepted it, `false` when it gave up after its attempts, and
+  absent when no webhook was configured. The entry is written once the webhook attempts end, which
+  can take around fifteen seconds when it is unreachable, but is stamped with the time of the event.
+- **Query.** `limit` (default 50, at most 1000), `since`, `until` (Unix ms), `kind` and `host`; newest
+  first; it needs the `read` scope. A token limited to some hosts or tags sees only the alerts about
+  those hosts, and a token limited by app sees none (an alert has no app to check).
+- **Retention.** `silence.history_days` (default 30) keeps them in the database, purged as new ones
+  arrive and part of `logpit --backup`; `0` keeps only the last 200 in memory. Changing it needs a
+  restart.
+- **Web UI.** The collapsible *Alerts* panel lists the latest 50 with their age, kind, host (click to
+  filter) and whether the webhook took them; it does not depend on the search filters or time range.
 
 ## Pattern alerts
 

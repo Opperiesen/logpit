@@ -124,7 +124,17 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
             status INTEGER NOT NULL,
             peer   TEXT
         );
-        CREATE INDEX IF NOT EXISTS audit_ts ON audit (ts);",
+        CREATE INDEX IF NOT EXISTS audit_ts ON audit (ts);
+        CREATE TABLE IF NOT EXISTS alerts (
+            id        INTEGER PRIMARY KEY,
+            ts        INTEGER NOT NULL,
+            kind      TEXT NOT NULL,
+            host      TEXT,
+            message   TEXT NOT NULL,
+            delivered INTEGER,
+            details   TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS alerts_ts ON alerts (ts);",
     )?;
     Ok(())
 }
@@ -178,6 +188,53 @@ pub fn audit_events(
         },
     )?;
     rows.collect()
+}
+
+/// Records a raised notification.
+pub fn insert_alert(conn: &Connection, e: &crate::alertlog::AlertEntry) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO alerts (ts, kind, host, message, delivered, details) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![e.ts, e.kind, e.host, e.message, e.delivered, e.details.to_string()],
+    )?;
+    Ok(())
+}
+
+/// The newest notifications matching `q`, newest first.
+pub fn alert_events(
+    conn: &Connection,
+    q: &crate::alertlog::AlertQuery,
+) -> rusqlite::Result<Vec<crate::alertlog::AlertEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT ts, kind, host, message, delivered, details FROM alerts \
+         WHERE (?1 IS NULL OR ts >= ?1) AND (?2 IS NULL OR ts <= ?2) \
+           AND (?3 IS NULL OR kind = ?3) AND (?4 IS NULL OR host = ?4) \
+         ORDER BY ts DESC, id DESC LIMIT ?5",
+    )?;
+    let rows = stmt.query_map(
+        params![
+            q.since_ms,
+            q.until_ms,
+            q.kind,
+            q.host,
+            i64::try_from(q.limit).unwrap_or(i64::MAX)
+        ],
+        |r| {
+            Ok(crate::alertlog::AlertEntry {
+                ts: r.get(0)?,
+                kind: r.get(1)?,
+                host: r.get(2)?,
+                message: r.get(3)?,
+                delivered: r.get(4)?,
+                details: serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or_default(),
+            })
+        },
+    )?;
+    rows.collect()
+}
+
+/// Deletes notifications older than `cutoff_ms`; returns how many.
+pub fn purge_alerts(conn: &Connection, cutoff_ms: i64) -> rusqlite::Result<usize> {
+    conn.execute("DELETE FROM alerts WHERE ts < ?", [cutoff_ms])
 }
 
 /// Deletes audit events older than `cutoff_ms`; returns how many.

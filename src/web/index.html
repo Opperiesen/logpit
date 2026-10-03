@@ -67,6 +67,14 @@
   .patrow .p.link { cursor:pointer; } .patrow .p.link:hover { color:var(--accent); }
   .patrow .m { color:var(--muted); text-align:right; white-space:nowrap; }
   .patrow .t { white-space:nowrap; } .t.up { color:#cf222e; } .t.down { color:#1a7f37; } .t.flat { color:var(--muted); }
+  #alerts { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
+  #alerts summary { cursor:pointer; padding:6px 0; color:var(--muted); }
+  .alrow { display:grid; grid-template-columns:6em 9em 10em minmax(10em, 1fr) 5em; gap:0 10px; align-items:baseline; padding:2px 0; }
+  .alrow .k { font-weight:600; } .alrow .k.bad { color:#cf222e; } .alrow .k.ok { color:#1a7f37; }
+  .alrow .h { cursor:pointer; } .alrow .h:hover { color:var(--accent); }
+  .alrow .m { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .alrow .d { text-align:right; color:var(--muted); }
+  #alertList:empty::after { content:'No notifications yet.'; color:var(--muted); }
   #patList:empty::after { content:'No entries in the current results.'; color:var(--muted); }
   #topList:empty::after { content:'No values for this field in the current results.'; color:var(--muted); }
   #hosts { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
@@ -137,6 +145,10 @@
   <summary>Top values <span id="topMeta"></span></summary>
   <div class="topctl"><label>Field <select id="topField"></select></label><span id="topNote"></span></div>
   <div id="topList"></div>
+</details>
+<details id="alerts">
+  <summary>Alerts <span id="alertsMeta"></span></summary>
+  <div id="alertList"></div>
 </details>
 <details id="patterns">
   <summary>Message patterns <span id="patMeta"></span></summary>
@@ -274,7 +286,7 @@ function stopTail() {
 async function refreshChart() {
   if (document.hidden || chartBusy) return;
   chartBusy = true;
-  try { await Promise.all([loadChart(), loadHosts(), loadTop(), loadPatterns()]); } finally { chartBusy = false; }
+  try { await Promise.all([loadChart(), loadHosts(), loadTop(), loadPatterns(), loadAlerts()]); } finally { chartBusy = false; }
 }
 
 function handleEvent(raw) {
@@ -616,6 +628,47 @@ async function loadTop() {
       more.append(t, document.createElement('span'), n);
       $('topList').append(more);
     }
+  } catch {}
+}
+
+// The notifications LogPit raised (silence, pattern, new-pattern and volume alerts), newest first, whether
+// or not the webhook took them. They do not depend on the search filters.
+let alertReq = 0;
+try { $('alerts').open = localStorage.getItem('logpit-alerts-open') === '1'; } catch {}
+$('alerts').addEventListener('toggle', () => {
+  try { localStorage.setItem('logpit-alerts-open', $('alerts').open ? '1' : '0'); } catch {}
+  loadAlerts();
+});
+const ALERT_BAD = ['host_silent', 'log_alert', 'volume_surge', 'volume_drop', 'pattern_surge', 'new_pattern'];
+async function loadAlerts() {
+  if (!$('alerts').open) return;
+  const req = ++alertReq;
+  try {
+    const res = await fetch('/api/alerts?limit=50', { headers: authHeaders() });
+    if (!res.ok || req !== alertReq) return;
+    const list = await res.json();
+    $('alertsMeta').textContent = list.length ? '(' + list.length + (list.length === 50 ? '+' : '') + ')' : '';
+    $('alertList').replaceChildren(...list.map(a => {
+      const row = document.createElement('div');
+      row.className = 'alrow';
+      const when = document.createElement('span');
+      when.textContent = ago(a.ts); when.title = new Date(a.ts).toLocaleString();
+      const kind = document.createElement('span');
+      kind.className = 'k ' + (a.kind === 'host_recovered' ? 'ok' : ALERT_BAD.includes(a.kind) ? 'bad' : '');
+      kind.textContent = a.kind.replace(/_/g, ' ');
+      const host = document.createElement('span');
+      host.className = a.host ? 'h' : '';
+      host.textContent = a.host || '';
+      if (a.host) { host.title = 'Filter on host ' + a.host; host.onclick = () => { $('host').value = a.host; load(); }; }
+      const msg = document.createElement('span');
+      msg.className = 'm'; msg.textContent = a.message; msg.title = a.message;
+      const sent = document.createElement('span');
+      sent.className = 'd';
+      sent.textContent = a.delivered === true ? 'sent' : a.delivered === false ? 'not sent' : 'no webhook';
+      sent.title = a.delivered === false ? 'The webhook did not accept this notification' : a.delivered === true ? 'Delivered to the webhook' : 'No webhook is configured';
+      row.append(when, kind, host, msg, sent);
+      return row;
+    }));
   } catch {}
 }
 
@@ -968,6 +1021,7 @@ async function load() {
     loadHosts();
     loadTop();
     loadPatterns();
+    loadAlerts();
     loadViews();
     if ($('live').checked) startTail();
   } catch (e) { $('status').textContent = String(e.message || e); }

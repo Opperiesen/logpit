@@ -180,6 +180,9 @@ impl LiveSettings {
         if old.forward != new.forward {
             out.push("forward");
         }
+        if old.silence.history_days != new.silence.history_days {
+            out.push("silence.history_days");
+        }
         if old.backup != new.backup {
             out.push("backup");
         }
@@ -608,6 +611,15 @@ mod tests {
         let mut bad = new.clone();
         bad.volume.window_secs = 1;
         assert!(live.reload(&new, &bad).is_err());
+    }
+
+    #[test]
+    fn alert_history_retention_needs_a_restart() {
+        let old = cfg("");
+        let live = LiveSettings::from_config(&old).unwrap();
+        let new = cfg("[silence]\nhistory_days = 5");
+        let report = live.reload(&old, &new).unwrap();
+        assert_eq!(report.restart_required, ["silence.history_days"]);
     }
 
     #[test]

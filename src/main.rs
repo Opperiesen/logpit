@@ -405,6 +405,10 @@ async fn main() -> anyhow::Result<()> {
 
     let forwarders = logpit::forward::Forwarders::start(&cfg.forward)?;
     let volume_tx = alert_tx.clone();
+    let alert_log = Arc::new(logpit::alertlog::AlertLog::new(
+        Some(db_path.clone()),
+        cfg.silence.history_days,
+    ));
     let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone())
         .with_settings(settings.clone())
         .with_forwarders(forwarders)
@@ -414,6 +418,7 @@ async fn main() -> anyhow::Result<()> {
         db_path: db_path.clone(),
         settings: settings.clone(),
         exports: Arc::new(tokio::sync::Semaphore::new(api::MAX_EXPORTS)),
+        alerts: alert_log.clone(),
         audit: Arc::new(if cfg.http.audit_retention_days > 0 {
             AuditLog::persistent(&db_path, cfg.http.audit_retention_days)?
         } else {
@@ -494,18 +499,13 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Both notifiers read their webhook from the settings each time, so a reload can add, change
-    // or remove alerts and the webhook without restarting them.
+    // or remove alerts and the webhook without restarting them; every notification is also kept in
+    // the alert history.
     {
-        let settings = settings.clone();
+        let (settings, alerts) = (settings.clone(), alert_log.clone());
         tasks.spawn(async move {
             while let Some(event) = alert_rx.recv().await {
-                tracing::warn!(
-                    "{}",
-                    event.payload()["message"].as_str().unwrap_or_default()
-                );
-                if let Some(hook) = settings.silence.get().webhook.clone() {
-                    tokio::spawn(async move { hook.send(&event).await });
-                }
+                logpit::alertlog::dispatch(event, &settings, &alerts);
             }
             Ok(())
         });
@@ -513,7 +513,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let (tracker, settings) = (tracker.clone(), settings.clone());
         tasks.spawn(async move {
-            silence::run(tracker, settings).await;
+            silence::run(tracker, settings, alert_log).await;
             Ok(())
         });
     }

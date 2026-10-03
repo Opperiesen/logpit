@@ -418,12 +418,13 @@ impl Webhook {
         self
     }
 
-    /// Sends the alert, retrying a couple of times; failures are logged, never fatal. The URL and
-    /// headers can hold secrets, so they are never written to the log.
-    pub async fn send(&self, event: &Event) {
+    /// Sends the alert, retrying a couple of times, and says whether it got through; failures are
+    /// logged, never fatal. The URL and headers can hold secrets, so they are never written to the
+    /// log.
+    pub async fn send(&self, event: &Event) -> bool {
         for attempt in 1..=WEBHOOK_ATTEMPTS {
             match self.post_once(event).await {
-                Ok(()) => return,
+                Ok(()) => return true,
                 Err(e) => tracing::warn!("alert webhook attempt {attempt} failed: {e:#}"),
             }
             if attempt < WEBHOOK_ATTEMPTS {
@@ -431,6 +432,7 @@ impl Webhook {
             }
         }
         tracing::error!("alert webhook gave up after {WEBHOOK_ATTEMPTS} attempts");
+        false
     }
 }
 

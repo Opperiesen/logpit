@@ -58,6 +58,8 @@ pub struct AppState {
     pub exports: Arc<tokio::sync::Semaphore>,
     /// Refused requests and reads, for `/api/audit`.
     pub audit: Arc<AuditLog>,
+    /// The notifications raised, for `/api/alerts`.
+    pub alerts: Arc<crate::alertlog::AlertLog>,
 }
 
 pub fn router(state: AppState, max_body_bytes: usize) -> Router {
@@ -83,6 +85,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/api/fields", get(fields))
         .route("/api/patterns", get(patterns))
         .route("/api/tags", get(tag_list))
+        .route("/api/alerts", get(alert_history))
         .route("/api/export", get(export))
         .route(
             "/loki/api/v1/query_range",
@@ -646,6 +649,69 @@ fn parse_search(params: Vec<(String, String)>) -> Result<Query, String> {
         }
     }
     Ok(q)
+}
+
+/// `limit` (default 50, at most 1000), `since` and `until` (Unix ms), `kind` (an event name such
+/// as `host_silent` or `volume_surge`) and `host`.
+fn parse_alerts(params: Vec<(String, String)>) -> Result<crate::alertlog::AlertQuery, String> {
+    let mut q = crate::alertlog::AlertQuery {
+        limit: 50,
+        ..Default::default()
+    };
+    let num = |name: &str, v: &str| v.parse::<i64>().map_err(|_| format!("invalid {name}"));
+    for (k, v) in params {
+        match (k.as_str(), v.as_str()) {
+            (_, "") => {}
+            ("limit", v) => q.limit = positive_limit(v, crate::alertlog::MAX_QUERY_LIMIT)?,
+            ("since", v) => q.since_ms = Some(num("since", v)?),
+            ("until", v) => q.until_ms = Some(num("until", v)?),
+            ("kind", v) => q.kind = Some(v.to_string()),
+            ("host", v) => q.host = Some(v.to_string()),
+            _ => {}
+        }
+    }
+    Ok(q)
+}
+
+/// The notifications LogPit raised, newest first, whether or not a webhook took them. A token
+/// limited to some hosts sees only the alerts about those hosts, and none when it is limited by
+/// app (an alert has no app to check).
+async fn alert_history(
+    State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let mut query = match parse_alerts(params) {
+        Ok(q) => q,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let wanted = query.limit;
+    let access = who.access;
+    // A limited token's entries are filtered after the fact, so read enough of them to fill a page.
+    if !access.unrestricted() {
+        query.limit = crate::alertlog::MAX_QUERY_LIMIT;
+    }
+    let mut entries = match state.alerts.persistent_path() {
+        None => state.alerts.search_memory(&query),
+        Some(path) => {
+            let q = query.clone();
+            match with_db(path, "alert history", move |conn| {
+                Ok(store::alert_events(conn, &q)?)
+            })
+            .await
+            {
+                Ok(e) => e,
+                Err(e) => return e.into_response(),
+            }
+        }
+    };
+    if !access.unrestricted() {
+        entries.retain(|e| {
+            access.apps.is_empty() && e.host.as_deref().is_some_and(|h| access.allows(h, ""))
+        });
+        entries.truncate(wanted);
+    }
+    Json(entries).into_response()
 }
 
 /// Turns the tags asked for (`tag=`) into host patterns, or answers 400 for an unknown one.

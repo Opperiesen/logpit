@@ -383,6 +383,7 @@ impl Tracker {
 pub async fn run(
     tracker: std::sync::Arc<Tracker>,
     live: std::sync::Arc<crate::live::LiveSettings>,
+    log: std::sync::Arc<crate::alertlog::AlertLog>,
 ) {
     loop {
         let settings = live.silence.get();
@@ -390,22 +391,7 @@ pub async fn run(
         // The settings may have been replaced while sleeping; use the current ones.
         let settings = live.silence.get();
         for event in tracker.evaluate(&settings.rules, now_ms()) {
-            let message = event.payload()["message"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
-            match event {
-                Event::Silent { .. } => tracing::warn!("silence alert: {message}"),
-                Event::Recovered { .. } => tracing::info!("silence recovered: {message}"),
-                Event::Pattern { .. }
-                | Event::NewPattern { .. }
-                | Event::Surge { .. }
-                | Event::VolumeSurge { .. }
-                | Event::VolumeDrop { .. } => tracing::warn!("{message}"),
-            }
-            if let Some(hook) = settings.webhook.clone() {
-                tokio::spawn(async move { hook.send(&event).await });
-            }
+            crate::alertlog::dispatch(event, &live, &log);
         }
     }
 }

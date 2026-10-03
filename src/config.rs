@@ -169,6 +169,9 @@ pub struct SilenceConfig {
     pub webhook_headers: Vec<String>,
     /// Per-host thresholds in seconds, overriding the default; 0 means never alert.
     pub hosts: BTreeMap<String, u64>,
+    /// Days the notifications LogPit raises (all kinds, not only silence) stay in the database for
+    /// `GET /api/alerts`; 0 keeps only the last 200 in memory.
+    pub history_days: u32,
 }
 
 impl Default for SilenceConfig {
@@ -180,6 +183,7 @@ impl Default for SilenceConfig {
             webhook_format: crate::webhook::WebhookFormat::Json,
             webhook_headers: Vec::new(),
             hosts: BTreeMap::new(),
+            history_days: 30,
         }
     }
 }
@@ -980,6 +984,26 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn alert_history_config() {
+        assert_eq!(Config::parse("").unwrap().silence.history_days, 30);
+        assert_eq!(
+            Config::parse("[silence]\nhistory_days = 0")
+                .unwrap()
+                .silence
+                .history_days,
+            0
+        );
+        assert_eq!(
+            Config::parse("[silence]\nhistory_days = 90")
+                .unwrap()
+                .silence
+                .history_days,
+            90
+        );
+        assert!(Config::parse("[silence]\nhistory_days = -1").is_err());
     }
 
     #[test]

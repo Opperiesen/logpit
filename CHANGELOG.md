@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Alert history: every notification (silence, pattern alerts, new patterns and surges, volume) is
+  recorded with its kind, host, message and whether the webhook took it, kept for `silence.history_days`
+  (default 30, `0` = last 200 in memory) and served by `GET /api/alerts` (filters `kind`, `host`,
+  `since`, `until`, `limit`; limited tokens only see their hosts) and a new *Alerts* panel in the web UI.
+
 - Scheduled backups (`[backup]`: `dir`, `every_hours`, `keep`): LogPit writes a consistent copy of the
   database (`logpit-YYYYMMDDTHHMMSSZ.db`) on a schedule, keeps the newest few and never touches other
   files, with `logpit_backups_total`, `logpit_backup_errors_total` and last-success gauges.

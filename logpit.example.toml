@@ -47,6 +47,7 @@ audit_retention_days = 30    # days of access audit kept in the database; 0 = la
 # Alert when a host stops sending logs (webhook + `logpit_host_silent` metric). Off by default.
 default_after_secs = 0       # every host, in seconds; 0 = only the hosts listed below
 check_interval_secs = 30
+history_days = 30            # days of notifications (all kinds) kept for /api/alerts; 0 = last 200 in memory
 webhook_url = ""             # http:// or https://; POST on each alert and recovery
 webhook_format = "json"      # json, slack, discord, ntfy or text
 # webhook_headers = ["Authorization: Bearer ..."]
