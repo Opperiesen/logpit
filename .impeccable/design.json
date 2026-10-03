@@ -279,7 +279,7 @@
       "chart-info-grey": {
         "role": "neutral",
         "displayName": "Chart Info Grey",
-        "canonical": "#b4b4b4",
+        "canonical": "#868686",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
@@ -295,7 +295,7 @@
       "chart-debug-grey": {
         "role": "neutral",
         "displayName": "Chart Debug Grey",
-        "canonical": "#dadada",
+        "canonical": "#949494",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
@@ -599,32 +599,32 @@
       "board-chart-info": {
         "role": "neutral",
         "displayName": "Board Chart Info",
-        "canonical": "#5a619c",
+        "canonical": "#6f76b3",
         "tonalRamp": [
-          "#070031",
-          "#1c1d51",
+          "#080031",
+          "#1d1c51",
           "#373b73",
-          "#545b96",
-          "#757dba",
-          "#96a0e0",
-          "#bcc5fe",
-          "#eaedff"
+          "#555b96",
+          "#757cba",
+          "#979fdf",
+          "#bac4ff",
+          "#dfe9ff"
         ],
         "theme": "dark"
       },
       "board-chart-debug": {
         "role": "neutral",
         "displayName": "Board Chart Debug",
-        "canonical": "#3a4180",
+        "canonical": "#5f67a8",
         "tonalRamp": [
-          "#060031",
-          "#1a1b56",
-          "#343a79",
-          "#515b9c",
-          "#717cc1",
-          "#939fe7",
-          "#bac5ff",
-          "#eaeeff"
+          "#080034",
+          "#1b1b55",
+          "#363a77",
+          "#535a9a",
+          "#737cbf",
+          "#959fe5",
+          "#b8c3ff",
+          "#dde9ff"
         ],
         "theme": "dark"
       },
@@ -956,7 +956,7 @@
       },
       "hour": {
         "displayName": "Hour",
-        "purpose": "The hour on each hour band; 16px in compact density."
+        "purpose": "The hour on each hour band; 14px in compact density."
       },
       "body": {
         "displayName": "Body",

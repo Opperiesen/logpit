@@ -15,7 +15,7 @@
     --primary:#d30000; --primary-hover:#b00000;
     --err:#d30000; --warn:#9a5300; --notice:#2d327d; --ok:#1b7a34; --new:#6b3fa0;
     --c0:#4e79a7; --c1:#f28e2b; --c2:#59a14f; --c3:#b07aa1; --c4:#76b7b2; --c5:#d4a92a; --c6:#ff9da7; --c7:#9c755f; --c8:#7b5fb5; --c9:#86bc86; --other:#8a8a8a;
-    --chart-info:#b4b4b4; --chart-debug:#dadada;
+    --chart-info:#868686; --chart-debug:#949494; --on-primary:#fff;
     --hdr:0px;
   }
   @media (prefers-color-scheme: dark) { :root:not([data-theme=light]) {
@@ -25,7 +25,7 @@
     --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
     --primary:#c40000; --primary-hover:#a30000;
     --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
-    --chart-info:#5a619c; --chart-debug:#3a4180; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
+    --chart-info:#6f76b3; --chart-debug:#5f67a8; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
   } }
   :root[data-theme=light] { color-scheme:light; }
   :root[data-theme=dark] {
@@ -35,11 +35,13 @@
     --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
     --primary:#c40000; --primary-hover:#a30000;
     --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
-    --chart-info:#5a619c; --chart-debug:#3a4180; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
+    --chart-info:#6f76b3; --chart-debug:#5f67a8; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
   }
 
   * { box-sizing:border-box; }
   [hidden] { display:none !important; }
+  .skip { position:absolute; left:16px; top:-48px; z-index:30; padding:8px 12px; background:var(--ground); color:var(--ink); border:1px solid var(--field); font-weight:700; }
+  .skip:focus { top:8px; }
   body { margin:0; background:var(--ground); color:var(--ink); font:14px/1.45 var(--sans); font-variant-numeric:tabular-nums; caret-color:var(--accent); scrollbar-color:var(--field) var(--ground); }
   ::selection { background:var(--sel); color:inherit; }
   :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
@@ -50,14 +52,15 @@
   button { height:32px; padding:0 12px; border:1px solid var(--field); border-radius:2px; background:var(--ground); color:var(--ink); font-weight:600; cursor:pointer; }
   button:hover { background:var(--band); }
   button:disabled { opacity:.6; cursor:default; }
-  button.primary { background:var(--primary); border-color:var(--primary); color:#fff; }
+  button.primary { background:var(--primary); border-color:var(--primary); color:var(--on-primary); }
   button.primary:hover { background:var(--primary-hover); }
   button.small { height:24px; padding:0 8px; font-size:12px; }
   button.link { height:auto; padding:0; border:0; background:none; font:inherit; color:inherit; text-align:left; }
   button.link:hover { background:none; color:var(--accent); }
   [role=button] { cursor:pointer; }
   [role=button]:hover { color:var(--accent); }
-  @media (pointer:coarse) { input:not([type=checkbox]), select, button:not(.link) { min-height:44px; } button.small { min-height:36px; } }
+  @media (pointer:coarse) { input:not([type=checkbox]), select, button:not(.link) { min-height:44px; } button.small { min-height:36px; }
+    .row1 label { min-height:44px; padding:0 4px; } input[type=checkbox] { width:22px; height:22px; } }
 
   /* Header: the platform-navy band carries the search; the row under it the secondary filters. */
   header { position:sticky; top:0; z-index:10; background:var(--shell); color:var(--shell-ink); }
@@ -66,7 +69,7 @@
   .row1 input, .row1 select { background:var(--shell-field); color:var(--shell-field-ink); border-color:var(--shell-line); }
   .row1 label { display:flex; align-items:center; gap:6px; color:var(--shell-ink); font-weight:600; }
   .row1 button:not(.primary) { background:transparent; color:var(--shell-ink); border-color:var(--shell-line); }
-  .row1 :focus-visible { outline-color:#fff; }
+  .row1 :focus-visible { outline-color:var(--shell-ink); }
   #q { flex:1 1 280px; min-width:180px; }
   #status { margin-left:auto; color:var(--shell-muted); font-size:13px; }
   #filtersToggle { display:none; }
@@ -96,6 +99,7 @@
   #rail summary::-webkit-details-marker { display:none; }
   #rail summary::before { content:''; display:inline-block; width:6px; height:6px; margin:0 10px 2px 2px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(-45deg); }
   #rail details[open] > summary::before { transform:rotate(45deg); }
+  #rail summary h2 { display:inline; margin:0; font:inherit; }
   #rail summary span { color:var(--muted); font-weight:400; }
   #rail .body { padding:0 16px 12px; }
   .note { color:var(--muted); margin-bottom:6px; }
@@ -182,7 +186,7 @@
   .fields b { font-weight:600; }
   .fields .tracebtn { color:var(--accent); font-weight:600; text-decoration:underline; text-underline-offset:3px; }
   body.compact #stream td { padding-top:1px; padding-bottom:1px; } body.compact #stream { font-size:12px; } body.compact #stream td.msg { font-size:11.5px; line-height:1.3; }
-  body.compact #stream tr.band th { padding-top:4px; padding-bottom:3px; } body.compact .band .h { font-size:16px; }
+  body.compact #stream tr.band th { padding-top:4px; padding-bottom:3px; } body.compact .band .h { font-size:14px; }
   body.nowrap #stream td.msg { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
   body.hide-ts td.ts, body.hide-sev td.sev, body.hide-host td.host, body.hide-app td.app, body.hide-fields .fields { display:none; }
 
@@ -194,11 +198,10 @@
   .ctxline.cur { background:var(--tint-strong); font-weight:700; }
 
   #morebar { text-align:center; padding:16px; }
-  #empty { padding:32px 16px; color:var(--muted); font-size:15px; }
+  #empty { padding:32px 16px; color:var(--muted); font-size:14px; }
 
   @media (max-width:759px) {
     header { position:static; }
-    h1 { font-size:18px; }
     #filtersToggle { display:inline-flex; align-items:center; }
     header:not(.filters-open) .row2 { display:none; }
     #status { flex-basis:100%; margin-left:0; }
@@ -214,6 +217,7 @@
 </style>
 </head>
 <body>
+<a class="skip" href="#stream">Skip to the results</a>
 <header>
   <div class="row1">
     <h1>LogPit</h1>
@@ -275,7 +279,7 @@
 <div id="axis" aria-hidden="true" hidden></div>
 <aside id="rail" aria-label="Hosts and analysis">
 <details id="hosts">
-  <summary>Hosts <span id="hostsCount"></span></summary>
+  <summary><h2>Hosts <span id="hostsCount"></span></h2></summary>
   <div class="body">
   <table id="hostsTable">
     <thead><tr><th data-sort="host">Host</th><th class="n" data-sort="count">Entries</th><th class="n" data-sort="errors" title="Errors">Err</th><th class="n" data-sort="warnings" title="Warnings">Warn</th><th data-sort="last_ts">Seen</th></tr></thead>
@@ -284,26 +288,26 @@
   </div>
 </details>
 <details id="top">
-  <summary>Top values <span id="topMeta"></span></summary>
+  <summary><h2>Top values <span id="topMeta"></span></h2></summary>
   <div class="body">
   <div class="topctl"><label>Field <select id="topField"></select></label><span id="topNote"></span></div>
   <div id="topList"></div>
   </div>
 </details>
 <details id="patterns">
-  <summary>Message patterns <span id="patMeta"></span></summary>
+  <summary><h2>Message patterns <span id="patMeta"></span></h2></summary>
   <div class="body">
   <div id="patNote" class="note"></div>
   <div id="patList"></div>
   </div>
 </details>
 <details id="alerts">
-  <summary>Alerts <span id="alertsMeta"></span></summary>
+  <summary><h2>Alerts <span id="alertsMeta"></span></h2></summary>
   <div class="body"><div id="alertList"></div></div>
 </details>
 </aside>
 <main class="stream">
-<table id="stream"><tbody id="rows"></tbody></table>
+<table id="stream" tabindex="-1" aria-label="Log entries"><tbody id="rows"></tbody></table>
 <div id="morebar" hidden><button id="more" type="button">Load more</button></div>
 <div id="empty" hidden></div>
 </main>
@@ -528,9 +532,12 @@ function bandEl(ms) {
   tr.append(th);
   return tr;
 }
-function countInBand(band, r, k) {
+function countInBand(band, r, k, paint = true) {
   band._n += k;
   if (r.severity <= 3) band._e += k; else if (r.severity === 4) band._w += k;
+  if (paint) paintBand(band);
+}
+function paintBand(band) {
   const parts = [document.createTextNode(band._n.toLocaleString() + (band._n === 1 ? ' entry' : ' entries'))];
   const add = (n, cls, word) => { if (!n) return; const s = document.createElement('span'); s.className = cls; s.textContent = n.toLocaleString() + ' ' + word; parts.push(document.createTextNode(' · '), s); };
   add(band._e, 'e', band._e === 1 ? 'error' : 'errors');
@@ -572,14 +579,17 @@ function addRows(rows, append) {
   const frag = document.createDocumentFragment();
   if (!append) { entries = 0; firstBand = lastBand = null; }
   let band = lastBand;
+  const touched = new Set();
   for (const r of rows) {
     const key = hourOf(r.ts).key;
     if (!band || band._key !== key) { band = bandEl(r.ts); frag.append(band); firstBand = firstBand || band; }
     const tr = rowEl(r);
     tr._band = band;
     frag.append(tr);
-    countInBand(band, r, 1);
+    countInBand(band, r, 1, false);
+    touched.add(band);
   }
+  touched.forEach(paintBand);
   lastBand = band;
   entries += rows.length;
   if (append) $('rows').append(frag); else $('rows').replaceChildren(frag);
@@ -1454,6 +1464,8 @@ function showFilters(open) {
   document.querySelector('header').classList.toggle('filters-open', open);
   $('filtersToggle').setAttribute('aria-expanded', String(open));
 }
+// The skip link focuses the results without a fragment navigation (which would fire popstate and reload).
+document.querySelector('.skip').onclick = e => { e.preventDefault(); $('stream').focus(); };
 $('filtersToggle').onclick = () => showFilters(!document.querySelector('header').classList.contains('filters-open'));
 function markFilters() {
   const n = ['host', 'app', 'tag', 'f', 're'].filter(k => $(k).value.trim()).length;

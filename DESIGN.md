@@ -19,8 +19,8 @@ colors:
   warning-amber: "#9a5300"
   clear-green: "#1b7a34"
   first-purple: "#6b3fa0"
-  chart-info-grey: "#b4b4b4"
-  chart-debug-grey: "#dadada"
+  chart-info-grey: "#868686"
+  chart-debug-grey: "#949494"
   board-navy: "#141a46"
   board-band: "#1b2257"
   board-shell: "#0b0f2e"
@@ -39,8 +39,8 @@ colors:
   board-notice: "#9cb0ff"
   board-green: "#5fd38a"
   board-purple: "#c7a6ff"
-  board-chart-info: "#5a619c"
-  board-chart-debug: "#3a4180"
+  board-chart-info: "#6f76b3"
+  board-chart-debug: "#5f67a8"
   series-0: "#4e79a7"
   series-1: "#f28e2b"
   series-2: "#59a14f"
@@ -252,7 +252,7 @@ Two printed palettes sharing one grammar: neutral ink and rules carry the struct
 - **Band Grey** (`band-grey`): the hour band, the filter row, button hover.
 - **Notice Tint** (`notice-tint`, `notice-tint-strong`): the open context panel and its current line. **Selection Lavender** (`selection-lavender`) for text selection.
 - **Board Navy** (`board-navy`): the dark ground; `board-band` for bands and the filter row, `board-shell` (darker still) for the header band, `board-white` for text, `board-muted` for secondary text, `board-rule` for rules, `board-field` for field borders, `board-tint`/`board-tint-strong` for the context panel, `board-selection` for selection.
-- **Chart greys** (`chart-info-grey`, `chart-debug-grey`; dark `board-chart-info`, `board-chart-debug`): info and debug volume in the severity-stacked chart, deliberately recessive so errors and warnings dominate the silhouette.
+- **Chart greys** (`chart-info-grey`, `chart-debug-grey`; dark `board-chart-info`, `board-chart-debug`): info and debug volume in the severity-stacked chart, recessive so errors and warnings dominate the silhouette, yet at 3:1 or more against the ground so the bars stay perceivable.
 - **Series palette** (`series-0`…`series-9`, dark `board-series-0`…`board-series-9`, "other" in field grey or board muted): identity colours for hosts or apps only when the chart is stacked by host or app.
 
 ### Named Rules
@@ -271,8 +271,8 @@ Two printed palettes sharing one grammar: neutral ink and rules carry the struct
 **Character:** One grotesque in two weights, set with tabular figures everywhere, like a timetable book; the monospace is the voice of the machine and appears only where the machine speaks.
 
 ### Hierarchy
-- **Wordmark** (700, 20px, 32px line, −0.01em; 18px on phones): "LogPit" on the header band.
-- **Hour** (700, 20px, line-height 1; 16px in compact density): the hour on each hour band, "14:00".
+- **Wordmark** (700, 20px, 32px line, −0.01em): "LogPit" on the header band.
+- **Hour** (700, 20px, line-height 1; 14px in compact density): the hour on each hour band, "14:00".
 - **Time** (700, 14px, tabular): minutes:seconds leading each line; the hour prefix beside it is 400 in pencil grey.
 - **Body** (400, 14px, 1.45, tabular figures on the whole page): hosts, apps, controls.
 - **Rail title** (700, 13px): section heads in the rail; their counts in 400 muted.
@@ -295,7 +295,7 @@ From 1100px the page is a two-column grid: a 340px rail on the left (sticky unde
 
 The stream is a table set to the page edge with a 16px gutter on the left. Each hour opens with a band that sticks under the header (`top: var(--hdr)`, measured at runtime; 0 on phones). Below 760px each entry becomes a small grid: time, level, host, app on one line, message across the full width under it.
 
-Spacing is tight and regular: 4px vertical cell padding, 10px horizontal cell padding, 8px gaps between controls, 16px gutters, 32px only around the empty state. Compact density cuts row padding to 1px and message type to 11.5px. On coarse pointers every control grows to a 44px minimum height (36px for small buttons).
+Spacing is tight and regular: 4px vertical cell padding, 10px horizontal cell padding, 8px gaps between controls, 16px gutters, 32px only around the empty state. Compact density cuts row padding to 1px and message type to 11.5px. On coarse pointers every control grows to a 44px minimum height (36px for small buttons). A skip link, shown on keyboard focus, jumps to the results; rail section titles are `h2` headings inside their summaries.
 
 ## Elevation & Depth
 
@@ -334,7 +334,7 @@ There are no cards. Containers are bands and sheets:
 ### Inputs / Fields
 - **Style:** 32px tall, 8px horizontal padding, 1px field-grey border, 2px corners, ground fill; placeholder in muted at full opacity. On the header band fields are white (light) or board navy (dark) with platform-rule borders.
 - **Focus:** the global 2px accent outline.
-- **Checkboxes:** 16px, tinted with the primary red.
+- **Checkboxes:** 16px (22px on coarse pointers, where the Live label also grows to 44px), tinted with the primary red.
 
 ### Navigation
 There is no navigation in the site sense; the header band is the control strip. Wordmark left, search taking the remaining width, filters inline, status pushed right in lavender. Rail sections act as the secondary navigation, each opened or closed with a hard-turning chevron.
