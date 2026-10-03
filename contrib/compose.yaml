@@ -3,7 +3,7 @@
 # 2. docker compose up -d
 services:
   logpit:
-    image: ghcr.io/opperiesen/logpit:0.7.0   # pin a version; bump it to upgrade
+    image: ghcr.io/opperiesen/logpit:0.8.0   # pin a version; bump it to upgrade
     restart: unless-stopped
     ports:
       - "514:5514/udp"   # syslog

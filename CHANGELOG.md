@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.0 - 2026-10-03
+
 - OpenTelemetry: `POST /v1/logs` accepts OTLP/HTTP logs (protobuf or JSON, with or without gzip) from the
   OpenTelemetry Collector and SDK exporters. Resource and record attributes, the scope and the trace and
   span ids become fields; the severity comes from `severityNumber` or the text. OTLP over gRPC is not
