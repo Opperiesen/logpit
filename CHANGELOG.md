@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.11.0 - 2026-10-03
+
 - Cold archive (`storage.archive_dir`): entries removed by retention or the size cap are first appended
   to daily gzip NDJSON files (`YYYY/MM/logpit-YYYY-MM-DD.ndjson.gz`, readable with `gunzip -c`), deleted
   only after they are synced, with `logpit_archived_total` and `logpit_archive_errors_total`. New
