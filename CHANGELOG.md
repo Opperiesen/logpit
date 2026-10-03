@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.0 - 2026-10-03
+
 - Loki query API for Grafana: `query_range`, `query`, `labels`, `label/<name>/values` and `series` under
   `/loki/api/v1/`, answering a LogQL subset (stream selectors, line filters, `| json`/`| logfmt`, label
   filters, `count_over_time` and `rate` with `sum by`). Streams are labelled `host`, `app` and `level`,
