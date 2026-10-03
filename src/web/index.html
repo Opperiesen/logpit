@@ -75,7 +75,6 @@
   #filtersToggle { display:none; }
   .row2 { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 16px; background:var(--band); color:var(--ink); border-bottom:1px solid var(--rule); }
   .row2 .sep { flex:1; }
-  .row2 .tok { display:flex; align-items:center; gap:6px; color:var(--muted); }
   .prefs { position:relative; }
   .prefs summary { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 10px; border:1px solid var(--field); border-radius:2px; background:var(--ground); font-weight:600; cursor:pointer; list-style:none; user-select:none; }
   .prefs summary::-webkit-details-marker { display:none; }
@@ -84,6 +83,16 @@
   .prefs .panel .cols { display:flex; flex-wrap:wrap; gap:6px 14px; }
   .prefs .panel .cols label { gap:6px; color:var(--ink); }
   .prefs .panel button { justify-self:start; }
+  .prefs .panel .keys { margin:0; padding-top:8px; border-top:1px solid var(--rule); color:var(--muted); font-size:12px; line-height:1.9; }
+  kbd { padding:0 4px; border:1px solid var(--field); border-radius:2px; font:700 11px var(--mono); color:var(--ink); }
+  /* Active filters of the last search, each removable in one click. */
+  .chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px 16px; background:var(--ground); color:var(--ink); border-bottom:1px solid var(--rule); }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 6px 0 8px; font-weight:400; max-width:28em; }
+  .chip .k { color:var(--muted); }
+  .chip b { font:700 12px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip svg { flex:none; }
+  .chips .all { height:26px; padding:0 8px; border-color:transparent; background:none; color:var(--muted); font-weight:600; }
+  .chips .all:hover { color:var(--accent); background:none; }
 
   /* Work areas: the rail (hosts, top values, alerts, patterns) beside the chart and the stream. */
   .layout { display:grid; grid-template-columns:minmax(0, 1fr); }
@@ -175,6 +184,9 @@
   #stream td.host, #stream td.app { width:1%; max-width:14em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
   #stream td.host { color:var(--ink); font-weight:600; }
   #stream td.msg { font:12.5px/1.45 var(--mono); white-space:pre-wrap; word-break:break-word; }
+  #stream tr.entry { scroll-margin-top:calc(var(--hdr) + 44px); scroll-margin-bottom:16px; }
+  #stream tr.kb > td { background:var(--tint); }
+  #stream tr.entry:focus { outline:2px solid var(--focus); outline-offset:-2px; }
   /* A line that just arrived live is lit, then put out, both in one step (no fade). */
   #stream tr.fresh, #stream tr.fresh > td { background:var(--fresh); }
   #stream tr.fresh:not(.e) td.ts { color:var(--fresh-time); }
@@ -253,19 +265,21 @@
     <select id="views" aria-label="Saved views" title="Saved views, shared by everyone who uses this LogPit"><option value="">Views</option></select>
     <button id="saveView" type="button" title="Save the current search, time range and chart grouping under a name">Save view</button>
     <button id="delView" type="button" title="Delete the selected view" hidden>Delete</button>
-    <label class="tok">Token <input id="token" type="password" placeholder="if set" size="12" autocomplete="off"></label>
     <details class="prefs" id="prefs">
-      <summary title="Display preferences, kept in this browser"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="4" r="2" fill="currentColor"/><circle cx="11" cy="8" r="2" fill="currentColor"/><circle cx="7" cy="12" r="2" fill="currentColor"/></svg>Display</summary>
+      <summary title="Access token and display preferences, kept in this browser"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="4" r="2" fill="currentColor"/><circle cx="11" cy="8" r="2" fill="currentColor"/><circle cx="7" cy="12" r="2" fill="currentColor"/></svg>Settings</summary>
       <div class="panel">
+        <label>Token <input id="token" type="password" placeholder="if set" size="14" autocomplete="off"></label>
         <label>Theme <select id="prefTheme"><option value="auto">Follow the system</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
         <label>Times <select id="prefTime"><option value="local">Local time</option><option value="utc">UTC</option><option value="iso">ISO 8601 (UTC)</option></select></label>
         <label>Density <select id="prefDensity"><option value="normal">Comfortable</option><option value="compact">Compact</option></select></label>
         <label>Long messages <select id="prefWrap"><option value="wrap">Wrap</option><option value="nowrap">One line</option></select></label>
         <div class="cols" title="Columns of the table"><label><input type="checkbox" data-col="ts"> Time</label><label><input type="checkbox" data-col="sev"> Level</label><label><input type="checkbox" data-col="host"> Host</label><label><input type="checkbox" data-col="app"> App</label><label><input type="checkbox" data-col="fields"> Fields</label></div>
-        <button id="prefReset" type="button" class="small">Reset</button>
+        <button id="prefReset" type="button" class="small">Reset display</button>
+        <p class="keys">Keys: <kbd>/</kbd> search · <kbd>L</kbd> live · <kbd>J</kbd> <kbd>K</kbd> next and previous line · <kbd>Enter</kbd> context · <kbd>Esc</kbd> close</p>
       </div>
     </details>
   </div>
+  <div class="chips" id="chips" role="group" aria-label="Active filters" hidden></div>
 </header>
 <div class="layout">
 <div id="chartbar" hidden>
@@ -422,6 +436,7 @@ function togglePanel(tr, kind, fill) {
   cell.colSpan = 5;
   ctx.append(cell);
   tr.after(ctx);
+  lastPanel = ctx;
   fill(cell);
 }
 
@@ -1393,6 +1408,7 @@ async function load() {
   if (snap.range === 'custom') $('live').checked = false;
   syncUrl();
   markFilters();
+  renderChips();
   const p = new URLSearchParams({ limit: String(PAGE_SIZE) });
   for (const k of SNAP_KEYS) if ($(k).value.trim()) p.set(k, $(k).value.trim());
   applyWindow(p, snap);
@@ -1403,19 +1419,21 @@ async function load() {
     const res = await fetch('/api/logs?' + p, { headers });
     if (res.status === 401) {
       addRows([], false);
-      $('empty').textContent = token ? 'Invalid token. Check the Token field above.' : 'This LogPit requires a token. Enter it in the Token field above, then press Search.';
+      $('empty').textContent = token ? 'Invalid token. Check it under Settings.' : 'This LogPit requires a token. Enter it under Settings, then press Enter or Search.';
       $('empty').hidden = false;
       $('status').textContent = 'unauthorized';
       showFilters(true);
+      $('prefs').open = true;
       $('token').focus();
       return;
     }
     if (res.status === 403) {
       addRows([], false);
-      $('empty').textContent = 'This token is not allowed to read logs (it has no read scope). Enter a token with read access.';
+      $('empty').textContent = 'This token is not allowed to read logs (it has no read scope). Enter a token with read access under Settings.';
       $('empty').hidden = false;
       $('status').textContent = 'forbidden';
       showFilters(true);
+      $('prefs').open = true;
       $('token').focus();
       return;
     }
@@ -1466,6 +1484,92 @@ async function loadTagOptions() {
   } catch {}
 }
 $('range').onchange = () => { if ($('range').value !== 'custom') leaveZoom(); load(); };
+
+// The filters of the last search as chips; removing one clears it and searches again.
+const CHIP_FILTERS = [['q', 'search'], ['host', 'host'], ['app', 'app'], ['tag', 'tag'], ['f', 'field'], ['re', 'regex'], ['level', 'level']];
+function crossIcon() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('width', '10'); svg.setAttribute('height', '10'); svg.setAttribute('viewBox', '0 0 10 10'); svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', 'M1 1l8 8M9 1l-8 8'); path.setAttribute('stroke', 'currentColor'); path.setAttribute('stroke-width', '1.6');
+  svg.append(path);
+  return svg;
+}
+function renderChips() {
+  const chips = [];
+  const chip = (key, value, clear) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip';
+    b.setAttribute('aria-label', 'Remove filter ' + key + ': ' + value);
+    const k = document.createElement('span'); k.className = 'k'; k.textContent = key;
+    const v = document.createElement('b'); v.textContent = value;
+    b.append(k, v, crossIcon());
+    b.onclick = () => { clear(); load(); $('q').focus(); };
+    chips.push(b);
+    return clear;
+  };
+  const clears = [];
+  for (const [id, key] of CHIP_FILTERS) {
+    if (!snap[id]) continue;
+    const value = id === 'level' ? $('level').selectedOptions[0].textContent : snap[id];
+    clears.push(chip(key, value, () => { $(id).value = ''; }));
+  }
+  if (snap.range === 'custom' && $('range-custom')) {
+    clears.push(chip('window', $('range-custom').textContent, () => { leaveZoom(); $('range').value = DEFAULT_RANGE; }));
+  }
+  if (chips.length > 1) {
+    const all = document.createElement('button');
+    all.type = 'button'; all.className = 'all'; all.textContent = 'Clear all';
+    all.onclick = () => { clears.forEach(c => c()); load(); $('q').focus(); };
+    chips.push(all);
+  }
+  $('chips').replaceChildren(...chips);
+  $('chips').hidden = chips.length === 0;
+}
+
+// Keyboard, outside text fields: / search, L live, J and K move between lines (Enter then opens the
+// context), Escape closes the settings, leaves a field or closes the panel under the current line.
+let curRow = null, lastPanel = null;
+function markRow(tr) {
+  if (curRow && curRow !== tr) curRow.classList.remove('kb');
+  curRow = tr;
+  if (tr) tr.classList.add('kb');
+}
+function focusRow(tr) {
+  if (!tr) return;
+  markRow(tr);
+  const b = tr.querySelector('td.ts button');
+  const target = b && b.offsetParent ? b : tr;
+  if (target === tr) tr.tabIndex = -1;
+  target.focus({ preventScroll: true });
+  tr.scrollIntoView({ block: 'nearest' });
+}
+function moveRow(dir) {
+  let tr = curRow && curRow.isConnected ? curRow : null;
+  if (!tr) return focusRow($('rows').querySelector('tr.entry'));
+  do tr = dir > 0 ? tr.nextElementSibling : tr.previousElementSibling; while (tr && !tr._r);
+  if (tr) focusRow(tr);
+}
+$('rows').addEventListener('focusin', e => { const tr = e.target.closest('tr.entry'); if (tr) markRow(tr); });
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+  const typing = e.target.matches('input, select, textarea, [contenteditable]');
+  if (e.key === 'Escape') {
+    if ($('prefs').open) { $('prefs').open = false; $('prefs').querySelector('summary').focus(); return; }
+    if (typing) { e.target.blur(); return; }
+    const row = curRow && curRow.isConnected ? curRow : null;
+    const next = row && row.nextElementSibling;
+    const panel = next && next.classList.contains('ctx') ? next : lastPanel && lastPanel.isConnected ? lastPanel : null;
+    if (panel) { const owner = panel.previousElementSibling; panel.remove(); focusRow(owner && owner._r ? owner : null); }
+    return;
+  }
+  if (typing) return;
+  const k = e.key.toLowerCase();
+  if (e.key === '/') { e.preventDefault(); $('q').focus(); $('q').select(); }
+  else if (k === 'l') $('live').click();
+  else if (k === 'j' || k === 'k') { e.preventDefault(); moveRow(k === 'j' ? 1 : -1); }
+});
 
 // On phones the secondary filters fold behind a toggle that counts the active ones.
 function showFilters(open) {

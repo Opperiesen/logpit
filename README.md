@@ -73,7 +73,7 @@ podman run -d --name logpit --restart always \
 echo "$TOKEN"
 ```
 
-(`docker` works the same.) Open <http://localhost:8080> and enter the token.
+(`docker` works the same.) Open <http://localhost:8080> and enter the token (the *Settings* panel opens on its own when one is needed).
 Pin a version tag in production; `latest` follows the newest release.
 
 ### Compose and Quadlet
@@ -775,8 +775,8 @@ For everything at once, use [export](#export-and-backup).
 
 ## Display preferences
 
-The *Display* button in the filter row of the web UI opens the display preferences, kept in this browser
-(`localStorage`) and applied before the first search:
+The *Settings* button in the filter row of the web UI holds the access token and the display preferences,
+both kept in this browser (`localStorage`); the preferences are applied before the first search:
 
 | Preference | Choices |
 |---|---|
@@ -787,9 +787,25 @@ The *Display* button in the filter row of the web UI opens the display preferenc
 | Columns | time, level, host, app, and the structured fields under each message |
 
 They change how the page looks and never what is asked of the server: links, saved views, exports and
-the API are not affected, and times in the API stay Unix milliseconds. *Reset* restores the defaults.
+the API are not affected, and times in the API stay Unix milliseconds. *Reset display* restores the defaults.
 Changing the time format searches again, since the rows are written with it; the chart tooltips, the
 context panels and the alert list follow it too.
+
+## Keyboard and active filters
+
+Outside a text field, the web UI answers to a few keys (also listed under *Settings*):
+
+| Key | Action |
+|---|---|
+| `/` | focus the search box |
+| `L` | turn the live tail on or off |
+| `J` / `K` | move to the next or previous line |
+| `Enter` | open the context of the current line (on a line with a trace link, Tab reaches it) |
+| `Esc` | close *Settings*, leave a field, or close the panel under the current line |
+
+The filters of the last search (search words, host, app, tag, field, regex, level and a zoomed time
+window) show as chips under the header; a chip's cross removes that filter and searches again, and
+*Clear all* removes them all.
 
 ## Web UI links
 

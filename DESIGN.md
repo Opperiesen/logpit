@@ -292,7 +292,7 @@ Two printed palettes sharing one grammar: neutral ink and rules carry the struct
 
 ## Layout
 
-A full-bleed working surface, no centred container. The header is sticky (static on phones): a navy band row with the wordmark, a flexible search (`flex: 1 1 280px`), level, range, Live, the red Search button and a right-aligned status; under it a band-grey row of secondary filters, saved views, token and the Display preferences popover. Below 760px the second row folds behind a Filters toggle that shows the active filter count.
+A full-bleed working surface, no centred container. The header is sticky (static on phones): a navy band row with the wordmark, a flexible search (`flex: 1 1 280px`), level, range, Live, the red Search button and a right-aligned status; under it a band-grey row of secondary filters, saved views and the Settings popover (access token, display preferences, keyboard keys); under that, only when filters are active, a ground-coloured row of filter chips. Below 760px the second row folds behind a Filters toggle that shows the active filter count.
 
 From 1100px the page is a two-column grid: a 340px rail on the left (sticky under the header, scrolling on its own) holding Hosts, Top values, Message patterns and Alerts as collapsible sections, and the main column holding the legend and export bar, a 72px volume chart with its hour axis, then the stream. Below 1100px the rail stacks above the stream.
 
@@ -338,6 +338,11 @@ There are no cards. Containers are bands and sheets:
 - **Style:** 32px tall, 8px horizontal padding, 1px field-grey border, 2px corners, ground fill; placeholder in muted at full opacity. On the header band fields are white (light) or board navy (dark) with platform-rule borders.
 - **Focus:** the global 2px accent outline.
 - **Checkboxes:** 16px (22px on coarse pointers, where the Live label also grows to 44px), tinted with the primary red.
+
+### Filter Chips
+- **Style:** one per active filter of the last search, as a small button: 26px tall, 1px field-grey border, 2px corners, the filter name in muted, the value in bold monospace, a drawn 10px cross. Clicking removes the filter and searches again; *Clear all* (muted text button) appears from two chips.
+- **Keys:** `kbd` labels in the Settings popover use bold 11px monospace in a 1px field-grey frame, 2px corners.
+- **Current line:** J/K or a click marks the current stream line with the tint ground; a line focused without a time button gets the 2px focus outline inset.
 
 ### Navigation
 There is no navigation in the site sense; the header band is the control strip. Wordmark left, search taking the remaining width, filters inline, status pushed right in lavender. Rail sections act as the secondary navigation, each opened or closed with a hard-turning chevron.
