@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Scheduled backups (`[backup]`: `dir`, `every_hours`, `keep`): LogPit writes a consistent copy of the
+  database (`logpit-YYYYMMDDTHHMMSSZ.db`) on a schedule, keeps the newest few and never touches other
+  files, with `logpit_backups_total`, `logpit_backup_errors_total` and last-success gauges.
+
 - RFC 3164 syslog timestamps: `syslog.timezone` (`reception` by default, `utc`, `local` or a fixed offset
   such as `+02:00`) reads the year-less, zone-less `Oct  3 14:00:00` stamp in the sender's zone, taking
   the current year unless that is more than a day ahead. Impossible dates fall back to the arrival time;

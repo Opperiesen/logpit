@@ -68,6 +68,12 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # pattern = '(password|token)=\S+'
 # replace = "$1=[hidden]"
 
+# Scheduled backups of the database (a consistent copy, the same as `logpit --backup`).
+# [backup]
+# dir = "/var/lib/logpit/backups"
+# every_hours = 24
+# keep = 7
+
 # Forward a filtered copy of the stored entries to another LogPit, a collector or a SIEM.
 # [[forward]]
 # name = "siem"

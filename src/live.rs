@@ -180,6 +180,9 @@ impl LiveSettings {
         if old.forward != new.forward {
             out.push("forward");
         }
+        if old.backup != new.backup {
+            out.push("backup");
+        }
         if old.http.audit_retention_days != new.http.audit_retention_days {
             out.push("http.audit_retention_days");
         }
@@ -605,6 +608,16 @@ mod tests {
         let mut bad = new.clone();
         bad.volume.window_secs = 1;
         assert!(live.reload(&new, &bad).is_err());
+    }
+
+    #[test]
+    fn backup_settings_need_a_restart() {
+        let old = cfg("");
+        let live = LiveSettings::from_config(&old).unwrap();
+        let new = cfg("[backup]\ndir = \"/b\"");
+        let report = live.reload(&old, &new).unwrap();
+        assert!(report.applied.is_empty());
+        assert_eq!(report.restart_required, ["backup"]);
     }
 
     #[test]

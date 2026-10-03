@@ -712,6 +712,36 @@ It reads the database of the usual configuration (`LOGPIT_STORAGE_PATH` or the c
 overwrites an existing file, does not migrate the schema, and leaves a file you can restore by
 putting it back at the storage path while LogPit is stopped.
 
+### Scheduled backups
+
+`[backup]` makes LogPit take the backup itself, on a schedule, and keep the newest few:
+
+```toml
+[backup]
+dir = "/var/lib/logpit/backups"   # setting it turns scheduled backups on; env LOGPIT_BACKUP_DIR
+every_hours = 24                  # LOGPIT_BACKUP_EVERY_HOURS
+keep = 7                          # LOGPIT_BACKUP_KEEP
+```
+
+- **What it writes.** The same consistent copy as `logpit --backup` (SQLite `VACUUM INTO`, safe while
+  LogPit runs, checked with an integrity check), named `logpit-YYYYMMDDTHHMMSSZ.db` by UTC time. It
+  contains the entries, saved views and the audit trail; the [cold archive](#cold-archive) is separate
+  files and is not copied. Restore by stopping LogPit and putting a copy at the storage path.
+- **Schedule.** The first backup comes a minute after startup when none exists or the newest is older
+  than the interval; otherwise LogPit waits out the rest of the interval, so restarting does not cause
+  a backup each time. A failed backup is logged (`logpit_backup_errors_total`), leaves no partial
+  file, and is retried within the hour at the latest.
+- **Rotation.** After each successful backup only the newest `keep` files *with that name pattern*
+  stay; anything else in the directory (other files, a `logpit.db`) is never touched.
+- **Metrics.** `logpit_backups_total`, `logpit_backup_errors_total`,
+  `logpit_backup_last_success_timestamp_seconds` (alert on it getting old) and
+  `logpit_backup_last_size_bytes`, shown when `dir` is set.
+- **Limits.** Each backup is a full copy: with a large database and a short interval it costs the
+  disk space, `VACUUM INTO` time and I/O of one copy, so mind `keep`. Copies are not compressed (use
+  `zstd` or the filesystem) and stay on the same machine: copy them off-site yourself (`rsync`,
+  `restic`, object storage). The directory is created and checked at startup, and a path that cannot
+  be written stops LogPit with a message. Changing `[backup]` needs a restart; a reload says so.
+
 ### Top values
 
 `GET /api/top?field=<field>` lists the most frequent values of a field among the entries matching

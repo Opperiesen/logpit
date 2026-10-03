@@ -5,6 +5,7 @@ pub mod api;
 pub mod archive;
 pub mod audit;
 pub mod auth;
+pub mod backup;
 pub mod cef;
 pub mod cli;
 pub mod config;

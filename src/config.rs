@@ -27,6 +27,8 @@ pub struct Config {
     pub tags: Vec<crate::tags::TagConfig>,
     /// Notifications for hosts sending far more or far fewer logs than usual (`[volume]`).
     pub volume: crate::volume::VolumeConfig,
+    /// Scheduled backups of the database (`[backup]`).
+    pub backup: crate::backup::BackupConfig,
     /// Targets that receive a copy of the matching entries (`[[forward]]`).
     pub forward: Vec<crate::forward::ForwardConfig>,
     pub gelf: GelfConfig,
@@ -332,6 +334,21 @@ impl Config {
         if let Some(v) = get("LOGPIT_SYSLOG_TIMEZONE") {
             self.syslog.timezone = v.trim().to_string();
         }
+        if let Some(v) = get("LOGPIT_BACKUP_DIR") {
+            self.backup.dir = (!v.trim().is_empty()).then(|| PathBuf::from(v.trim()));
+        }
+        if let Some(v) = get("LOGPIT_BACKUP_EVERY_HOURS") {
+            self.backup.every_hours = v
+                .trim()
+                .parse()
+                .with_context(|| format!("invalid LOGPIT_BACKUP_EVERY_HOURS {v:?}"))?;
+        }
+        if let Some(v) = get("LOGPIT_BACKUP_KEEP") {
+            self.backup.keep = v
+                .trim()
+                .parse()
+                .with_context(|| format!("invalid LOGPIT_BACKUP_KEEP {v:?}"))?;
+        }
         if let Some(v) = get("LOGPIT_PARSE_STRUCTURED") {
             self.ingest.parse_structured = match v.trim().to_ascii_lowercase().as_str() {
                 "1" | "true" | "yes" | "on" => true,
@@ -505,6 +522,7 @@ impl Config {
         self.new_patterns.validate()?;
         self.ingest.dedup.validate()?;
         self.volume.validate()?;
+        self.backup.validate()?;
         let tags = crate::tags::Tags::from_config(&self.tags)?;
         crate::logmetrics::LogMetrics::from_config(&self.metrics, &tags)?;
         crate::parsers::Parsers::from_config(&self.parsers)?;
@@ -962,6 +980,30 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn backup_config() {
+        let cfg = Config::parse("").unwrap();
+        assert!(cfg.backup.dir.is_none());
+        assert_eq!((cfg.backup.every_hours, cfg.backup.keep), (24, 7));
+        let cfg = Config::parse("[backup]\ndir = \"/b\"\nevery_hours = 6\nkeep = 3").unwrap();
+        assert_eq!(cfg.backup.dir, Some(PathBuf::from("/b")));
+        assert!(Config::parse("[backup]\nevery_hours = 0").is_err());
+        assert!(Config::parse("[backup]\nkeep = 0").is_err());
+        assert!(Config::parse("[backup]\nbogus = 1").is_err());
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[
+            ("LOGPIT_BACKUP_DIR", "/data/backups"),
+            ("LOGPIT_BACKUP_EVERY_HOURS", "12"),
+            ("LOGPIT_BACKUP_KEEP", "14"),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.backup.dir, Some(PathBuf::from("/data/backups")));
+        assert_eq!((cfg.backup.every_hours, cfg.backup.keep), (12, 14));
+        cfg.apply_env(&env(&[("LOGPIT_BACKUP_DIR", " ")])).unwrap();
+        assert!(cfg.backup.dir.is_none());
+        assert!(cfg.apply_env(&env(&[("LOGPIT_BACKUP_KEEP", "x")])).is_err());
     }
 
     #[test]

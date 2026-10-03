@@ -28,6 +28,14 @@ pub struct Metrics {
     pub archived: AtomicU64,
     /// Archive writes that failed (the entries were kept in the database).
     pub archive_errors: AtomicU64,
+    /// Scheduled backups written, and that failed.
+    pub backups: AtomicU64,
+    pub backup_errors: AtomicU64,
+    /// Unix seconds of the last successful scheduled backup (0: none yet) and its size.
+    pub backup_last_ts: AtomicU64,
+    pub backup_last_bytes: AtomicU64,
+    /// Whether scheduled backups are configured, which decides if their metrics are shown.
+    pub backup_enabled: std::sync::atomic::AtomicBool,
 }
 
 impl Metrics {
@@ -104,6 +112,19 @@ impl Metrics {
             "# HELP logpit_db_used_bytes Database bytes holding data\n# TYPE logpit_db_used_bytes gauge\nlogpit_db_used_bytes {}",
             self.db_used_bytes.load(Ordering::Relaxed)
         );
+        if self.backup_enabled.load(Ordering::Relaxed) {
+            let _ = writeln!(
+                out,
+                "# HELP logpit_backups_total Scheduled backups written\n# TYPE logpit_backups_total counter\nlogpit_backups_total {}\n\
+                 # HELP logpit_backup_errors_total Scheduled backups that failed\n# TYPE logpit_backup_errors_total counter\nlogpit_backup_errors_total {}\n\
+                 # HELP logpit_backup_last_success_timestamp_seconds Unix time of the last scheduled backup (0 if none yet)\n# TYPE logpit_backup_last_success_timestamp_seconds gauge\nlogpit_backup_last_success_timestamp_seconds {}\n\
+                 # HELP logpit_backup_last_size_bytes Size of the last scheduled backup\n# TYPE logpit_backup_last_size_bytes gauge\nlogpit_backup_last_size_bytes {}",
+                self.backups.load(Ordering::Relaxed),
+                self.backup_errors.load(Ordering::Relaxed),
+                self.backup_last_ts.load(Ordering::Relaxed),
+                self.backup_last_bytes.load(Ordering::Relaxed)
+            );
+        }
         out
     }
 }

@@ -538,6 +538,24 @@ async fn main() -> anyhow::Result<()> {
     if let Some(dir) = &cfg.storage.archive_dir {
         tracing::info!("cold archive: expired entries go to {}", dir.display());
     }
+    // Scheduled backups of the database, into a directory checked now so a bad path stops startup.
+    if let Some(dir) = &cfg.backup.dir {
+        logpit::backup::prepare(dir)?;
+        retention_metrics
+            .backup_enabled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        tasks.spawn({
+            let (db, cfg, metrics) = (
+                db_path.clone(),
+                cfg.backup.clone(),
+                retention_metrics.clone(),
+            );
+            async move {
+                logpit::backup::run(db, cfg, metrics).await;
+                Ok(())
+            }
+        });
+    }
     let retention = cfg.storage.retention_table()?;
     let max_db_bytes = cfg.storage.max_db_size_mb * 1_000_000;
     tasks.spawn(async move {
