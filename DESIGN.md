@@ -21,6 +21,7 @@ colors:
   first-purple: "#6b3fa0"
   chart-info-grey: "#868686"
   chart-debug-grey: "#949494"
+  live-highlight: "#fff1b8"
   board-navy: "#141a46"
   board-band: "#1b2257"
   board-shell: "#0b0f2e"
@@ -41,6 +42,7 @@ colors:
   board-purple: "#c7a6ff"
   board-chart-info: "#6f76b3"
   board-chart-debug: "#5f67a8"
+  board-live-highlight: "#33303f"
   series-0: "#4e79a7"
   series-1: "#f28e2b"
   series-2: "#59a14f"
@@ -253,6 +255,7 @@ Two printed palettes sharing one grammar: neutral ink and rules carry the struct
 - **Notice Tint** (`notice-tint`, `notice-tint-strong`): the open context panel and its current line. **Selection Lavender** (`selection-lavender`) for text selection.
 - **Board Navy** (`board-navy`): the dark ground; `board-band` for bands and the filter row, `board-shell` (darker still) for the header band, `board-white` for text, `board-muted` for secondary text, `board-rule` for rules, `board-field` for field borders, `board-tint`/`board-tint-strong` for the context panel, `board-selection` for selection.
 - **Chart greys** (`chart-info-grey`, `chart-debug-grey`; dark `board-chart-info`, `board-chart-debug`): info and debug volume in the severity-stacked chart, recessive so errors and warnings dominate the silhouette, yet at 3:1 or more against the ground so the bars stay perceivable.
+- **Live highlight** (`live-highlight`; dark `board-live-highlight`): the ground of a line that just arrived through the live tail, for three seconds. Light is a pale timetable yellow; dark stays close to the board ground (error red keeps 4.6:1 on it), so the line's time also turns board yellow there.
 - **Series palette** (`series-0`…`series-9`, dark `board-series-0`…`board-series-9`, "other" in field grey or board muted): identity colours for hosts or apps only when the chart is stacked by host or app.
 
 ### Named Rules
@@ -304,7 +307,7 @@ None. The system is flat: no shadows anywhere, including the preferences popover
 ### Named Rules
 **The Printed Sheet Rule.** Every surface lies on the same sheet of paper (or the same board). If something needs to stand out, give it a rule, a tint or a band, never a shadow or a blur.
 
-**The Hard Step Rule.** State changes are immediate: hover fills, open sections, chevrons, selections. No transitions, no animations, no easing.
+**The Hard Step Rule.** State changes are immediate: hover fills, open sections, chevrons, selections, the live highlight going on and off. No transitions, no animations, no easing.
 
 ## Shapes
 
@@ -343,7 +346,7 @@ There is no navigation in the site sense; the header band is the control strip. 
 A full-width band at the top of each hour of the stream: band-grey fill, 1px ink rule beneath, the hour in Hour type (ink in light, board yellow in dark), the date in muted beside it, and right-floated counts ("32 entries · 4 errors · 3 warnings") with errors in red and warnings in amber. It sticks under the header while its hour scrolls. Lines beneath it carry only grey `HH:` and bold `MM:SS`.
 
 ### Stream Row
-Columns: time, level, host (600, ink), app (muted), message (monospace, pre-wrapped; one-line ellipsis when wrapping is off) with clickable `key=value` fields beneath. Hairline between rows. Level names are coloured by severity; error lines also turn their timestamp red. Every column but the message can be hidden from the Display preferences.
+Columns: time, level, host (600, ink), app (muted), message (monospace, pre-wrapped; one-line ellipsis when wrapping is off) with clickable `key=value` fields beneath. Hairline between rows. Level names are coloured by severity; error lines also turn their timestamp red. Every column but the message can be hidden from the Display preferences. A line that arrives through the live tail is lit on the live highlight for three seconds, then put out in one step, like a changed row on a departure board; error lines keep their red time.
 
 ### Volume Chart
 A 72px SVG histogram with an ink baseline and bold hour ticks on an axis beneath. Stacked by severity by default (red, amber, navy, then the two greys), or by host or app with the series palette. Hovering a bucket tints it with the accent at 18%; dragging selects a range at 30% with an accent stroke and zooms to it.

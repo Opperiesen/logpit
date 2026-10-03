@@ -8,7 +8,7 @@
   only. Hosts, top values, message patterns and alerts move to a left rail on wide screens; on phones the
   secondary filters fold behind a *Filters* button and each line stacks so the message gets the full width.
   The chart gets an hour scale. Severity colors meet WCAG AA contrast in both themes, every clickable value
-  works from the keyboard, and live lines are inserted in batches.
+  works from the keyboard, and live lines are inserted in batches and highlighted for three seconds.
 
 - Trace correlation: `trace_id` and `span_id` are normalized on every ingestion path (OTLP, `traceId`
   and similar fields in JSON logs, Loki labels, a W3C `traceparent`) and lower-cased when hexadecimal.

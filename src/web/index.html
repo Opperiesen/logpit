@@ -15,7 +15,7 @@
     --primary:#d30000; --primary-hover:#b00000;
     --err:#d30000; --warn:#9a5300; --notice:#2d327d; --ok:#1b7a34; --new:#6b3fa0;
     --c0:#4e79a7; --c1:#f28e2b; --c2:#59a14f; --c3:#b07aa1; --c4:#76b7b2; --c5:#d4a92a; --c6:#ff9da7; --c7:#9c755f; --c8:#7b5fb5; --c9:#86bc86; --other:#8a8a8a;
-    --chart-info:#868686; --chart-debug:#949494; --on-primary:#fff;
+    --chart-info:#868686; --chart-debug:#949494; --on-primary:#fff; --fresh:#fff1b8; --fresh-time:#111;
     --hdr:0px;
   }
   @media (prefers-color-scheme: dark) { :root:not([data-theme=light]) {
@@ -25,7 +25,7 @@
     --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
     --primary:#c40000; --primary-hover:#a30000;
     --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
-    --chart-info:#6f76b3; --chart-debug:#5f67a8; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
+    --chart-info:#6f76b3; --chart-debug:#5f67a8; --fresh:#33303f; --fresh-time:#ffd23f; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
   } }
   :root[data-theme=light] { color-scheme:light; }
   :root[data-theme=dark] {
@@ -35,7 +35,7 @@
     --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
     --primary:#c40000; --primary-hover:#a30000;
     --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
-    --chart-info:#6f76b3; --chart-debug:#5f67a8; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
+    --chart-info:#6f76b3; --chart-debug:#5f67a8; --fresh:#33303f; --fresh-time:#ffd23f; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
   }
 
   * { box-sizing:border-box; }
@@ -175,6 +175,9 @@
   #stream td.host, #stream td.app { width:1%; max-width:14em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
   #stream td.host { color:var(--ink); font-weight:600; }
   #stream td.msg { font:12.5px/1.45 var(--mono); white-space:pre-wrap; word-break:break-word; }
+  /* A line that just arrived live is lit, then put out, both in one step (no fade). */
+  #stream tr.fresh, #stream tr.fresh > td { background:var(--fresh); }
+  #stream tr.fresh:not(.e) td.ts { color:var(--fresh-time); }
   #stream tr.band th { position:sticky; top:var(--hdr); z-index:1; padding:8px 10px 6px 16px; background:var(--band); border-bottom:1px solid var(--ink); text-align:left; font-weight:400; }
   .band .h { font-size:20px; font-weight:700; line-height:1; margin-right:10px; color:var(--band-hour); }
   .band .d { color:var(--muted); }
@@ -639,10 +642,12 @@ function handleEvent(raw) {
 // Live lines are inserted in batches, so a burst costs one DOM update instead of one per line.
 let liveQueue = [], liveTimer = 0;
 const LIVE_BATCH_MS = 100;
+const FRESH_MS = 3000; // how long a line that arrived live stays highlighted
 function flushLive() {
   liveTimer = 0;
   const body = $('rows'), batch = liveQueue;
   liveQueue = [];
+  const fresh = [];
   for (const r of batch) {
     let band = firstBand;
     if (!band || band._key !== hourOf(r.ts).key) {
@@ -656,7 +661,10 @@ function flushLive() {
     band.after(tr);
     countInBand(band, r, 1);
     entries++;
+    tr.classList.add('fresh');
+    fresh.push(tr);
   }
+  setTimeout(() => fresh.forEach(tr => tr.classList.remove('fresh')), FRESH_MS);
   // Drop the oldest lines beyond the cap, with their context panels and emptied bands.
   while (entries > MAX_LIVE_ROWS) {
     const el = body.lastElementChild;

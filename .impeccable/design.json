@@ -947,6 +947,38 @@
           "#cdfecc"
         ],
         "theme": "dark"
+      },
+      "live-highlight": {
+        "role": "neutral",
+        "displayName": "Live Highlight",
+        "canonical": "#fff1b8",
+        "tonalRamp": [
+          "#150900",
+          "#302400",
+          "#4e4106",
+          "#6e612c",
+          "#90824d",
+          "#b3a56f",
+          "#d7ca92",
+          "#fdefb6"
+        ],
+        "theme": "light"
+      },
+      "board-live-highlight": {
+        "role": "neutral",
+        "displayName": "Board Live Highlight",
+        "canonical": "#33303f",
+        "tonalRamp": [
+          "#0c0915",
+          "#262331",
+          "#423f4f",
+          "#625f6f",
+          "#838091",
+          "#a5a2b5",
+          "#cac6d9",
+          "#efebff"
+        ],
+        "theme": "dark"
       }
     },
     "typographyMeta": {
@@ -1134,7 +1166,7 @@
       },
       {
         "name": "The Hard Step Rule",
-        "body": "State changes are immediate: hover fills, open sections, chevrons, selections. No transitions, no animations, no easing.",
+        "body": "State changes are immediate: hover fills, open sections, chevrons, selections, the live highlight going on and off. No transitions, no animations, no easing.",
         "section": "elevation"
       }
     ],
