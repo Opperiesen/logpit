@@ -11,6 +11,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   framing, optional client certificates), and HTTP
   (`POST /ingest`) accepting NDJSON or a JSON array, including raw
   `journalctl -o json` output.
+- **Regex parsers**: `[[parsers]]` turn the named groups of a regular expression into fields (and host,
+  level, timestamp), for access logs, sshd, firewalls and other plain-text formats.
 - **Structured fields**: CEF events (e.g. UniFi's SIEM export) are parsed into
   key/value fields, which are indexed for search and filterable by exact match.
 - **Storage**: SQLite (WAL) with FTS5 full-text search, batched writes,
@@ -1005,6 +1007,58 @@ no more bare words than pairs, so a sentence containing `a=b` is not mistaken fo
 that already carry fields (parsed CEF, or sent with `fields`) are not touched. Turn the
 extraction off with `LOGPIT_PARSE_STRUCTURED=false` (or `[ingest] parse_structured = false`).
 
+## Regex parsers
+
+For plain-text formats with no JSON or `key=value` in them, `[[parsers]]` extract fields with a
+regular expression: every **named group** becomes a field you can filter on (`f=status>=500`), list in
+*Top values*, use as a [metric](#metrics-from-logs) label or in the Loki API.
+
+```toml
+[[parsers]]
+name = "nginx"
+app = "nginx"                        # filters: host, app, severity (all optional)
+regex = '^(?P<remote>\S+) \S+ \S+ \[(?P<time>[^\]]+)\] "(?P<method>[A-Z]+) (?P<path>\S+) [^"]*" (?P<status>\d{3}) (?P<bytes>\d+|-)'
+timestamp_from = "time"              # use the log's own time as the entry's timestamp
+timestamp_format = "%d/%b/%Y:%H:%M:%S %z"
+
+[[parsers]]
+name = "sshd-failures"
+app = "sshd"
+regex = 'Failed password for (?:invalid user )?(?P<user>\S+) from (?P<src>\S+)'
+
+[[parsers]]
+name = "relayed"                     # a relay put the real host and level in the text
+regex = '^(?P<h>\S+) (?P<a>\w+)\[\d+\]: (?P<lvl>[A-Za-z]+): (?P<msg>.*)$'
+host_from = "h"
+app_from = "a"
+level_from = "lvl"                   # a word (error, warn…) or a number 0-7
+message_from = "msg"                 # store only this part as the message
+```
+
+- **Order.** Parsers run in file order on every entry that passes their filters, and the **first one
+  whose regex matches wins**; entries no parser matches are untouched. Put the specific ones first.
+  A parser runs after CEF decoding and before generic extraction, rate limits having already used the
+  original host, and before [ingestion rules](#ingestion-rules), [metrics](#metrics-from-logs) and
+  alerts, which therefore see the fields and the rewritten host, level and message.
+- **Generic extraction.** A matching parser stands in for the generic JSON and `key=value`
+  extraction, whose fields would only add noise next to the precise ones. `keep_generic = true` runs it
+  too, for keys the parser did not set.
+- **Fields.** Group names become field names (anything outside letters, digits, `_`, `.` and `-` is
+  replaced by `_`); empty captures add nothing, values are clipped to 1 KiB and an entry holds at most 64
+  fields. Unnamed groups, `(?:…)` included, only structure the pattern.
+- **Special groups.** `level_from` sets the severity (an unrecognized word leaves it as it was),
+  `host_from` and `app_from` replace the host and app, `message_from` replaces the stored message, and
+  `timestamp_from` sets the entry's time from `timestamp_format`: `rfc3339`, `unix` (seconds, maybe
+  fractional), `unix_ms`, or a strftime pattern (a pattern without a zone is read as UTC; one with `%z`
+  is converted). A time that does not parse leaves the entry's own. The group itself stays a field.
+- **Safety.** Expressions run in linear time whatever they contain and are limited to 4096 bytes and a
+  bounded compiled size; an invalid one, a `*_from` naming a missing group or a regex without any named
+  group is refused at startup (or by the reload, which then changes nothing).
+- **Reloading and metrics.** `SIGHUP` applies changes. `logpit_parser_matched_total{parser="…"}` counts
+  what each parser matched, which shows a format that stopped matching.
+- Parsers do not touch entries already stored; and they cost a regex match per entry that passes the
+  filters, so give them `app` or `host` filters rather than letting each one scan everything.
+
 ## Ingestion rules
 
 Rules drop noise and mask secrets **before** an entry is stored, shown in the live tail or
@@ -1171,7 +1225,7 @@ podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
 kill -HUP "$(pidof logpit)"
 ```
 
-**Applied by a reload**: `[[ingest.rules]]`, `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
+**Applied by a reload**: `[[ingest.rules]]`, `[[parsers]]`, `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
 `ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
 (`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
 key and client CA files. The last two are read again on every reload, so renewing a certificate or

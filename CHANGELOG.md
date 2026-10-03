@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Regex parsers (`[[parsers]]`): the named groups of a regular expression become structured fields,
+  and special groups can set the host, app, level, message and timestamp (`rfc3339`, `unix`, `unix_ms` or
+  a strftime pattern). First match wins, filters by host, app and severity, linear-time regexes, a
+  `logpit_parser_matched_total` counter and `SIGHUP` reloading.
+
 ## 0.11.0 - 2026-10-03
 
 - Cold archive (`storage.archive_dir`): entries removed by retention or the size cap are first appended

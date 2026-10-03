@@ -130,12 +130,23 @@ impl Sink {
             return;
         }
         crate::cef::enrich(&mut entry);
-        if self
-            .settings
-            .structured
-            .load(std::sync::atomic::Ordering::Relaxed)
+        // A matching regex parser sets the fields, and by default stands in for the generic
+        // JSON and key=value extraction.
+        let parsed = self.settings.parsers.get().apply(&mut entry);
+        if parsed != crate::parsers::Applied::Replaced
+            && self
+                .settings
+                .structured
+                .load(std::sync::atomic::Ordering::Relaxed)
         {
-            crate::structured::enrich(&mut entry);
+            // Generic extraction leaves an entry that already has fields alone, so with
+            // `keep_generic` it adds nothing the parser did not set; it exists for the
+            // entries no parser matched.
+            if parsed == crate::parsers::Applied::KeepGeneric {
+                crate::structured::enrich_missing(&mut entry);
+            } else {
+                crate::structured::enrich(&mut entry);
+            }
         }
         if !self.settings.rules.get().apply(&mut entry) {
             return;

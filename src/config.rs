@@ -21,6 +21,8 @@ pub struct Config {
     pub new_patterns: crate::watch::WatchConfig,
     /// Prometheus counters derived from the logs (`[[metrics]]`), exposed on `/metrics`.
     pub metrics: Vec<crate::logmetrics::MetricConfig>,
+    /// Regex parsers that turn named groups into fields (`[[parsers]]`).
+    pub parsers: Vec<crate::parsers::ParserConfig>,
     /// Targets that receive a copy of the matching entries (`[[forward]]`).
     pub forward: Vec<crate::forward::ForwardConfig>,
     pub gelf: GelfConfig,
@@ -466,6 +468,7 @@ impl Config {
         self.new_patterns.validate()?;
         self.ingest.dedup.validate()?;
         crate::logmetrics::LogMetrics::from_config(&self.metrics)?;
+        crate::parsers::Parsers::from_config(&self.parsers)?;
         crate::forward::validate(&self.forward)?;
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
@@ -909,6 +912,22 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn parsers_config() {
+        assert!(Config::parse("").unwrap().parsers.is_empty());
+        let cfg = Config::parse(
+            "[[parsers]]\nname = \"nginx\"\napp = \"nginx\"\nregex = '^(?P<status>\\d{3})'\n\
+             [[parsers]]\nregex = '(?P<user>\\w+)'\nkeep_generic = true",
+        )
+        .unwrap();
+        assert_eq!(cfg.parsers.len(), 2);
+        assert!(cfg.parsers[1].keep_generic);
+        assert!(Config::parse("[[parsers]]\nregex = '('").is_err());
+        assert!(Config::parse("[[parsers]]\nregex = '^x'").is_err());
+        assert!(Config::parse("[[parsers]]\nregex = '(?P<a>x)'\nbogus = 1").is_err());
+        assert!(Config::parse("[[parsers]]\nname = \"x\"").is_err());
     }
 
     #[test]

@@ -13,10 +13,13 @@ const REGEX_SIZE_LIMIT: usize = 1 << 20;
 /// Compiles a user-supplied regular expression. The engine runs in linear time, so a hostile
 /// pattern cannot stall a search, but its size is still bounded.
 pub fn compile_regex(pattern: &str) -> Result<Regex, String> {
-    if pattern.len() > MAX_REGEX_BYTES {
-        return Err(format!(
-            "regular expression longer than {MAX_REGEX_BYTES} bytes"
-        ));
+    compile_regex_up_to(pattern, MAX_REGEX_BYTES)
+}
+
+/// Like [`compile_regex`] with another length limit, for the places that take bigger patterns.
+pub fn compile_regex_up_to(pattern: &str, max_bytes: usize) -> Result<Regex, String> {
+    if pattern.len() > max_bytes {
+        return Err(format!("regular expression longer than {max_bytes} bytes"));
     }
     RegexBuilder::new(pattern)
         .size_limit(REGEX_SIZE_LIMIT)

@@ -13,14 +13,14 @@ const MAX_DEPTH: usize = 3;
 /// Messages longer than this are not scanned.
 const MAX_SCAN_BYTES: usize = 64 * 1024;
 
-fn clip(s: &str) -> String {
+pub(crate) fn clip(s: &str) -> String {
     let mut v = s.to_string();
     crate::model::truncate_utf8(&mut v, MAX_VALUE_BYTES);
     v
 }
 
 /// Turns a JSON/logfmt key into a valid field name (letters, digits, `_`, `.`, `-`).
-fn sanitize_key(key: &str) -> Option<String> {
+pub(crate) fn sanitize_key(key: &str) -> Option<String> {
     let mut k: String = key
         .chars()
         .map(|c| {
@@ -156,6 +156,19 @@ pub fn enrich(entry: &mut LogEntry) {
     if !entry.fields.is_empty() {
         return;
     }
+    for (key, value) in extract(&entry.message) {
+        if entry.fields.len() >= MAX_FIELDS {
+            break;
+        }
+        if let Some(key) = sanitize_key(&key) {
+            entry.fields.entry(key).or_insert_with(|| clip(&value));
+        }
+    }
+}
+
+/// Like [`enrich`], but also for an entry that has fields already: the generic values are added
+/// under keys that are not taken yet (what `keep_generic` parsers ask for).
+pub fn enrich_missing(entry: &mut LogEntry) {
     for (key, value) in extract(&entry.message) {
         if entry.fields.len() >= MAX_FIELDS {
             break;

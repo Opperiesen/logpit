@@ -74,6 +74,14 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # headers = ["Authorization: Bearer change-me"]
 # severity = ["warning", "err"]             # also host, app, pattern
 
+# Regex parsers: named groups become fields (and optionally host, level, timestamp, message).
+# [[parsers]]
+# name = "nginx"
+# app = "nginx"
+# regex = '^(?P<remote>\S+) \S+ \S+ \[(?P<time>[^\]]+)\] "(?P<method>[A-Z]+) (?P<path>\S+) [^"]*" (?P<status>\d{3})'
+# timestamp_from = "time"
+# timestamp_format = "%d/%b/%Y:%H:%M:%S %z"
+
 # Metrics from logs: Prometheus counters on /metrics (logpit_log_<name>_total).
 # [[metrics]]
 # name = "ssh_failures"

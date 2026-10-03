@@ -24,6 +24,7 @@ pub mod lokiapi;
 pub mod metrics;
 pub mod model;
 pub mod otlp;
+pub mod parsers;
 pub mod patterns;
 pub mod proto;
 pub mod query;

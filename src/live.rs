@@ -15,6 +15,7 @@ use crate::auth::Auth;
 use crate::config::Config;
 use crate::dedup::Dedup;
 use crate::logmetrics::LogMetrics;
+use crate::parsers::Parsers;
 use crate::ratelimit::RateLimiter;
 use crate::rules::Rules;
 use crate::silence;
@@ -83,6 +84,8 @@ pub struct LiveSettings {
     pub alerts: Reloadable<AlertRules>,
     /// Counters derived from the logs.
     pub metrics: Reloadable<LogMetrics>,
+    /// Regex parsers.
+    pub parsers: Reloadable<Parsers>,
     pub limiter: Reloadable<RateLimiter>,
     pub structured: AtomicBool,
     pub auth: Reloadable<Auth>,
@@ -122,6 +125,7 @@ impl LiveSettings {
             rules: Reloadable::new(Rules::from_config(&cfg.ingest.rules)?),
             alerts: Reloadable::new(AlertRules::from_config(&cfg.alerts)?),
             metrics: Reloadable::new(LogMetrics::from_config(&cfg.metrics)?),
+            parsers: Reloadable::new(Parsers::from_config(&cfg.parsers)?),
             limiter: Reloadable::new(RateLimiter::new(&cfg.ingest.rate_limit)),
             structured: AtomicBool::new(cfg.ingest.parse_structured),
             auth: Reloadable::new(cfg.auth()),
@@ -191,6 +195,9 @@ impl LiveSettings {
         let metrics = (old.metrics != new.metrics)
             .then(|| LogMetrics::from_config(&new.metrics).map(Arc::new))
             .transpose()?;
+        let parsers = (old.parsers != new.parsers)
+            .then(|| Parsers::from_config(&new.parsers).map(Arc::new))
+            .transpose()?;
         let limiter = (old.ingest.rate_limit != new.ingest.rate_limit)
             .then(|| Arc::new(RateLimiter::new(&new.ingest.rate_limit)));
         let silence = (old.silence != new.silence)
@@ -217,6 +224,10 @@ impl LiveSettings {
         if let Some(metrics) = metrics {
             self.metrics.set(metrics);
             report.applied.push("log metrics");
+        }
+        if let Some(parsers) = parsers {
+            self.parsers.set(parsers);
+            report.applied.push("regex parsers");
         }
         if let Some(limiter) = limiter {
             self.limiter.set(limiter);
@@ -448,6 +459,31 @@ mod tests {
         let report = live.reload(&old, &new).unwrap();
         assert!(report.applied.is_empty());
         assert_eq!(report.restart_required, ["forward"]);
+    }
+
+    #[test]
+    fn parsers_follow_a_reload() {
+        let old = cfg("[[parsers]]\nname = \"p\"\nregex = '^(?P<kind>\\w+)'");
+        let live = LiveSettings::from_config(&old).unwrap();
+        let mut e = crate::model::LogEntry {
+            message: "disk full".into(),
+            ..Default::default()
+        };
+        live.parsers.get().apply(&mut e);
+        assert_eq!(e.fields["kind"], "disk");
+        let new = cfg("[[parsers]]\nname = \"p\"\nregex = '^\\w+ (?P<what>\\w+)'");
+        let report = live.reload(&old, &new).unwrap();
+        assert_eq!(report.applied, ["regex parsers"]);
+        let mut e = crate::model::LogEntry {
+            message: "disk full".into(),
+            ..Default::default()
+        };
+        live.parsers.get().apply(&mut e);
+        assert_eq!(e.fields.get("what").map(String::as_str), Some("full"));
+        assert!(!e.fields.contains_key("kind"));
+        let mut bad = new.clone();
+        bad.parsers[0].regex = "(".into();
+        assert!(live.reload(&new, &bad).is_err());
     }
 
     #[test]
