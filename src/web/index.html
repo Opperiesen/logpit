@@ -77,6 +77,20 @@
   .row2 { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 16px; background:var(--band); color:var(--ink); border-bottom:1px solid var(--rule); }
   .row2 .sep { flex:1; }
   .prefs { position:relative; }
+  .help { position:relative; }
+  .help summary { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border:1px solid var(--shell-line); border-radius:2px; color:var(--shell-ink); font-weight:700; cursor:pointer; list-style:none; user-select:none; }
+  .help summary::-webkit-details-marker { display:none; }
+  .help[open] summary { background:var(--shell-field); color:var(--shell-field-ink); }
+  .help .panel { position:absolute; left:0; top:calc(100% + 4px); z-index:20; width:min(460px, calc(100vw - 32px)); padding:12px 14px; background:var(--ground); color:var(--ink); border:1px solid var(--field); border-radius:2px; font-size:13px; font-weight:400; }
+  .help .panel p { margin:0 0 6px; color:var(--muted); }
+  .help h2 { margin:10px 0 4px; font-size:12px; font-weight:700; }
+  .help dl { display:grid; grid-template-columns:max-content minmax(0, 1fr); gap:3px 12px; margin:0; align-items:baseline; }
+  .help dd { margin:0; color:var(--muted); }
+  .help dt button { height:auto; padding:1px 6px; border-color:var(--rule); font:600 12px var(--mono); }
+  .help code { font:12px var(--mono); color:var(--ink); }
+  .row1 .help .panel button { background:var(--ground); color:var(--ink); border-color:var(--rule); }
+  .row1 .help .panel button:hover { background:var(--band); }
+  .row1 .help .panel :focus-visible { outline-color:var(--focus); }
   .prefs summary { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 10px; border:1px solid var(--field); border-radius:2px; background:var(--ground); font-weight:600; cursor:pointer; list-style:none; user-select:none; }
   .prefs summary::-webkit-details-marker { display:none; }
   .prefs .panel { position:absolute; right:0; top:calc(100% + 4px); z-index:20; display:grid; gap:10px; min-width:260px; padding:12px; background:var(--ground); border:1px solid var(--field); border-radius:2px; }
@@ -188,7 +202,11 @@
   #stream td.sev { width:1%; white-space:nowrap; font-size:12px; font-weight:700; }
   #stream td.host, #stream td.app { width:1%; max-width:14em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
   #stream td.host { color:var(--ink); font-weight:600; }
-  #stream td.msg { font:12.5px/1.45 var(--mono); white-space:pre-wrap; word-break:break-word; }
+  #stream td.msg { position:relative; font:12.5px/1.45 var(--mono); white-space:pre-wrap; word-break:break-word; }
+  /* One toolbar, moved to the line under the pointer or the current line. */
+  .acts { position:absolute; top:2px; right:6px; display:flex; gap:4px; visibility:hidden; }
+  tr.entry:hover .acts, tr.entry:focus-within .acts, tr.kb .acts { visibility:visible; }
+  .acts button { height:22px; padding:0 6px; font:600 11px var(--sans); }
   #stream tr.entry { scroll-margin-top:calc(var(--hdr) + 44px); scroll-margin-bottom:16px; }
   #stream tr.kb > td { background:var(--tint); }
   #stream tr.entry:focus { outline:2px solid var(--focus); outline-offset:-2px; }
@@ -221,6 +239,8 @@
   #unseen { position:fixed; z-index:15; top:calc(var(--hdr) + 52px); left:50%; transform:translateX(-50%); background:var(--shell); color:var(--shell-ink); border-color:var(--shell); }
   #unseen:hover { background:var(--notice); border-color:var(--notice); color:var(--ground); }
   #empty { padding:32px 16px; color:var(--muted); font-size:14px; }
+  #empty p { margin:0 0 10px; }
+  #empty .ways { display:flex; flex-wrap:wrap; gap:8px; }
 
   @media (max-width:759px) {
     header { position:static; }
@@ -244,6 +264,31 @@
   <div class="row1">
     <h1>LogPit</h1>
     <input id="q" type="search" placeholder="Search messages…" aria-label="Search messages" autofocus title="Words must all match. Use OR between alternatives, -word or NOT word to exclude, &quot;a phrase&quot; for adjacent words, and prefix* for prefixes. Example: disk error OR timeout -debug">
+    <details class="help" id="help">
+      <summary aria-label="Search syntax" title="Search syntax and examples">?</summary>
+      <div class="panel" id="helpPanel">
+        <p>Click an example to search with it.</p>
+        <h2>Search box</h2>
+        <dl>
+          <dt><button type="button" data-into="q">disk error</button></dt><dd>every word must match</dd>
+          <dt><button type="button" data-into="q">timeout OR refused</button></dt><dd>either word</dd>
+          <dt><button type="button" data-into="q">error -debug</button></dt><dd>exclude a word (also <code>NOT debug</code>)</dd>
+          <dt><button type="button" data-into="q">"connection reset"</button></dt><dd>words next to each other</dd>
+          <dt><button type="button" data-into="q">auth*</button></dt><dd>words starting with a prefix</dd>
+        </dl>
+        <h2>Field filter</h2>
+        <dl>
+          <dt><button type="button" data-into="f">status&gt;=500</button></dt><dd>number comparison (<code>&gt;</code> <code>&lt;</code> <code>&lt;=</code> too)</dd>
+          <dt><button type="button" data-into="f">act:blocked</button></dt><dd>exact value</dd>
+          <dt><button type="button" data-into="f">act!=block</button></dt><dd>any other value</dd>
+          <dt><button type="button" data-into="f">src~^10\.</button></dt><dd>regular expression on the field</dd>
+        </dl>
+        <h2>Regex on message</h2>
+        <dl>
+          <dt><button type="button" data-into="re">timeout|refused</button></dt><dd>scans what the other filters leave; narrow the time first</dd>
+        </dl>
+      </div>
+    </details>
     <select id="level" title="Minimum severity" aria-label="Minimum severity">
       <option value="">All levels</option>
       <option value="3">Error and above</option>
@@ -531,7 +576,11 @@ for (const c of document.querySelectorAll('#prefs [data-col]')) {
   };
 }
 $('prefReset').onclick = () => { const t = prefs.time; prefs = { ...PREF_DEFAULTS }; savePrefs(); applyPrefs(); syncPrefControls(); if (t !== 'local') load(); };
-document.addEventListener('click', e => { if (!$('prefs').contains(e.target)) $('prefs').open = false; });
+document.addEventListener('click', e => {
+  for (const id of ['prefs', 'help']) if (!$(id).contains(e.target)) $(id).open = false;
+});
+// A syntax example fills its field and searches.
+for (const b of document.querySelectorAll('#helpPanel [data-into]')) b.onclick = () => { $(b.dataset.into).value = b.textContent; $('help').open = false; load(); };
 applyPrefs();
 
 // The stream is set like a timetable: a band states the hour once (in the chosen time zone) with
@@ -1499,8 +1548,7 @@ async function load() {
     if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
     const rows = await res.json();
     addRows(rows, false);
-    $('empty').textContent = 'No matching entries.';
-    $('empty').hidden = rows.length > 0;
+    if (rows.length) $('empty').hidden = true; else renderEmpty();
     pageParams = p.toString();
     nextCursor = res.headers.get('X-Next-Cursor');
     $('morebar').hidden = !nextCursor;
@@ -1543,6 +1591,26 @@ async function loadTagOptions() {
   } catch {}
 }
 $('range').onchange = () => { if ($('range').value !== 'custom') leaveZoom(); load(); };
+
+// No result: say so, and offer the two ways out, a wider time window and fewer filters.
+function renderEmpty() {
+  const box = $('empty'), ways = [];
+  const way = (text, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.onclick = () => { fn(); load(); }; ways.push(b); };
+  if (snap.range === 'custom') way('Leave the zoomed window', () => { leaveZoom(); $('range').value = DEFAULT_RANGE; });
+  else {
+    const opts = [...$('range').options].filter(o => o.value !== 'custom');
+    const wider = opts[opts.findIndex(o => o.value === snap.range) + 1];
+    if (snap.range && wider) way('Search ' + wider.textContent.toLowerCase(), () => { $('range').value = wider.value; });
+  }
+  const active = CHIP_FILTERS.filter(([id]) => snap[id]);
+  if (active.length === 1) way('Remove the ' + active[0][1] + ' filter', () => { $(active[0][0]).value = ''; });
+  else if (active.length > 1) way('Clear the ' + active.length + ' filters', () => active.forEach(([id]) => { $(id).value = ''; }));
+  const p = document.createElement('p');
+  p.textContent = 'No matching entries' + (ways.length ? '. Try:' : '.');
+  const row = document.createElement('div'); row.className = 'ways'; row.append(...ways);
+  box.replaceChildren(p, ...(ways.length ? [row] : []));
+  box.hidden = false;
+}
 
 // The filters of the last search as chips; removing one clears it and searches again.
 const CHIP_FILTERS = [['q', 'search'], ['host', 'host'], ['app', 'app'], ['tag', 'tag'], ['f', 'field'], ['re', 'regex'], ['level', 'level']];
@@ -1590,10 +1658,48 @@ function renderChips() {
 // Keyboard, outside text fields: / search, L live, J and K move between lines (Enter then opens the
 // context), Escape closes the settings, leaves a field or closes the panel under the current line.
 let curRow = null, lastPanel = null;
+// Copy the message, the entry as JSON, or a link to the minute around it on its host. The clipboard API
+// needs a secure context, so plain-HTTP deployments fall back to a hidden textarea and execCommand.
+async function copyText(text) {
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; } } catch {}
+  const back = document.activeElement, ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.append(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch {}
+  ta.remove();
+  if (back) back.focus();
+  return ok;
+}
+const CONTEXT_LINK_MS = 60000;
+const acts = document.createElement('span');
+acts.className = 'acts';
+for (const [label, title, text] of [
+  ['copy', 'Copy the message', r => r.message],
+  ['JSON', 'Copy the entry as JSON', r => JSON.stringify(r, null, 2)],
+  ['link', 'Copy a link to the minute around this line on its host', r => location.origin + location.pathname + '?' +
+    new URLSearchParams({ host: r.host, since: String(r.ts - CONTEXT_LINK_MS), until: String(r.ts + CONTEXT_LINK_MS) })],
+]) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'small'; b.textContent = label; b.title = title;
+  b.onclick = async () => {
+    const ok = await copyText(text(acts._tr._r));
+    b.textContent = ok ? 'copied' : 'copy failed';
+    setTimeout(() => { b.textContent = label; }, 1500);
+  };
+  acts.append(b);
+}
+function showActs(tr) {
+  if (!tr || !tr._r || acts._tr === tr) return;
+  acts._tr = tr;
+  tr.querySelector('td.msg').append(acts);
+}
+$('rows').addEventListener('mouseover', e => showActs(e.target.closest('tr.entry')));
+
 function markRow(tr) {
   if (curRow && curRow !== tr) curRow.classList.remove('kb');
   curRow = tr;
-  if (tr) tr.classList.add('kb');
+  if (tr) { tr.classList.add('kb'); showActs(tr); }
 }
 function focusRow(tr) {
   if (!tr) return;
@@ -1615,7 +1721,7 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
   const typing = e.target.matches('input, select, textarea, [contenteditable]');
   if (e.key === 'Escape') {
-    if ($('prefs').open) { $('prefs').open = false; $('prefs').querySelector('summary').focus(); return; }
+    for (const id of ['prefs', 'help']) if ($(id).open) { $(id).open = false; $(id).querySelector('summary').focus(); return; }
     if (typing) { e.target.blur(); return; }
     const row = curRow && curRow.isConnected ? curRow : null;
     const next = row && row.nextElementSibling;

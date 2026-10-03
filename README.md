@@ -813,6 +813,12 @@ its band without searching again, or zooms to it when those lines are not loaded
 In Live mode, scrolling down to read keeps what you read in place while new lines arrive above; a
 *new lines above* pill counts them and brings you back to the top.
 
+The **?** button next to the search box lists the search, field-filter and regex syntax with examples;
+clicking an example searches with it. Hovering a line (or moving to it with `J`/`K`) shows *copy* (the
+message), *JSON* (the whole entry) and *link* (a link to the minute around the line on its host, never
+including the token); copying also works when LogPit is served over plain HTTP. A search that finds
+nothing offers a wider time range and to remove the filters.
+
 ## Web UI links
 
 The address bar always reflects the last search, so a link reproduces the same view and the

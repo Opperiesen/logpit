@@ -10,6 +10,10 @@
   scrolls the list to an hour (or zooms to it when it is not loaded); in Live mode, reading further down
   keeps its place while lines arrive, with a *new lines above* pill.
 
+- Web UI: a **?** popover with the search syntax and clickable examples; *copy*, *JSON* and *link*
+  actions on the hovered or current line (with a fallback for plain HTTP, where the clipboard API is
+  unavailable); an empty result offers a wider time range and to remove the filters.
+
 - Web UI redesign: the log stream is set like a railway timetable, grouped under hour bands that state the
   hour once with their entry, error and warning counts and stay pinned while scrolling; each line leads with
   its minutes and seconds. Light theme in timetable paper, dark theme in departure-board navy, system fonts
