@@ -21,6 +21,7 @@ LogPit speaks homelab formats natively: syslog (RFC 5424/3164, UDP/TCP/TLS) from
 ## Operating Context
 
 - Deployed as one container (static binary, `scratch` image, multi-arch), configured through environment variables or `logpit.example.toml`.
+- The web UI is used from desktop browsers (laptop or desktop screen, mouse and keyboard). Phones are not a target (confirmed by the owner, 2026-10-04): the narrow-screen layout may stay as a fallback, but touch gestures and phone ergonomics are not acceptance criteria.
 - The web UI is served by the same process at `/`, authenticated with a token; read-only tokens may hide parts of the UI (e.g. *Views*).
 - Typical use: an incident or curiosity session — search, time range, live tail, hosts panel, top values, message patterns, trace correlation, alert history, export.
 - Grafana (Loki API) and the `logpit search` / `logpit tail` CLI are alternative views on the same data.
