@@ -48,6 +48,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Forwarding**: `[[forward]]` sends a filtered copy of the entries to another LogPit, a collector or a SIEM,
   over HTTP (NDJSON) or syslog (RFC 5424, UDP or TCP).
+- **Ingestion quotas**: per-token limits on events per second and per day, answered `429` beyond them.
 - **Retention rules**: `[[retention]]` keeps entries of some hosts, apps or severities for a different time.
 - **Cold archive**: entries leaving through retention or the size cap are first written to daily gzip files,
   readable with `zcat` and reloadable with `logpit restore`.
@@ -178,7 +179,8 @@ The `admin` scope opens two endpoints:
 curl -s -H "Authorization: Bearer $ADMIN" 'http://localhost:8080/api/audit?limit=50&refused=true'
 # [{"ts":1791024064467,"token":"web-team","method":"GET","path":"/api/logs","query":"host=db1","status":200,"peer":"10.0.0.8:51234"}, …]
 curl -s -H "Authorization: Bearer $ADMIN" http://localhost:8080/api/tokens
-# [{"name":"web-team","scopes":["read"],"hosts":["web1","web2"],"apps":["nginx"]}, …]   (never the secrets)
+# [{"name":"web-team","scopes":["read"],"hosts":["web1","web2"],"apps":["nginx"]}, …]   (never the secrets; a token's
+#  events_per_sec and events_per_day appear when set)
 ```
 
 The audit trail is stored in the database for `http.audit_retention_days` (default 30; env
@@ -195,6 +197,29 @@ are left out, or they would drown the rest. `query` is the query string, which i
 text, shortened to 200 characters; `peer` is the address of the connection, which is a reverse proxy's
 behind one. Nothing is recorded while authentication is off. Old events are purged at startup and
 every hour; they are not touched by the size cap or by log retention.
+
+### Ingestion quotas
+
+A token that writes can be capped, so one noisy shipper cannot fill the database or push the others out:
+
+```toml
+[[http.tokens]]
+token = "…"
+name = "shipper-web"
+scopes = ["write"]
+events_per_sec = 200      # sustained rate; a burst of ten seconds' worth is allowed
+events_per_day = 5000000  # per UTC day
+```
+
+Both are optional (at least 1, and the token needs the `write` scope). Every ingestion endpoint counts
+(`/ingest`, `/loki/api/v1/push`, `/gelf`, OTLP over HTTP and gRPC): entries are counted once a request has
+run, so a request can go over a limit by its own size, and the next ones get `429 Too Many Requests`
+with a `Retry-After` header (seconds until the rate recovers, or until midnight UTC for the daily total).
+Shippers such as `logpit ship` treat `429` as a reason to retry later, and gRPC clients see `UNAVAILABLE`.
+Counters live in memory and start again from zero after a restart; the limits themselves are reloaded by
+`SIGHUP` with the tokens. `/metrics` has `logpit_quota_rejected_total{token}` and `GET /api/tokens` shows
+each token's limits. Syslog and GELF over UDP or TCP have no token, so use the
+[rate limits](#rate-limiting) there.
 
 ## HTTPS
 

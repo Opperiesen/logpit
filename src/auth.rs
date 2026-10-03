@@ -47,6 +47,8 @@ impl Access {
 pub struct Identity {
     pub name: String,
     pub access: Access,
+    /// What the token may ingest.
+    pub limits: crate::quota::Limits,
 }
 
 impl Identity {
@@ -55,6 +57,7 @@ impl Identity {
         Self {
             name: "anonymous".into(),
             access: Access::default(),
+            limits: Default::default(),
         }
     }
 }
@@ -66,6 +69,7 @@ pub struct TokenEntry {
     pub name: String,
     pub scopes: Vec<Scope>,
     pub access: Access,
+    pub limits: crate::quota::Limits,
 }
 
 /// The configured tokens. With none configured, authentication is off.
@@ -94,6 +98,7 @@ impl Auth {
                     name: format!("token-{}", i + 1),
                     scopes,
                     access: Access::default(),
+                    limits: Default::default(),
                 }),
         )
     }
@@ -135,6 +140,7 @@ impl Auth {
                     found = Some(Identity {
                         name: entry.name.clone(),
                         access: entry.access.clone(),
+                        limits: entry.limits,
                     });
                 }
             }
@@ -227,6 +233,7 @@ mod tests {
                 name: "ops".into(),
                 scopes: vec![Scope::Read, Scope::Admin],
                 access: Access::default(),
+                limits: Default::default(),
             },
             TokenEntry {
                 token: "t-web".into(),
@@ -236,6 +243,7 @@ mod tests {
                     hosts: vec!["web1".into(), "web2".into()],
                     apps: vec![],
                 },
+                limits: Default::default(),
             },
         ]);
         let ops = a.identify(Some("t-ops"), Scope::Read).unwrap();

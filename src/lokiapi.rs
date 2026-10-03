@@ -849,6 +849,7 @@ mod tests {
                 hosts: vec!["db1".into()],
                 apps: vec![],
             },
+            limits: Default::default(),
         };
         let v = log_streams(&conn, &log, &limited, (0, 10_000), 100, false).unwrap();
         assert_eq!(v["result"].as_array().unwrap().len(), 1);

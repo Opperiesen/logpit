@@ -852,3 +852,50 @@ async fn grpc_calls_are_authenticated_and_malformed_ones_say_why() {
         0
     );
 }
+
+#[tokio::test]
+async fn a_token_over_its_quota_gets_429_until_the_budget_is_back() {
+    let cfg = format!(
+        "{TOKENS}\n[[http.tokens]]\ntoken = \"capped-token\"\nname = \"capped\"\nscopes = [\"write\"]\nevents_per_day = 3\n"
+    );
+    let s = start(&cfg).await;
+    let line = |m: &str| format!("{{\"host\":\"h\",\"app\":\"a\",\"message\":\"{m}\"}}\n");
+    let send = |body: String| {
+        let addr = s.addr;
+        async move {
+            call(
+                addr,
+                "POST",
+                "/ingest",
+                Some(&bearer("capped-token")),
+                body.as_bytes(),
+            )
+            .await
+        }
+    };
+    // Charged after the request: two events leave one in the budget, the next request of two
+    // goes through and overshoots, then the token is refused.
+    assert_eq!(send(line("one") + &line("two")).await.status, 200);
+    assert_eq!(send(line("three") + &line("four")).await.status, 200);
+    let refused = send(line("five")).await;
+    assert_eq!(refused.status, 429, "{}", refused.body);
+    assert!(
+        refused.head.to_ascii_lowercase().contains("retry-after: "),
+        "{}",
+        refused.head
+    );
+    // Other tokens are not affected and what was accepted is searchable.
+    assert_eq!(ingest(s.addr, &line("six")).await.status, 200);
+    wait_for(s.addr, "/api/logs", 5).await;
+    let metrics = call(s.addr, "GET", "/metrics", None, b"").await.body;
+    assert!(metrics.contains("logpit_quota_rejected_total{token=\"capped\"} 1"));
+    // The token list shows the quota.
+    let tokens = get(s.addr, "/api/tokens", ADMIN).await.json();
+    let capped = tokens
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "capped")
+        .unwrap();
+    assert_eq!(capped["events_per_day"], 3);
+}

@@ -119,7 +119,12 @@ fn success() -> Response {
 }
 
 /// Handles `LogsService/Export`.
-pub async fn export_logs(sink: Sink, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn export_logs(
+    sink: Sink,
+    charge: crate::quota::Charge,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -147,14 +152,18 @@ pub async fn export_logs(sink: Sink, headers: HeaderMap, body: Bytes) -> Respons
     let pushed = sink.clone();
     let result = tokio::task::spawn_blocking(move || {
         let entries = crate::otlp::decode_protobuf(&message, now_ms())?;
+        let count = entries.len();
         for entry in entries {
             pushed.push(entry);
         }
-        Ok::<_, &'static str>(())
+        Ok::<_, &'static str>(count)
     })
     .await;
     match result {
-        Ok(Ok(())) => success(),
+        Ok(Ok(count)) => {
+            charge.add(count);
+            success()
+        }
         Ok(Err(why)) => {
             Metrics::inc(&sink.metrics().rejected, 1);
             failure(code::INVALID_ARGUMENT, why)

@@ -95,6 +95,9 @@ pub struct LiveSettings {
     pub limiter: Reloadable<RateLimiter>,
     pub structured: AtomicBool,
     pub auth: Reloadable<Auth>,
+    /// Ingestion quotas of the tokens; the limits come from `auth`, so a reload changes them
+    /// while the counters carry on.
+    pub quotas: crate::quota::Quotas,
     pub silence: Reloadable<SilenceSettings>,
     /// New-pattern and surge notifications; its settings are swapped in place so that the
     /// templates it has learned survive a reload.
@@ -155,6 +158,7 @@ impl LiveSettings {
             limiter: Reloadable::new(RateLimiter::new(&cfg.ingest.rate_limit)),
             structured: AtomicBool::new(cfg.ingest.parse_structured),
             auth: Reloadable::new(cfg.auth()),
+            quotas: Default::default(),
             silence: Reloadable::new(SilenceSettings::from_config(cfg)?),
             watch: PatternWatch::new(&cfg.new_patterns, crate::ingest::now_ms())?,
             dedup: Dedup::new(&cfg.ingest.dedup),

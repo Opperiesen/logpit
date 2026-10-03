@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Ingestion quotas per token (`events_per_sec`, `events_per_day` in `[[http.tokens]]`): a write token over
+  its budget gets `429` with `Retry-After`; `logpit_quota_rejected_total{token}` counts the refusals.
+
 ## 0.14.0 - 2026-10-03
 
 - OTLP over gRPC: `LogsService/Export` is served on the HTTP port (HTTP/2, `h2c` without TLS and ALPN `h2`

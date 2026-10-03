@@ -34,6 +34,7 @@ pub mod parsers;
 pub mod patterns;
 pub mod proto;
 pub mod query;
+pub mod quota;
 pub mod ratelimit;
 pub mod restore;
 pub mod rules;

@@ -53,6 +53,8 @@ audit_retention_days = 30    # days of access audit kept in the database; 0 = la
 # [[http.tokens]]
 # token = "shipper-secret"
 # scopes = ["write"]
+# events_per_sec = 200        # optional ingestion quotas: a request over them gets 429
+# events_per_day = 5000000    # per UTC day
 #
 # [[http.tokens]]
 # token = "web-team-secret"

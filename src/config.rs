@@ -123,6 +123,13 @@ pub struct TokenConfig {
     /// Limits reading to these apps (exact names); empty means every app.
     #[serde(default)]
     pub apps: Vec<String>,
+    /// Most events per second the token may write (bursts of ten seconds are allowed); further
+    /// requests get 429 until the budget is back. Unset means no limit.
+    #[serde(default)]
+    pub events_per_sec: Option<u32>,
+    /// Most events per UTC day the token may write. Unset means no limit.
+    #[serde(default)]
+    pub events_per_day: Option<u64>,
 }
 
 /// Longest token name and longest host or app list of one token.
@@ -553,6 +560,7 @@ impl Config {
             name: "admin".into(),
             scopes: vec![Scope::Read, Scope::Write, Scope::Admin],
             access: Access::default(),
+            limits: Default::default(),
         });
         let scoped = self
             .http
@@ -566,6 +574,10 @@ impl Config {
                 access: Access {
                     hosts: self.token_hosts(t),
                     apps: t.apps.clone(),
+                },
+                limits: crate::quota::Limits {
+                    per_sec: t.events_per_sec,
+                    per_day: t.events_per_day,
                 },
             });
         crate::auth::Auth::from_entries(admin.chain(scoped))
@@ -663,6 +675,18 @@ impl Config {
             }
             if !names.insert(name.clone()) {
                 bail!("token name {name:?} is used twice");
+            }
+            if t.events_per_sec.is_some() || t.events_per_day.is_some() {
+                if !t.scopes.contains(&Scope::Write) {
+                    bail!(
+                        "token {name:?} sets an ingestion quota, which only limits writing: it needs the write scope"
+                    );
+                }
+                if t.events_per_sec == Some(0) || t.events_per_day == Some(0) {
+                    bail!(
+                        "token {name:?}: quotas must be at least 1 (leave them out for no limit)"
+                    );
+                }
             }
             if !t.hosts.is_empty() || !t.apps.is_empty() || !t.tags.is_empty() {
                 if !t.scopes.contains(&Scope::Read) {
@@ -866,6 +890,27 @@ mod tests {
             "[http]\ntoken = \"r\"\n[[http.tokens]]\ntoken = \"a\"\nname = \"admin\"\nscopes = [\"read\"]"
         )
         .is_err());
+    }
+
+    #[test]
+    fn token_quotas_need_the_write_scope_and_positive_values() {
+        let base = "[[http.tokens]]\ntoken = \"a\"\n";
+        let c = Config::parse(&format!(
+            "{base}scopes = [\"write\"]\nevents_per_sec = 50\nevents_per_day = 1000000"
+        ))
+        .unwrap();
+        let limits = c.auth().entries().next().unwrap().limits;
+        assert_eq!(
+            (limits.per_sec, limits.per_day),
+            (Some(50), Some(1_000_000))
+        );
+        for bad in [
+            "scopes = [\"read\"]\nevents_per_day = 5",
+            "scopes = [\"write\"]\nevents_per_sec = 0",
+            "scopes = [\"write\"]\nevents_per_day = 0",
+        ] {
+            assert!(Config::parse(&format!("{base}{bad}")).is_err(), "{bad}");
+        }
     }
 
     #[test]

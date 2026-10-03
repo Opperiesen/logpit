@@ -233,8 +233,37 @@ async fn require_scope(
     let (token, response) = match identity {
         Ok(id) => {
             let name = id.name.clone();
-            req.extensions_mut().insert(id);
-            (Some(name), next.run(req).await)
+            let quotas = &state.settings.quotas;
+            let refused = if scope == Scope::Write {
+                quotas
+                    .check(&id.name, &id.limits, now_ms(), std::time::Instant::now())
+                    .err()
+            } else {
+                None
+            };
+            if let Some(wait) = refused {
+                let mut r =
+                    (StatusCode::TOO_MANY_REQUESTS, "ingestion quota exceeded").into_response();
+                r.headers_mut().insert(header::RETRY_AFTER, wait.into());
+                (Some(name), r)
+            } else {
+                // Handlers count the events they push; they are charged to the token afterwards.
+                let charge = crate::quota::Charge::default();
+                req.extensions_mut().insert(charge.clone());
+                let limits = id.limits;
+                req.extensions_mut().insert(id);
+                let response = next.run(req).await;
+                if scope == Scope::Write {
+                    quotas.charge(
+                        &name,
+                        &limits,
+                        charge.total(),
+                        now_ms(),
+                        std::time::Instant::now(),
+                    );
+                }
+                (Some(name), response)
+            }
         }
         Err(Decision::Forbidden) => (
             auth.name_of(presented.as_deref()).map(str::to_string),
@@ -328,6 +357,10 @@ struct TokenInfo<'a> {
     hosts: &'a [String],
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     apps: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    events_per_sec: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    events_per_day: Option<u64>,
 }
 
 /// The configured tokens by name, scopes and read restrictions; never the secrets.
@@ -340,6 +373,8 @@ async fn token_list(State(state): State<AppState>) -> Response {
             scopes: &e.scopes,
             hosts: &e.access.hosts,
             apps: &e.access.apps,
+            events_per_sec: e.limits.per_sec,
+            events_per_day: e.limits.per_day,
         })
         .collect();
     Json(tokens).into_response()
@@ -357,6 +392,7 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
             + &state.sink.settings().parsers.get().render_metrics()
             + &state.sink.settings().dedup.render_metrics()
             + &state.sink.settings().volume.render_metrics()
+            + &state.settings.quotas.render_metrics()
             + &state
                 .sink
                 .settings()
@@ -469,11 +505,21 @@ fn decompress_request(
 /// the OpenTelemetry Collector and the SDK exporters send. Resource and log attributes become the
 /// host, app, level and fields. Answers 200 with an empty export response.
 /// OTLP over gRPC (`LogsService/Export`), which needs HTTP/2.
-async fn otlp_grpc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    crate::grpc::export_logs(state.sink.clone(), headers, body).await
+async fn otlp_grpc(
+    State(state): State<AppState>,
+    Extension(charge): Extension<crate::quota::Charge>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    crate::grpc::export_logs(state.sink.clone(), charge, headers, body).await
 }
 
-async fn otlp_logs(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn otlp_logs(
+    State(state): State<AppState>,
+    Extension(charge): Extension<crate::quota::Charge>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let body = match decompress_request(&headers, body, false) {
         Ok(b) => b,
         Err((status, msg)) => return (status, msg).into_response(),
@@ -490,17 +536,22 @@ async fn otlp_logs(State(state): State<AppState>, headers: HeaderMap, body: Byte
         } else {
             crate::otlp::decode_protobuf(&body, now)
         }?;
+        let count = entries.len();
         for entry in entries {
             sink.push(entry);
         }
-        Ok::<_, &'static str>(())
+        Ok::<_, &'static str>(count)
     })
     .await;
     match result {
-        Ok(Ok(())) if is_json => {
+        Ok(Ok(count)) if is_json => {
+            charge.add(count);
             ([(header::CONTENT_TYPE, "application/json")], "{}").into_response()
         }
-        Ok(Ok(())) => ([(header::CONTENT_TYPE, "application/x-protobuf")], "").into_response(),
+        Ok(Ok(count)) => {
+            charge.add(count);
+            ([(header::CONTENT_TYPE, "application/x-protobuf")], "").into_response()
+        }
         Ok(Err(msg)) => {
             Metrics::inc(&state.sink.metrics().rejected, 1);
             (StatusCode::BAD_REQUEST, msg).into_response()
@@ -515,7 +566,12 @@ async fn otlp_logs(State(state): State<AppState>, headers: HeaderMap, body: Byte
 /// Loki's push API: JSON, or snappy-compressed protobuf (what Promtail and Grafana Alloy send).
 /// Labels become the host, app, level and fields; JSON or `key=value` data inside a line is
 /// extracted as well when structured parsing is on. Answers 204 like Loki.
-async fn loki_push(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn loki_push(
+    State(state): State<AppState>,
+    Extension(charge): Extension<crate::quota::Charge>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -566,7 +622,10 @@ async fn loki_push(State(state): State<AppState>, headers: HeaderMap, body: Byte
     })
     .await;
     match result {
-        Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Ok(lines)) => {
+            charge.add(lines);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(Err(msg)) => {
             Metrics::inc(&state.sink.metrics().rejected, 1);
             (StatusCode::BAD_REQUEST, msg).into_response()
@@ -579,19 +638,31 @@ async fn loki_push(State(state): State<AppState>, headers: HeaderMap, body: Byte
 }
 
 /// GELF over HTTP: one JSON message per request. Answers 202 like Graylog.
-async fn gelf_ingest(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn gelf_ingest(
+    State(state): State<AppState>,
+    Extension(charge): Extension<crate::quota::Charge>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let body = match decompress_request(&headers, body, true) {
         Ok(b) => b,
         Err((status, msg)) => return (status, msg).into_response(),
     };
     match state.sink.push_gelf(&body) {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Ok(()) => {
+            charge.add(1);
+            StatusCode::ACCEPTED.into_response()
+        }
         Err(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
     }
 }
 
 /// Accepts NDJSON (one object per line) or a single JSON array of objects.
-async fn ingest(State(state): State<AppState>, body: String) -> impl IntoResponse {
+async fn ingest(
+    State(state): State<AppState>,
+    Extension(charge): Extension<crate::quota::Charge>,
+    body: String,
+) -> impl IntoResponse {
     let now = now_ms();
     let mut values: Vec<Value> = Vec::new();
     let mut rejected = 0usize;
@@ -621,6 +692,7 @@ async fn ingest(State(state): State<AppState>, body: String) -> impl IntoRespons
         }
     }
     Metrics::inc(&state.sink.metrics().rejected, rejected as u64);
+    charge.add(accepted);
 
     let status = if accepted == 0 && rejected > 0 {
         StatusCode::BAD_REQUEST
