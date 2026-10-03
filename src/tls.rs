@@ -1,14 +1,30 @@
-//! TLS for the syslog listener (RFC 5425), with optional client-certificate verification.
+//! TLS for the syslog listener (RFC 5425) and for the HTTPS listener of the web UI and API, with
+//! optional client-certificate verification.
 
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, bail};
 use rustls::RootCertStore;
 use rustls::crypto::ring::default_provider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use rustls::server::WebPkiClientVerifier;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Semaphore, mpsc};
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::server::TlsStream;
+
+use crate::live::Reloadable;
+use crate::metrics::Metrics;
+
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Handshakes in progress at once; a connection beyond that is closed, so a flood of half-open
+/// connections cannot pile up tasks.
+const MAX_HANDSHAKES: usize = 256;
+/// Finished handshakes waiting for the server to pick them up.
+const READY_QUEUE: usize = 64;
 
 fn load_certs(path: &Path) -> anyhow::Result<Vec<CertificateDer<'static>>> {
     let certs: Vec<_> = CertificateDer::pem_file_iter(path)
@@ -55,6 +71,86 @@ pub fn build_acceptor(
         .with_single_cert(certs, key)
         .context("the certificate and private key do not match or are unusable")?;
     Ok(TlsAcceptor::from(Arc::new(config)))
+}
+
+/// The HTTPS listener: accepts TCP connections and finishes their TLS handshakes concurrently
+/// (a client that stalls halfway never delays the others), handing only completed connections to
+/// `axum::serve`. The certificate is read from `acceptor` for each connection, so a reload takes
+/// effect for the next one.
+pub struct HttpsListener {
+    ready: mpsc::Receiver<(TlsStream<TcpStream>, SocketAddr)>,
+    local: SocketAddr,
+}
+
+impl HttpsListener {
+    pub fn new(
+        tcp: TcpListener,
+        acceptor: Arc<Reloadable<TlsAcceptor>>,
+        metrics: Arc<Metrics>,
+    ) -> std::io::Result<Self> {
+        let local = tcp.local_addr()?;
+        let (tx, ready) = mpsc::channel(READY_QUEUE);
+        let slots = Arc::new(Semaphore::new(MAX_HANDSHAKES));
+        tokio::spawn(async move {
+            loop {
+                let (stream, peer) = match tcp.accept().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        // Out of file descriptors and the like: back off instead of spinning.
+                        tracing::warn!("HTTPS accept failed: {e}");
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
+                };
+                let Ok(permit) = slots.clone().try_acquire_owned() else {
+                    Metrics::inc(&metrics.tls_failures, 1);
+                    continue;
+                };
+                let (tx, acceptor, metrics) = (tx.clone(), acceptor.get(), metrics.clone());
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    match tokio::time::timeout(HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await {
+                        Ok(Ok(tls)) => {
+                            let _ = tx.send((tls, peer)).await;
+                        }
+                        // A probe, a plain-HTTP client or a refused client certificate.
+                        _ => Metrics::inc(&metrics.tls_failures, 1),
+                    }
+                });
+            }
+        });
+        Ok(Self { ready, local })
+    }
+}
+
+/// The address of the peer of an HTTPS connection, as request extension (`ConnectInfo`): axum
+/// only knows how to provide `SocketAddr` for its own plain TCP listener.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PeerAddr(pub SocketAddr);
+
+impl axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, HttpsListener>>
+    for PeerAddr
+{
+    fn connect_info(stream: axum::serve::IncomingStream<'_, HttpsListener>) -> Self {
+        PeerAddr(*stream.remote_addr())
+    }
+}
+
+impl axum::serve::Listener for HttpsListener {
+    type Io = TlsStream<TcpStream>;
+    type Addr = SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        match self.ready.recv().await {
+            Some(conn) => conn,
+            // The accept task only ends with the runtime.
+            None => std::future::pending().await,
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        Ok(self.local)
+    }
 }
 
 #[cfg(test)]
@@ -298,5 +394,241 @@ pub(crate) mod testpki {
             client_key_pem: client_key.serialize_pem(),
             dir,
         }
+    }
+}
+
+#[cfg(test)]
+mod https_tests {
+    use std::time::Duration;
+
+    use axum::Router;
+    use axum::extract::ConnectInfo;
+    use axum::routing::get;
+    use rustls::pki_types::ServerName;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio_rustls::TlsConnector;
+
+    use super::testpki::{Pki, pki};
+    use super::*;
+
+    struct Https {
+        port: u16,
+        acceptor: Arc<Reloadable<TlsAcceptor>>,
+        metrics: Arc<Metrics>,
+    }
+
+    async fn start(p: &Pki, client_ca: bool) -> Https {
+        let acceptor = build_acceptor(
+            &p.server_cert,
+            &p.server_key,
+            client_ca.then_some(p.ca_file.as_path()),
+        )
+        .unwrap();
+        let acceptor = Arc::new(Reloadable::new(acceptor));
+        let metrics = Arc::new(Metrics::default());
+        let tcp = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = tcp.local_addr().unwrap().port();
+        let listener = HttpsListener::new(tcp, acceptor.clone(), metrics.clone()).unwrap();
+        let app =
+            Router::new()
+                .route("/healthz", get(|| async { "ok" }))
+                .route(
+                    "/peer",
+                    get(
+                        |ConnectInfo(PeerAddr(a)): ConnectInfo<PeerAddr>| async move {
+                            a.ip().to_string()
+                        },
+                    ),
+                );
+        let service = app.into_make_service_with_connect_info::<PeerAddr>();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, service).await;
+        });
+        Https {
+            port,
+            acceptor,
+            metrics,
+        }
+    }
+
+    fn connector(trust_pem: &str, client: Option<(&str, &str)>) -> TlsConnector {
+        let mut roots = RootCertStore::empty();
+        for cert in CertificateDer::pem_slice_iter(trust_pem.as_bytes()) {
+            roots.add(cert.unwrap()).unwrap();
+        }
+        let builder = rustls::ClientConfig::builder_with_provider(Arc::new(default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots);
+        let config = match client {
+            Some((cert, key)) => builder
+                .with_client_auth_cert(
+                    CertificateDer::pem_slice_iter(cert.as_bytes())
+                        .collect::<Result<_, _>>()
+                        .unwrap(),
+                    PrivateKeyDer::from_pem_slice(key.as_bytes()).unwrap(),
+                )
+                .unwrap(),
+            None => builder.with_no_client_auth(),
+        };
+        TlsConnector::from(Arc::new(config))
+    }
+
+    /// Waits until at least `n` handshake failures are counted (the server notices them after the
+    /// client has already given up).
+    async fn failures_reach(metrics: &Metrics, n: u64) {
+        for _ in 0..200 {
+            if metrics
+                .tls_failures
+                .load(std::sync::atomic::Ordering::Relaxed)
+                >= n
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("no handshake failure was counted");
+    }
+
+    /// `GET path` over TLS; returns the body, and the certificate the server showed.
+    async fn get_body(
+        port: u16,
+        conn: &TlsConnector,
+        path: &str,
+    ) -> std::io::Result<(String, Vec<u8>)> {
+        let tcp = TcpStream::connect(("127.0.0.1", port)).await?;
+        let mut tls = conn
+            .connect(ServerName::try_from("localhost").unwrap(), tcp)
+            .await?;
+        let cert = tls.get_ref().1.peer_certificates().unwrap()[0]
+            .as_ref()
+            .to_vec();
+        tls.write_all(format!("GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n").as_bytes())
+            .await?;
+        let mut raw = Vec::new();
+        // With client certificates (TLS 1.3) a refusal only shows up when reading.
+        tls.read_to_end(&mut raw).await?;
+        let text = String::from_utf8_lossy(&raw).to_string();
+        Ok((
+            text.split_once("\r\n\r\n")
+                .map_or(String::new(), |(_, b)| b.to_string()),
+            cert,
+        ))
+    }
+
+    #[tokio::test]
+    async fn requests_are_served_over_tls_with_the_peer_address() {
+        let p = pki("https-basic");
+        let s = start(&p, false).await;
+        let c = connector(&p.ca_pem, None);
+        let (body, _) = get_body(s.port, &c, "/healthz").await.unwrap();
+        assert_eq!(body, "ok");
+        let (peer, _) = get_body(s.port, &c, "/peer").await.unwrap();
+        assert_eq!(peer, "127.0.0.1");
+        // A client that does not trust the certificate cannot talk to it.
+        let stranger = connector(&pki("https-stranger").ca_pem, None);
+        assert!(get_body(s.port, &stranger, "/healthz").await.is_err());
+        failures_reach(&s.metrics, 1).await;
+        let _ = std::fs::remove_dir_all(&p.dir);
+    }
+
+    #[tokio::test]
+    async fn plain_http_and_stalled_clients_do_not_block_the_others() {
+        let p = pki("https-stall");
+        let s = start(&p, false).await;
+        // A client that connects and says nothing keeps its handshake open...
+        let _stalled = TcpStream::connect(("127.0.0.1", s.port)).await.unwrap();
+        // ...and one that speaks plain HTTP is turned away, without holding anyone up.
+        let mut plain = TcpStream::connect(("127.0.0.1", s.port)).await.unwrap();
+        plain
+            .write_all(b"GET /healthz HTTP/1.0\r\n\r\n")
+            .await
+            .unwrap();
+        let c = connector(&p.ca_pem, None);
+        let started = std::time::Instant::now();
+        let (body, _) = get_body(s.port, &c, "/healthz").await.unwrap();
+        assert_eq!(body, "ok");
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "served while another handshake hung"
+        );
+        let mut sink = Vec::new();
+        let _ = tokio::time::timeout(Duration::from_secs(2), plain.read_to_end(&mut sink)).await;
+        assert!(
+            !String::from_utf8_lossy(&sink).contains("ok"),
+            "plain HTTP got an answer"
+        );
+        failures_reach(&s.metrics, 1).await;
+        let _ = std::fs::remove_dir_all(&p.dir);
+    }
+
+    #[tokio::test]
+    async fn client_certificates_are_required_when_a_ca_is_given() {
+        let p = pki("https-mtls");
+        let s = start(&p, true).await;
+        let without = connector(&p.ca_pem, None);
+        assert!(get_body(s.port, &without, "/healthz").await.is_err());
+        let with = connector(&p.ca_pem, Some((&p.client_cert_pem, &p.client_key_pem)));
+        assert_eq!(get_body(s.port, &with, "/healthz").await.unwrap().0, "ok");
+        let _ = std::fs::remove_dir_all(&p.dir);
+    }
+
+    #[tokio::test]
+    async fn a_reloaded_certificate_is_used_by_the_next_connection() {
+        let first = pki("https-reload-a");
+        let second = pki("https-reload-b");
+        let s = start(&first, false).await;
+        let (_, cert_a) = get_body(s.port, &connector(&first.ca_pem, None), "/healthz")
+            .await
+            .unwrap();
+        // Replace the acceptor, as a reload does after the files changed.
+        s.acceptor.set(Arc::new(
+            build_acceptor(&second.server_cert, &second.server_key, None).unwrap(),
+        ));
+        let (_, cert_b) = get_body(s.port, &connector(&second.ca_pem, None), "/healthz")
+            .await
+            .unwrap();
+        assert_ne!(cert_a, cert_b);
+        // The old CA no longer vouches for what the server presents.
+        assert!(
+            get_body(s.port, &connector(&first.ca_pem, None), "/healthz")
+                .await
+                .is_err()
+        );
+        let _ = std::fs::remove_dir_all(&first.dir);
+        let _ = std::fs::remove_dir_all(&second.dir);
+    }
+
+    #[tokio::test]
+    async fn the_health_probe_works_over_tls_and_with_client_certificates() {
+        let p = pki("https-health");
+        let s = start(&p, false).await;
+        let addr: SocketAddr = ([127, 0, 0, 1], s.port).into();
+        // The probe runs on a blocking thread: it uses plain std sockets.
+        let r = tokio::task::spawn_blocking(move || {
+            (
+                crate::health::check_tls(addr),
+                crate::health::check(addr),
+                crate::health::check_connect(addr),
+            )
+        })
+        .await
+        .unwrap();
+        assert!(r.0.is_ok(), "{:?}", r.0);
+        assert!(r.1.is_err(), "a plain probe cannot read a TLS server");
+        assert!(r.2.is_ok());
+        let mtls = start(&p, true).await;
+        let addr: SocketAddr = ([127, 0, 0, 1], mtls.port).into();
+        let r = tokio::task::spawn_blocking(move || {
+            (
+                crate::health::check_tls(addr),
+                crate::health::check_connect(addr),
+            )
+        })
+        .await
+        .unwrap();
+        assert!(r.0.is_err(), "it has no certificate to show");
+        assert!(r.1.is_ok());
+        let _ = std::fs::remove_dir_all(&p.dir);
     }
 }

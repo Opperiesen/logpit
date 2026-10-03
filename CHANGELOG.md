@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- HTTPS: `http.tls_cert` and `http.tls_key` (and optional `http.tls_client_ca` for mutual TLS) serve the
+  web UI and API over TLS. Handshakes run concurrently with a timeout, `SIGHUP` reads the certificate files
+  again, `logpit --healthcheck` follows the configuration, and failed handshakes are counted with the syslog
+  TLS ones.
+
 - Alert history: every notification (silence, pattern alerts, new patterns and surges, volume) is
   recorded with its kind, host, message and whether the webhook took it, kept for `silence.history_days`
   (default 30, `0` = last 200 in memory) and served by `GET /api/alerts` (filters `kind`, `host`,

@@ -218,10 +218,17 @@ async fn require_scope(
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
     let query = audit::shorten_query(req.uri().query().unwrap_or(""));
+    // Plain HTTP and HTTPS connections describe their peer with different types.
     let peer = req
         .extensions()
         .get::<ConnectInfo<std::net::SocketAddr>>()
-        .map(|c| c.0.to_string());
+        .map(|c| c.0)
+        .or_else(|| {
+            req.extensions()
+                .get::<ConnectInfo<crate::tls::PeerAddr>>()
+                .map(|c| c.0.0)
+        })
+        .map(|a| a.to_string());
     let (token, response) = match identity {
         Ok(id) => {
             let name = id.name.clone();

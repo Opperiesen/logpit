@@ -40,6 +40,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Command line**: `logpit search` and `logpit tail` query a server from the terminal, with the same filters
   as the API, and text, JSON or NDJSON output.
 - **Volume alerts**: get notified when a host sends far more or far fewer logs than it usually does.
+- **HTTPS**: the web UI and API can be served over TLS directly, with certificate reload and optional client
+  certificates.
 - **Alert history**: every notification LogPit raises is kept and listed in `GET /api/alerts` and the web UI,
   with whether the webhook took it.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
@@ -94,6 +96,8 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_HTTP_TOKEN_WRITE`, `_FILE` | | Token that may only ingest (`POST /ingest`); for log shippers |
 | `LOGPIT_HTTP_TOKEN_READ`, `_FILE` | | Token that may only search and tail (`/api/logs`, `/api/tail`); for the UI and dashboards |
 | `LOGPIT_HTTP_LISTEN` | `0.0.0.0:8080` | Web UI and API address |
+| `LOGPIT_HTTP_TLS_CERT`, `LOGPIT_HTTP_TLS_KEY` | | PEM certificate chain and private key: serve the web UI and API over [HTTPS](#https) (both or neither) |
+| `LOGPIT_HTTP_TLS_CLIENT_CA` | | PEM CA file: HTTPS clients must present a certificate issued by it |
 | `LOGPIT_SYSLOG_UDP_LISTEN` | `0.0.0.0:5514` | Empty string disables UDP syslog |
 | `LOGPIT_SYSLOG_TCP_LISTEN` | `0.0.0.0:5514` | Empty string disables TCP syslog |
 | `LOGPIT_GELF_UDP_LISTEN`, `LOGPIT_GELF_TCP_LISTEN` | *(off)* | GELF listeners, e.g. `0.0.0.0:12201` (see [Loki and GELF](#loki-and-gelf)) |
@@ -189,6 +193,46 @@ are left out, or they would drown the rest. `query` is the query string, which i
 text, shortened to 200 characters; `peer` is the address of the connection, which is a reverse proxy's
 behind one. Nothing is recorded while authentication is off. Old events are purged at startup and
 every hour; they are not touched by the size cap or by log retention.
+
+## HTTPS
+
+LogPit can serve the web UI and the API over TLS itself, so a token never crosses the network in clear
+text and a reverse proxy is optional:
+
+```toml
+[http]
+tls_cert = "/etc/logpit/tls/fullchain.pem"   # PEM, the server certificate first, then intermediates
+tls_key = "/etc/logpit/tls/privkey.pem"      # env: LOGPIT_HTTP_TLS_CERT, LOGPIT_HTTP_TLS_KEY
+# tls_client_ca = "/etc/logpit/tls/clients-ca.pem"   # also require client certificates (mutual TLS)
+```
+
+```sh
+podman run … -v /etc/letsencrypt/live/logs.example.com:/tls:ro \
+  -e LOGPIT_HTTP_TLS_CERT=/tls/fullchain.pem -e LOGPIT_HTTP_TLS_KEY=/tls/privkey.pem …
+curl https://logs.example.com:8080/healthz
+```
+
+- **Both or neither.** `tls_cert` and `tls_key` are set together; `tls_client_ca` needs them. The files are
+  read at startup and a bad path, an unreadable key or a certificate that does not match it stops LogPit with a
+  message. The port then speaks **only** TLS (TLS 1.2 and 1.3): a plain-HTTP client is refused, so ingest
+  clients, Grafana, `logpit ship` and the rest must use `https://`.
+- **Renewing.** `SIGHUP` reads the certificate and key files again (`systemctl reload logpit`, or
+  `podman kill --signal HUP logpit`): connections made afterwards use the new certificate, open ones keep the
+  old one, and a reload that cannot read them changes nothing. So a Let's Encrypt renewal hook only has to
+  send `HUP` to the process. Turning HTTPS on or off, or changing the client CA, needs a restart (a reload
+  says so).
+- **Client certificates.** With `tls_client_ca`, a client that cannot present a certificate issued by one of
+  those CAs is refused at the handshake, before any token is looked at; tokens still apply on top.
+- **Handshakes** are completed concurrently and give up after 10 s, at most 256 at once, so a stalled or
+  hostile client cannot keep the others out. Failed handshakes (scanners, plain HTTP, untrusted clients) are
+  counted in `logpit_tls_handshake_failures_total`, together with those of the syslog TLS listener.
+- **Health check.** `logpit --healthcheck` (the container's `HEALTHCHECK`) reads the same configuration: over
+  TLS it talks TLS to its own server without verifying the certificate, since it is issued for your public
+  name, not for `localhost`; with `tls_client_ca` it can only check that connections are accepted.
+- **Audit and logs** record the client's address as for plain HTTP. There is no HSTS header and no redirect
+  from a plain port (the port is TLS-only): add those at a proxy if you need them. Certificate names are not
+  checked by LogPit itself, only by its clients; Let's Encrypt needs a reachable name and ACME on port 80
+  or DNS, which LogPit does not do.
 
 ## Sending logs
 
@@ -1438,7 +1482,7 @@ podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
 kill -HUP "$(pidof logpit)"
 ```
 
-**Applied by a reload**: `[volume]`, `syslog.timezone`, `[[ingest.rules]]`, `[[parsers]]`, `[[tags]]` (and the tokens that use them), `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
+**Applied by a reload**: `[volume]`, `syslog.timezone`, the HTTPS certificates, `[[ingest.rules]]`, `[[parsers]]`, `[[tags]]` (and the tokens that use them), `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
 `ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
 (`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
 key and client CA files. The last two are read again on every reload, so renewing a certificate or
@@ -1483,8 +1527,8 @@ Without a config file the defaults listen on loopback only.
 - RFC 3164 timestamps carry no year or zone, so reception time is used unless `syslog.timezone` says how
   to read them (see [RFC 3164 timestamps](#rfc-3164-timestamps)); named time zones are not supported.
 - Entries stored before CEF support keep their raw message; only new ones are parsed.
-- Single node, no user accounts (access is by token), and no built-in TLS for the HTTP port
-  (use a reverse proxy). Retention is by age and optionally by size; see
+- Single node, no user accounts (access is by token), and no built-in certificate management
+  (use [HTTPS](#https) or a reverse proxy). Retention is by age and optionally by size; see
   [Retention by severity](#retention-by-severity) and [Disk size cap](#disk-size-cap).
 - Read restrictions take host names or patterns (`*`, `?`) and tags, but apps are exact names.
 

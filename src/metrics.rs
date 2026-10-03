@@ -83,7 +83,7 @@ impl Metrics {
             ),
             (
                 "logpit_tls_handshake_failures_total",
-                "Syslog TLS connections that failed the handshake",
+                "TLS connections (syslog and HTTPS) that failed the handshake",
                 &self.tls_failures,
             ),
             (

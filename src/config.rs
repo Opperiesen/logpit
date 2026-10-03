@@ -91,6 +91,12 @@ pub struct HttpConfig {
     /// Days to keep the audit trail in the database; `0` keeps it in memory only (the last 1000
     /// events, lost on restart).
     pub audit_retention_days: u32,
+    /// PEM certificate chain: with `tls_key`, the web UI and API are served over HTTPS.
+    pub tls_cert: Option<PathBuf>,
+    /// PEM private key for `tls_cert`.
+    pub tls_key: Option<PathBuf>,
+    /// PEM file of CAs: when set, clients must present a certificate issued by one of them.
+    pub tls_client_ca: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
@@ -246,6 +252,9 @@ impl Default for HttpConfig {
             tokens: Vec::new(),
             max_body_bytes: 8 * 1024 * 1024,
             audit_retention_days: 30,
+            tls_cert: None,
+            tls_key: None,
+            tls_client_ca: None,
         }
     }
 }
@@ -399,6 +408,15 @@ impl Config {
                 *slot = (!v.is_empty()).then(|| PathBuf::from(v));
             }
         }
+        for (name, slot) in [
+            ("LOGPIT_HTTP_TLS_CERT", &mut self.http.tls_cert),
+            ("LOGPIT_HTTP_TLS_KEY", &mut self.http.tls_key),
+            ("LOGPIT_HTTP_TLS_CLIENT_CA", &mut self.http.tls_client_ca),
+        ] {
+            if let Some(v) = get(name) {
+                *slot = (!v.is_empty()).then(|| PathBuf::from(v));
+            }
+        }
         if let Some(v) = get("LOGPIT_HTTP_LISTEN") {
             self.http.listen = v;
         }
@@ -533,6 +551,13 @@ impl Config {
         crate::forward::validate(&self.forward)?;
         crate::syslog::Rfc3164Zone::parse(&self.syslog.timezone)
             .map_err(|e| anyhow::anyhow!("syslog.timezone: {e}"))?;
+        let h = &self.http;
+        if h.tls_cert.is_some() != h.tls_key.is_some() {
+            bail!("http.tls_cert and http.tls_key must be set together");
+        }
+        if h.tls_client_ca.is_some() && h.tls_cert.is_none() {
+            bail!("http.tls_client_ca is set but http.tls_cert and http.tls_key are not");
+        }
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
             bail!("syslog.tls_listen needs syslog.tls_cert and syslog.tls_key");
@@ -984,6 +1009,39 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn http_tls_config() {
+        let cfg = Config::parse("").unwrap();
+        assert!(
+            cfg.http.tls_cert.is_none()
+                && cfg.http.tls_key.is_none()
+                && cfg.http.tls_client_ca.is_none()
+        );
+        let cfg = Config::parse(
+            "[http]\ntls_cert = \"/c.pem\"\ntls_key = \"/k.pem\"\ntls_client_ca = \"/ca.pem\"",
+        )
+        .unwrap();
+        assert_eq!(cfg.http.tls_cert, Some(PathBuf::from("/c.pem")));
+        assert_eq!(cfg.http.tls_client_ca, Some(PathBuf::from("/ca.pem")));
+        // Both or neither, and a client CA needs HTTPS.
+        assert!(Config::parse("[http]\ntls_cert = \"/c.pem\"").is_err());
+        assert!(Config::parse("[http]\ntls_key = \"/k.pem\"").is_err());
+        assert!(Config::parse("[http]\ntls_client_ca = \"/ca.pem\"").is_err());
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[
+            ("LOGPIT_HTTP_TLS_CERT", "/e.pem"),
+            ("LOGPIT_HTTP_TLS_KEY", "/e.key"),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.http.tls_key, Some(PathBuf::from("/e.key")));
+        cfg.apply_env(&env(&[
+            ("LOGPIT_HTTP_TLS_CERT", ""),
+            ("LOGPIT_HTTP_TLS_KEY", ""),
+        ]))
+        .unwrap();
+        assert!(cfg.http.tls_cert.is_none() && cfg.http.tls_key.is_none());
     }
 
     #[test]

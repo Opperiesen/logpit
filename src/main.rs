@@ -317,7 +317,15 @@ async fn main() -> anyhow::Result<()> {
             .listen
             .parse()
             .with_context(|| format!("invalid http.listen address {:?}", cfg.http.listen))?;
-        return logpit::health::check(logpit::health::probe_target(listen));
+        let target = logpit::health::probe_target(listen);
+        // Served over TLS: the probe talks TLS to its own server without checking the certificate
+        // (it is about liveness, and the certificate is for the public name, not localhost); a
+        // server that demands client certificates is only checked for accepting connections.
+        return match (&cfg.http.tls_cert, &cfg.http.tls_client_ca) {
+            (Some(_), None) => logpit::health::check_tls(target),
+            (Some(_), Some(_)) => logpit::health::check_connect(target),
+            _ => logpit::health::check(target),
+        };
     }
 
     if let Some(dest) = &args.backup {
@@ -487,16 +495,21 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(http)
         .await
         .with_context(|| format!("cannot bind HTTP listener on {http}"))?;
-    tracing::info!("HTTP listening on http://{http}");
     let app = api::router(state, cfg.http.max_body_bytes);
-    tasks.spawn(async move {
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await
-        .map_err(Into::into)
-    });
+    match settings.http_tls.clone() {
+        Some(acceptor) => {
+            tracing::info!("HTTP listening on https://{http}");
+            let listener =
+                logpit::tls::HttpsListener::new(listener, acceptor, retention_metrics.clone())?;
+            let service = app.into_make_service_with_connect_info::<logpit::tls::PeerAddr>();
+            tasks.spawn(async move { axum::serve(listener, service).await.map_err(Into::into) });
+        }
+        None => {
+            tracing::info!("HTTP listening on http://{http}");
+            let service = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
+            tasks.spawn(async move { axum::serve(listener, service).await.map_err(Into::into) });
+        }
+    }
 
     // Both notifiers read their webhook from the settings each time, so a reload can add, change
     // or remove alerts and the webhook without restarting them; every notification is also kept in

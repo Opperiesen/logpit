@@ -5,7 +5,13 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 
+use std::sync::Arc;
+
 use anyhow::{Context, bail};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::crypto::{CryptoProvider, ring::default_provider};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{DigitallySignedStruct, SignatureScheme};
 
 const TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -19,11 +25,14 @@ pub fn probe_target(listen: SocketAddr) -> SocketAddr {
     SocketAddr::new(ip, listen.port())
 }
 
-/// Succeeds if `GET /healthz` on `addr` answers with a 200.
-pub fn check(addr: SocketAddr) -> anyhow::Result<()> {
-    let mut stream = TcpStream::connect_timeout(&addr, TIMEOUT).context("connect failed")?;
+fn connect(addr: SocketAddr) -> anyhow::Result<TcpStream> {
+    let stream = TcpStream::connect_timeout(&addr, TIMEOUT).context("connect failed")?;
     stream.set_read_timeout(Some(TIMEOUT))?;
     stream.set_write_timeout(Some(TIMEOUT))?;
+    Ok(stream)
+}
+
+fn probe<S: Read + Write>(stream: &mut S) -> anyhow::Result<()> {
     stream.write_all(b"GET /healthz HTTP/1.0\r\nHost: localhost\r\n\r\n")?;
     let mut buf = [0u8; 64];
     let n = stream.read(&mut buf).context("no response")?;
@@ -33,6 +42,72 @@ pub fn check(addr: SocketAddr) -> anyhow::Result<()> {
     } else {
         bail!("unhealthy: {}", head.lines().next().unwrap_or(""))
     }
+}
+
+/// Succeeds if `GET /healthz` on `addr` answers with a 200.
+pub fn check(addr: SocketAddr) -> anyhow::Result<()> {
+    probe(&mut connect(addr)?)
+}
+
+/// Succeeds if the server at `addr` accepts a connection: for a server that demands client
+/// certificates, which the probe does not have.
+pub fn check_connect(addr: SocketAddr) -> anyhow::Result<()> {
+    connect(addr).map(|_| ())
+}
+
+/// Accepts whatever certificate the server shows: the probe asks its own server about liveness,
+/// and the certificate is issued for a public name, not for `localhost`.
+#[derive(Debug)]
+struct AcceptAnyCertificate(Arc<CryptoProvider>);
+
+impl ServerCertVerifier for AcceptAnyCertificate {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
+    }
+}
+
+/// Like [`check`] for a server that speaks TLS, without checking its certificate.
+pub fn check_tls(addr: SocketAddr) -> anyhow::Result<()> {
+    let provider = Arc::new(default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .context("unsupported TLS protocol versions")?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AcceptAnyCertificate(provider)))
+        .with_no_client_auth();
+    let conn = rustls::ClientConnection::new(Arc::new(config), ServerName::try_from("localhost")?)
+        .context("cannot start the TLS handshake")?;
+    let mut stream = rustls::StreamOwned::new(conn, connect(addr)?);
+    probe(&mut stream)
 }
 
 #[cfg(test)]

@@ -103,6 +103,8 @@ pub struct LiveSettings {
     pub syslog_zone: Reloadable<crate::syslog::Rfc3164Zone>,
     /// The acceptor of the syslog TLS listener, when it is enabled.
     pub tls: Option<Arc<Reloadable<TlsAcceptor>>>,
+    /// The acceptor of the HTTPS listener, when the web UI and API are served over TLS.
+    pub http_tls: Option<Arc<Reloadable<TlsAcceptor>>>,
 }
 
 /// What a reload did.
@@ -119,6 +121,16 @@ fn tls_acceptor(cfg: &Config) -> anyhow::Result<Option<TlsAcceptor>> {
     match (s.tls_listen.is_empty(), &s.tls_cert, &s.tls_key) {
         (false, Some(cert), Some(key)) => {
             crate::tls::build_acceptor(cert, key, s.tls_client_ca.as_deref()).map(Some)
+        }
+        _ => Ok(None),
+    }
+}
+
+fn http_tls_acceptor(cfg: &Config) -> anyhow::Result<Option<TlsAcceptor>> {
+    let h = &cfg.http;
+    match (&h.tls_cert, &h.tls_key) {
+        (Some(cert), Some(key)) => {
+            crate::tls::build_acceptor(cert, key, h.tls_client_ca.as_deref()).map(Some)
         }
         _ => Ok(None),
     }
@@ -145,6 +157,7 @@ impl LiveSettings {
             volume: crate::volume::VolumeWatch::new(&cfg.volume),
             syslog_zone: Reloadable::new(zone_of(cfg)?),
             tls: tls_acceptor(cfg)?.map(|a| Arc::new(Reloadable::new(a))),
+            http_tls: http_tls_acceptor(cfg)?.map(|a| Arc::new(Reloadable::new(a))),
         })
     }
 
@@ -173,6 +186,14 @@ impl LiveSettings {
         }
         if old.http.listen != new.http.listen {
             out.push("http.listen");
+        }
+        // Like the syslog TLS listener: HTTPS cannot be switched on or off by a reload, only its
+        // certificates are read again.
+        if (new.http.tls_cert.is_some() && new.http.tls_key.is_some()) != self.http_tls.is_some() {
+            out.push("http.tls_cert");
+        }
+        if old.http.tls_client_ca.is_some() != new.http.tls_client_ca.is_some() {
+            out.push("http.tls_client_ca");
         }
         if old.http.max_body_bytes != new.http.max_body_bytes {
             out.push("http.max_body_bytes");
@@ -226,6 +247,10 @@ impl LiveSettings {
             .then(|| SilenceSettings::from_config(new).map(Arc::new))
             .transpose()?;
         let tls = match (&self.tls, tls_acceptor(new)?) {
+            (Some(_), Some(acceptor)) => Some(Arc::new(acceptor)),
+            _ => None,
+        };
+        let http_tls = match (&self.http_tls, http_tls_acceptor(new)?) {
             (Some(_), Some(acceptor)) => Some(Arc::new(acceptor)),
             _ => None,
         };
@@ -296,6 +321,10 @@ impl LiveSettings {
             report.applied.push("API tokens");
         }
         self.auth.set(auth);
+        if let (Some(slot), Some(acceptor)) = (&self.http_tls, http_tls) {
+            slot.set(acceptor);
+            report.applied.push("HTTPS certificates");
+        }
         if let (Some(slot), Some(acceptor)) = (&self.tls, tls) {
             // `Arc<TlsAcceptor>` into the slot: connections accepted from now on use it.
             slot.set(acceptor);
@@ -611,6 +640,49 @@ mod tests {
         let mut bad = new.clone();
         bad.volume.window_secs = 1;
         assert!(live.reload(&new, &bad).is_err());
+    }
+
+    #[test]
+    fn https_is_started_at_boot_and_its_certificates_are_read_again() {
+        let pki = crate::tls::testpki::pki("live-https");
+        let with = |cert: &std::path::Path, key: &std::path::Path| {
+            cfg(&format!(
+                "[http]\ntls_cert = {:?}\ntls_key = {:?}",
+                cert.display().to_string(),
+                key.display().to_string()
+            ))
+        };
+        let old = with(&pki.server_cert, &pki.server_key);
+        let live = LiveSettings::from_config(&old).unwrap();
+        assert!(live.http_tls.is_some());
+        // Same files: the certificates are read again, nothing needs a restart.
+        let report = live.reload(&old, &old).unwrap();
+        assert_eq!(report.applied, ["HTTPS certificates"]);
+        assert!(report.restart_required.is_empty());
+        // Switching HTTPS off, or the client CA on, needs a restart.
+        let plain = cfg("");
+        assert_eq!(
+            live.reload(&old, &plain).unwrap().restart_required,
+            ["http.tls_cert"]
+        );
+        let mut with_ca = old.clone();
+        with_ca.http.tls_client_ca = Some(pki.ca_file.clone());
+        assert_eq!(
+            live.reload(&old, &with_ca).unwrap().restart_required,
+            ["http.tls_client_ca"]
+        );
+        // A certificate that cannot be read fails the whole reload and changes nothing.
+        let mut broken = old.clone();
+        broken.http.tls_cert = Some(pki.dir.join("missing.pem"));
+        assert!(live.reload(&old, &broken).is_err());
+        // Plain HTTP at boot stays plain: turning it on by a reload is for a restart.
+        let live = LiveSettings::from_config(&plain).unwrap();
+        assert!(live.http_tls.is_none());
+        assert_eq!(
+            live.reload(&plain, &old).unwrap().restart_required,
+            ["http.tls_cert"]
+        );
+        let _ = std::fs::remove_dir_all(&pki.dir);
     }
 
     #[test]
