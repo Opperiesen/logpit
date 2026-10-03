@@ -37,6 +37,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   apps for reading, and an audit trail of refused requests and reads.
 - **New-pattern alerts**: get notified when a message pattern never seen before appears, or a known one
   suddenly surges.
+- **Volume alerts**: get notified when a host sends far more or far fewer logs than it usually does.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Forwarding**: `[[forward]]` sends a filtered copy of the entries to another LogPit, a collector or a SIEM,
   over HTTP (NDJSON) or syslog (RFC 5424, UDP or TCP).
@@ -882,6 +883,51 @@ in ntfy headers). Redirects are not followed, so give the final URL.
 The same state is exposed on `/metrics` as `logpit_host_silent{host="…"} 1` for each silent host,
 so Prometheus/Alertmanager can notify instead.
 
+## Volume alerts
+
+Silence alerts catch a host that stopped completely; `[volume]` catches the ones that are merely
+**too loud or too quiet**: a service stuck in an error loop, a crashed forwarder that left a trickle, a
+deployment that changed how much a host logs.
+
+```toml
+[volume]
+enabled = true            # or LOGPIT_VOLUME_ALERTS=true; off by default
+window_secs = 300         # entries are counted per host in windows of this length
+baseline_windows = 12     # a host's usual volume is averaged over about this many windows
+high_factor = 5           # a window with 5x the usual or more is a surge (0 = no surge alerts)
+low_factor = 0.2          # a window with 0.2x the usual or less is a drop, none at all included (0 = off)
+min_baseline = 20         # ignore hosts that usually send fewer than this many entries per window
+cooldown_secs = 3600      # at most one notification per host per hour
+max_hosts = 1024
+```
+
+It notifies through the same [webhook](#alert-webhook) (and the log):
+
+```json
+{"event":"volume_surge","host":"web1","count":2400,"baseline":300,"window_secs":300,
+ "message":"web1 sent 2400 entries in 5m, far above its usual 300"}
+{"event":"volume_drop","host":"db1","count":4,"baseline":280,"window_secs":300,
+ "message":"db1 sent 4 entries in 5m, far below its usual 280"}
+```
+
+- **Baseline.** A moving average of the host's closed windows (a plain average until it has
+  `baseline_windows` of them). Nothing is reported for a host before that, so a new host gets
+  `baseline_windows × window_secs` of grace (one hour with the defaults). At startup the baselines are
+  seeded from the stored entries of the last `baseline_windows` windows, so a restart does not reset
+  them.
+- **Anomalies do not move the baseline.** While a host is outside its factors the baseline stays put,
+  so a long outage is still a drop at the next window; if it lasts a whole `baseline_windows`, it is
+  accepted as the new normal and alerts stop.
+- **What is counted.** Every entry received from the host, before rate limits, rules and
+  deduplication, so limiting or dropping does not look like a drop.
+- **Limits.** The baseline is one number per host, not a daily or weekly profile: a host that is
+  busy by day and idle at night will drop-alert at dusk unless `low_factor` is low or `window_secs`
+  long enough to see it coming, and `min_baseline` keeps small hosts quiet. Hosts that have sent
+  nothing for a long while and have no baseline are forgotten. Counts and baselines are in memory.
+- **Reloading.** `SIGHUP` applies the section, and keeps the baselines unless the window length changed
+  (they would mean something else then). Turning it on by a reload starts without history.
+- **Metrics.** `logpit_volume_alerts_total{kind="surge"|"drop"}` and `logpit_volume_hosts`.
+
 ## Pattern alerts
 
 Silence alerts watch for logs that stop; pattern alerts watch for logs that pile up, such as five
@@ -1265,7 +1311,7 @@ podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
 kill -HUP "$(pidof logpit)"
 ```
 
-**Applied by a reload**: `[[ingest.rules]]`, `[[parsers]]`, `[[tags]]` (and the tokens that use them), `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
+**Applied by a reload**: `[volume]`, `[[ingest.rules]]`, `[[parsers]]`, `[[tags]]` (and the tokens that use them), `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
 `ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
 (`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
 key and client CA files. The last two are read again on every reload, so renewing a certificate or

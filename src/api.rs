@@ -312,6 +312,7 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
             + &state.sink.settings().metrics.get().render()
             + &state.sink.settings().parsers.get().render_metrics()
             + &state.sink.settings().dedup.render_metrics()
+            + &state.sink.settings().volume.render_metrics()
             + &state
                 .sink
                 .forwarders()

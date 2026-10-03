@@ -25,6 +25,8 @@ pub struct Config {
     pub parsers: Vec<crate::parsers::ParserConfig>,
     /// Names for sets of hosts (`[[tags]]`), to filter on and to restrict tokens with.
     pub tags: Vec<crate::tags::TagConfig>,
+    /// Notifications for hosts sending far more or far fewer logs than usual (`[volume]`).
+    pub volume: crate::volume::VolumeConfig,
     /// Targets that receive a copy of the matching entries (`[[forward]]`).
     pub forward: Vec<crate::forward::ForwardConfig>,
     pub gelf: GelfConfig,
@@ -316,6 +318,13 @@ impl Config {
                 _ => bail!("invalid LOGPIT_NEW_PATTERNS {v:?} (use true or false)"),
             };
         }
+        if let Some(v) = get("LOGPIT_VOLUME_ALERTS") {
+            self.volume.enabled = match v.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" => true,
+                "0" | "false" | "no" | "off" => false,
+                _ => bail!("invalid LOGPIT_VOLUME_ALERTS {v:?} (use true or false)"),
+            };
+        }
         if let Some(v) = get("LOGPIT_PARSE_STRUCTURED") {
             self.ingest.parse_structured = match v.trim().to_ascii_lowercase().as_str() {
                 "1" | "true" | "yes" | "on" => true,
@@ -488,6 +497,7 @@ impl Config {
         crate::alerts::AlertRules::from_config(&self.alerts)?;
         self.new_patterns.validate()?;
         self.ingest.dedup.validate()?;
+        self.volume.validate()?;
         let tags = crate::tags::Tags::from_config(&self.tags)?;
         crate::logmetrics::LogMetrics::from_config(&self.metrics, &tags)?;
         crate::parsers::Parsers::from_config(&self.parsers)?;
@@ -935,6 +945,33 @@ mod tests {
         );
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn volume_config() {
+        let cfg = Config::parse("").unwrap();
+        assert!(!cfg.volume.enabled);
+        assert_eq!(
+            (cfg.volume.window_secs, cfg.volume.baseline_windows),
+            (300, 12)
+        );
+        let cfg = Config::parse(
+            "[volume]\nenabled = true\nwindow_secs = 60\nbaseline_windows = 6\nhigh_factor = 4\nlow_factor = 0.1\nmin_baseline = 5\ncooldown_secs = 120",
+        )
+        .unwrap();
+        assert!(cfg.volume.enabled && cfg.volume.high_factor == 4.0);
+        assert!(Config::parse("[volume]\nwindow_secs = 1").is_err());
+        assert!(Config::parse("[volume]\nhigh_factor = 1").is_err());
+        assert!(Config::parse("[volume]\nlow_factor = 2").is_err());
+        assert!(Config::parse("[volume]\nbogus = 1").is_err());
+        let mut cfg = Config::default();
+        cfg.apply_env(&env(&[("LOGPIT_VOLUME_ALERTS", "yes")]))
+            .unwrap();
+        assert!(cfg.volume.enabled);
+        assert!(
+            cfg.apply_env(&env(&[("LOGPIT_VOLUME_ALERTS", "maybe")]))
                 .is_err()
         );
     }

@@ -115,6 +115,16 @@ pub fn render(format: WebhookFormat, event: &Event) -> Rendered {
                     "high",
                     "chart_with_upwards_trend",
                 ),
+                Event::VolumeSurge { host, .. } => (
+                    format!("LogPit: volume surge on {host}"),
+                    "high",
+                    "chart_with_upwards_trend",
+                ),
+                Event::VolumeDrop { host, .. } => (
+                    format!("LogPit: volume drop on {host}"),
+                    "high",
+                    "chart_with_downwards_trend",
+                ),
             };
             Rendered {
                 content_type: "text/plain; charset=utf-8",
@@ -367,6 +377,53 @@ mod tests {
 
     fn recovered(host: &str) -> Event {
         Event::Recovered { host: host.into() }
+    }
+
+    #[test]
+    fn volume_events_render_with_the_host_and_the_numbers() {
+        let surge = Event::VolumeSurge {
+            host: "web1".into(),
+            count: 900,
+            baseline: 100,
+            window_secs: 300,
+        };
+        let drop = Event::VolumeDrop {
+            host: "db1".into(),
+            count: 0,
+            baseline: 50,
+            window_secs: 300,
+        };
+        let p = surge.payload();
+        assert_eq!(p["event"], "volume_surge");
+        assert_eq!(
+            (p["count"].as_u64(), p["baseline"].as_u64()),
+            (Some(900), Some(100))
+        );
+        assert_eq!(
+            p["message"],
+            "web1 sent 900 entries in 5m, far above its usual 100"
+        );
+        assert_eq!(drop.payload()["event"], "volume_drop");
+        assert!(
+            drop.payload()["message"]
+                .as_str()
+                .unwrap()
+                .contains("far below its usual 50")
+        );
+        let ntfy = render(WebhookFormat::Ntfy, &drop);
+        assert!(
+            ntfy.headers
+                .iter()
+                .any(|(k, v)| k == "Title" && v.contains("volume drop on db1"))
+        );
+        for format in [
+            WebhookFormat::Json,
+            WebhookFormat::Text,
+            WebhookFormat::Slack,
+            WebhookFormat::Discord,
+        ] {
+            assert!(!render(format, &surge).body.is_empty());
+        }
     }
 
     #[test]

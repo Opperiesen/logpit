@@ -368,6 +368,40 @@ fn group_sql(group: &GroupBy) -> rusqlite::Result<String> {
     })
 }
 
+/// Entries per host in each of the `windows` complete windows of `window_ms` before `now_ms`,
+/// oldest window first (windows aligned to the Unix epoch), for seeding volume baselines.
+pub fn host_window_counts(
+    conn: &Connection,
+    now_ms: i64,
+    window_ms: i64,
+    windows: usize,
+) -> rusqlite::Result<Vec<(String, Vec<u64>)>> {
+    let last = now_ms.div_euclid(window_ms); // the window in progress
+    let first = last - windows as i64;
+    let mut stmt = conn.prepare(
+        "SELECT host, ts / ?1 AS b, COUNT(*) FROM logs WHERE ts >= ?2 AND ts < ?3 GROUP BY host, b",
+    )?;
+    let rows = stmt.query_map(
+        params![window_ms, first * window_ms, last * window_ms],
+        |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)? as u64,
+            ))
+        },
+    )?;
+    let mut hosts: std::collections::BTreeMap<String, Vec<u64>> = std::collections::BTreeMap::new();
+    for row in rows {
+        let (host, bucket, n) = row?;
+        let idx = usize::try_from(bucket - first)
+            .unwrap_or(0)
+            .min(windows - 1);
+        hosts.entry(host).or_insert_with(|| vec![0; windows])[idx] += n;
+    }
+    Ok(hosts.into_iter().collect())
+}
+
 /// Counts of entries matching `q` per time bucket (`ts` floored to a multiple of
 /// `bucket_ms`) and, optionally, per group. Returns `(bucket_start, group, count)`, with an
 /// empty group when not grouping; empty buckets are not returned.
@@ -2246,6 +2280,38 @@ mod tests {
         limited.access = access(&["web1", "db1"], &[]);
         limited.severities = Some(vec![3, 6]);
         check(limited, &[1, 4]);
+    }
+
+    #[test]
+    fn host_window_counts_cover_the_complete_windows_before_now() {
+        let mut conn = mem();
+        // Windows of 1000 ms; now = 10_500 is inside window 10, so windows 6..=9 are asked for.
+        let mut batch = Vec::new();
+        for (ts, host) in [
+            (5_999, "a"), // window 5: before the range
+            (6_000, "a"),
+            (6_999, "a"),
+            (7_500, "b"),
+            (9_000, "a"),
+            (9_999, "a"),
+            (10_000, "a"), // window 10: still running, not counted
+        ] {
+            batch.push(entry(ts, host, 6, "m"));
+        }
+        insert_batch(&mut conn, &batch).unwrap();
+        let got = host_window_counts(&conn, 10_500, 1000, 4).unwrap();
+        assert_eq!(
+            got,
+            [
+                ("a".to_string(), vec![2, 0, 0, 2]),
+                ("b".to_string(), vec![0, 1, 0, 0])
+            ]
+        );
+        assert!(
+            host_window_counts(&conn, 100_000, 1000, 4)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

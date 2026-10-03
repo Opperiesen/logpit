@@ -74,6 +74,16 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # headers = ["Authorization: Bearer change-me"]
 # severity = ["warning", "err"]             # also host, app, pattern
 
+# Volume alerts: notify when a host sends far more or far fewer logs than its usual per window.
+# [volume]
+# enabled = true
+# window_secs = 300
+# baseline_windows = 12
+# high_factor = 5            # 0 = no surge alerts
+# low_factor = 0.2           # 0 = no drop alerts
+# min_baseline = 20
+# cooldown_secs = 3600
+
 # Host tags: names for sets of hosts (exact names or * and ? patterns), usable as `tag=` filters,
 # metric labels and token restrictions.
 # [[tags]]

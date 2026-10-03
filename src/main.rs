@@ -372,6 +372,7 @@ async fn main() -> anyhow::Result<()> {
     let (alert_tx, mut alert_rx) = tokio::sync::mpsc::channel::<silence::Event>(256);
 
     let forwarders = logpit::forward::Forwarders::start(&cfg.forward)?;
+    let volume_tx = alert_tx.clone();
     let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone())
         .with_settings(settings.clone())
         .with_forwarders(forwarders)
@@ -406,6 +407,29 @@ async fn main() -> anyhow::Result<()> {
     }
     if let (Some(addr), Some(acceptor)) = (tls, settings.tls.clone()) {
         tasks.spawn(ingest::run_tls(addr, sink.clone(), acceptor));
+    }
+    // Volume baselines start from the stored history, then each window is closed on a timer.
+    if settings.volume.enabled() {
+        let history = store::host_window_counts(
+            &seed_conn,
+            now_ms(),
+            i64::try_from(cfg.volume.window_secs).unwrap_or(300) * 1000,
+            cfg.volume.baseline_windows,
+        )?;
+        let hosts = history.len();
+        settings.volume.seed(history);
+        tracing::info!("volume alerts on: baselines seeded for {hosts} hosts");
+    }
+    {
+        let settings = settings.clone();
+        tasks.spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(settings.volume.window_secs())).await;
+                for event in settings.volume.close_window(now_ms()) {
+                    let _ = volume_tx.try_send(event);
+                }
+            }
+        });
     }
     // Summaries of collapsed repeats are written when their window ends, and once more at exit.
     let flush_sink = sink.clone();

@@ -126,6 +126,7 @@ impl Sink {
         let now = now_ms();
         // A host that is being limited is still alive, so it counts for silence alerts.
         self.silence.touch(&entry.host, now);
+        self.settings.volume.count(&entry.host);
         if !self.settings.limiter.get().allow(&entry.host, now) {
             return;
         }

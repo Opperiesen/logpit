@@ -97,6 +97,8 @@ pub struct LiveSettings {
     pub watch: PatternWatch,
     /// Collapsing of repeated messages; settings are swapped in place so open runs survive.
     pub dedup: Dedup,
+    /// Per-host volume watch; settings are swapped in place so baselines survive a reload.
+    pub volume: crate::volume::VolumeWatch,
     /// The acceptor of the syslog TLS listener, when it is enabled.
     pub tls: Option<Arc<Reloadable<TlsAcceptor>>>,
 }
@@ -138,6 +140,7 @@ impl LiveSettings {
             silence: Reloadable::new(SilenceSettings::from_config(cfg)?),
             watch: PatternWatch::new(&cfg.new_patterns, crate::ingest::now_ms())?,
             dedup: Dedup::new(&cfg.ingest.dedup),
+            volume: crate::volume::VolumeWatch::new(&cfg.volume),
             tls: tls_acceptor(cfg)?.map(|a| Arc::new(Reloadable::new(a))),
         })
     }
@@ -224,6 +227,7 @@ impl LiveSettings {
         // Checked here so a bad value fails the reload before anything is applied.
         new.new_patterns.validate()?;
         new.ingest.dedup.validate()?;
+        new.volume.validate()?;
 
         // 2. Swap.
         if let Some(rules) = rules {
@@ -258,6 +262,10 @@ impl LiveSettings {
         if let Some(silence) = silence {
             self.silence.set(silence);
             report.applied.push("silence alerts and webhook");
+        }
+        if old.volume != new.volume {
+            self.volume.reconfigure(&new.volume);
+            report.applied.push("volume alerts");
         }
         if old.ingest.dedup != new.ingest.dedup {
             self.dedup.reconfigure(&new.ingest.dedup);
@@ -555,6 +563,33 @@ mod tests {
                 .render()
                 .contains("logpit_log_all_total{tag=\"prod\"} 1")
         );
+    }
+
+    #[test]
+    fn volume_settings_follow_a_reload() {
+        let old = cfg("");
+        let live = LiveSettings::from_config(&old).unwrap();
+        assert!(!live.volume.enabled());
+        let new = cfg(
+            "[volume]\nenabled = true\nwindow_secs = 60\nbaseline_windows = 3\nmin_baseline = 1",
+        );
+        let report = live.reload(&old, &new).unwrap();
+        assert_eq!(report.applied, ["volume alerts"]);
+        assert!(live.volume.enabled());
+        assert_eq!(live.volume.window_secs(), 60);
+        for _ in 0..4 {
+            for _ in 0..10 {
+                live.volume.count("h");
+            }
+            live.volume.close_window(0);
+        }
+        for _ in 0..200 {
+            live.volume.count("h");
+        }
+        assert_eq!(live.volume.close_window(0).len(), 1);
+        let mut bad = new.clone();
+        bad.volume.window_secs = 1;
+        assert!(live.reload(&new, &bad).is_err());
     }
 
     #[test]

@@ -78,6 +78,20 @@ pub enum Event {
         severity: String,
         sample: String,
     },
+    /// A host sending far more logs than its baseline over one window.
+    VolumeSurge {
+        host: String,
+        count: u64,
+        baseline: u64,
+        window_secs: u64,
+    },
+    /// A host sending far fewer logs than its baseline over one window (none at all included).
+    VolumeDrop {
+        host: String,
+        count: u64,
+        baseline: u64,
+        window_secs: u64,
+    },
     /// A known template showing up far more often than usual.
     Surge {
         pattern: String,
@@ -159,6 +173,32 @@ impl Event {
                     "sample": sample,
                     "message": format!(
                         "New log pattern ({severity}) on {host}: {pattern}. Example: {sample}"
+                    ),
+                })
+            }
+            Event::VolumeSurge {
+                host,
+                count,
+                baseline,
+                window_secs,
+            }
+            | Event::VolumeDrop {
+                host,
+                count,
+                baseline,
+                window_secs,
+            } => {
+                let surge = matches!(self, Event::VolumeSurge { .. });
+                let window = fmt_secs(i64::try_from(*window_secs).unwrap_or(i64::MAX));
+                json!({
+                    "event": if surge { "volume_surge" } else { "volume_drop" },
+                    "host": host,
+                    "count": count,
+                    "baseline": baseline,
+                    "window_secs": window_secs,
+                    "message": format!(
+                        "{host} sent {count} entries in {window}, {} its usual {baseline}",
+                        if surge { "far above" } else { "far below" }
                     ),
                 })
             }
@@ -357,9 +397,11 @@ pub async fn run(
             match event {
                 Event::Silent { .. } => tracing::warn!("silence alert: {message}"),
                 Event::Recovered { .. } => tracing::info!("silence recovered: {message}"),
-                Event::Pattern { .. } | Event::NewPattern { .. } | Event::Surge { .. } => {
-                    tracing::warn!("{message}")
-                }
+                Event::Pattern { .. }
+                | Event::NewPattern { .. }
+                | Event::Surge { .. }
+                | Event::VolumeSurge { .. }
+                | Event::VolumeDrop { .. } => tracing::warn!("{message}"),
             }
             if let Some(hook) = settings.webhook.clone() {
                 tokio::spawn(async move { hook.send(&event).await });

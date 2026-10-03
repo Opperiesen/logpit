@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Volume alerts (`[volume]`, off by default): a webhook notification when a host sends several times
+  more, or a fraction of, its usual number of entries per window (zero included), against a moving
+  baseline seeded from the stored history. Cooldown per host, a minimum baseline for small hosts,
+  Prometheus counters and `SIGHUP` reloading.
+
 - Host tags (`[[tags]]`): names for sets of hosts, written as exact names or `*`/`?` patterns, resolved
   when a query runs. `tag=` filters every search endpoint and the live tail, `GET /api/tags` lists them,
   `GET /api/hosts` shows each host's tags, metric rules can use a `tag` label, and tokens can be limited
