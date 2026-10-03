@@ -17,6 +17,10 @@
 - Web UI: saving and deleting a view ask in place instead of through browser dialogs, and the relative
   ages in the side panels refresh every 30 seconds.
 
+- Web UI: the side rail sits beside the list from 1000px wide (300px, 340px from 1280px) and comes after
+  the list for the keyboard; the hour scale is one tab stop walked with the arrow keys. A test keeps the
+  page under 32 KiB compressed.
+
 - Web UI redesign: the log stream is set like a railway timetable, grouped under hour bands that state the
   hour once with their entry, error and warning counts and stay pinned while scrolling; each line leads with
   its minutes and seconds. Light theme in timetable paper, dark theme in departure-board navy, system fonts

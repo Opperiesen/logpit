@@ -1603,6 +1603,18 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// The web UI is one inline page, and lightness is a product principle: this fails when the
+    /// page grows past its budget, so growth is a decision rather than a drift.
+    #[test]
+    fn web_ui_stays_within_its_size_budget() {
+        const BUDGET: usize = 32 * 1024;
+        let compressed = miniz_oxide::deflate::compress_to_vec(INDEX_HTML.as_bytes(), 9).len();
+        assert!(
+            compressed <= BUDGET,
+            "src/web/index.html is {compressed} bytes compressed, over its {BUDGET}-byte budget"
+        );
+    }
+
     #[test]
     fn native_json_entry() {
         let v = json!({"ts": 5, "host": "h", "app": "a", "severity": 3, "message": "m"});

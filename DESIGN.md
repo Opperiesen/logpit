@@ -294,7 +294,7 @@ Two printed palettes sharing one grammar: neutral ink and rules carry the struct
 
 A full-bleed working surface, no centred container. The header is sticky (static on phones): a navy band row with the wordmark, a flexible search (`flex: 1 1 280px`), level, range, Live, the red Search button and a right-aligned status; under it a band-grey row of secondary filters, saved views and the Settings popover (access token, display preferences, keyboard keys); under that, only when filters are active, a ground-coloured row of filter chips. Below 760px the second row folds behind a Filters toggle that shows the active filter count.
 
-From 1100px the page is a two-column grid: a 340px rail on the left (sticky under the header, scrolling on its own) holding Hosts, Top values, Message patterns and Alerts as collapsible sections, and the main column holding the legend and export bar, a 72px volume chart with its hour axis, then the stream. Below 1100px the rail stacks above the stream.
+From 1000px the page is a two-column grid: a rail on the left (300px, 340px from 1280px) (sticky under the header, scrolling on its own) holding Hosts, Top values, Message patterns and Alerts as collapsible sections, and the main column holding the legend and export bar, a 72px volume chart with its hour axis, then the stream. The rail comes after the stream in the document, so the keyboard reaches the results first; below 1000px (a fallback, phones are not a target) it follows the stream.
 
 The stream is a table set to the page edge with a 16px gutter on the left. Each hour opens with a band that sticks under the header (`top: var(--hdr)`, measured at runtime; 0 on phones). Below 760px each entry becomes a small grid: time, level, host, app on one line, message across the full width under it.
 
@@ -345,12 +345,12 @@ There are no cards. Containers are bands and sheets:
 - **Current line:** J/K or a click marks the current stream line with the tint ground; a line focused without a time button gets the 2px focus outline inset.
 
 ### Hour Scale and New-Lines Pill
-- **Hour scale:** the graduation under the chart is a row of borderless buttons (bold 11px tabular, a 1px ink tick on the left); hover turns them accent. A click scrolls the stream to that hour's band or zooms to it.
+- **Hour scale:** the graduation under the chart is a row of borderless buttons, one tab stop moved along with the arrow keys, Home and End, (bold 11px tabular, a 1px ink tick on the left); hover turns them accent. A click scrolls the stream to that hour's band or zooms to it.
 - **New-lines pill:** while reading below the top in Live mode, a fixed pill under the pinned band, in the header navy with header ink ("8 new lines above"); notice-coloured on hover. It appears and disappears in one step.
 
 ### Syntax Help, Line Actions and Empty State
 - **Syntax help:** a 32px square `?` toggle beside the search on the header band (white on navy, inverted when open) opening a ground-coloured popover: muted intro, bold 12px section titles, a two-column list of examples as small monospace buttons and muted explanations.
-- **Line actions:** one toolbar of three small buttons (*copy*, *JSON*, *link*) moved to the hovered or current line, top-right of its message cell; hidden on other lines. Feedback is the label itself ("copied", "copy failed") for 1.5s, switched in one step.
+- **Line actions:** one toolbar of three small buttons with a muted edge, so they keep 3:1 on the tinted current line (*copy*, *JSON*, *link*) moved to the hovered or current line, top-right of its message cell; hidden on other lines. Feedback is the label itself ("copied", "copy failed") for 1.5s, switched in one step.
 - **Empty state:** muted sentence, then the ways out as standard buttons (wider range, leave the zoom, remove or clear filters).
 - **Inline confirmations:** saving a view swaps *Save view* and *Delete* for a name field with a red *Save* and a *Cancel*; deleting swaps them for the question in semibold ink with a red *Delete* and a *Cancel*. No browser dialogs.
 

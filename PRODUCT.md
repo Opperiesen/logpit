@@ -28,7 +28,7 @@ LogPit speaks homelab formats natively: syslog (RFC 5424/3164, UDP/TCP/TLS) from
 
 ## Capabilities and Constraints
 
-- UI priority, as stated by the owner: **the best visual result for the smallest size and the fastest response time.** Weight, render cost and latency are part of every design decision.
+- UI priority, as stated by the owner: **the best visual result for the smallest size and the fastest response time.** Weight, render cost and latency are part of every design decision. The page has a budget of 32 KiB compressed, enforced by a test (`web_ui_stays_within_its_size_budget` in `src/api.rs`); going past it is a decision to take explicitly, not a drift.
 - Current implementation: one file, `src/web/index.html`, embedded in the binary with `include_str!` (`src/api.rs`); vanilla HTML/CSS/JS, no front-end build step or framework.
 - The page is served with a strict Content-Security-Policy (`default-src 'none'`, inline scripts only, see `INDEX_CSP` in `src/api.rs`): no external scripts, stylesheets, fonts or CDNs.
 - Existing UI features to preserve: search with filters, live tail, volume chart with stacking, saved views, hosts panel, top values, message patterns, alert history, NDJSON/CSV export, trace links, display preferences (theme auto/light/dark, time format, density, wrapping, columns) kept in the browser.

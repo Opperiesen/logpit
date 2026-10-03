@@ -802,6 +802,7 @@ Outside a text field, the web UI answers to a few keys (also listed under *Setti
 | `J` / `K` | move to the next or previous line |
 | `Enter` | open the context of the current line (on a line with a trace link, Tab reaches it) |
 | `Esc` | close *Settings*, leave a field, or close the panel under the current line |
+| `←` / `→`, `Home` / `End` | move along the hour scale under the chart (one tab stop) |
 
 The filters of the last search (search words, host, app, tag, field, regex, level and a zoomed time
 window) show as chips under the header; a chip's cross removes that filter and searches again, and

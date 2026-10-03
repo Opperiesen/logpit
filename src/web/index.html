@@ -115,13 +115,14 @@
 
   /* Work areas: the rail (hosts, top values, alerts, patterns) beside the chart and the stream. */
   .layout { display:grid; grid-template-columns:minmax(0, 1fr); }
-  #rail { border-bottom:1px solid var(--rule); }
-  @media (min-width:1100px) {
-    .layout { grid-template-columns:340px minmax(0, 1fr); grid-template-areas:"rail bar" "rail chart" "rail axis" "rail stream"; grid-template-rows:auto auto auto 1fr; }
-    #rail { grid-area:rail; position:sticky; top:var(--hdr); align-self:start; max-height:calc(100vh - var(--hdr)); overflow:auto; border-bottom:0; border-right:1px solid var(--rule); }
+  #rail { border-top:1px solid var(--rule); }
+  @media (min-width:1000px) {
+    .layout { grid-template-columns:300px minmax(0, 1fr); grid-template-areas:"rail bar" "rail chart" "rail axis" "rail stream"; grid-template-rows:auto auto auto 1fr; }
+    #rail { grid-area:rail; position:sticky; top:var(--hdr); align-self:start; max-height:calc(100vh - var(--hdr)); overflow:auto; border-top:0; border-right:1px solid var(--rule); }
     #chartbar { grid-area:bar; } #chart { grid-area:chart; } #axis { grid-area:axis; } .stream { grid-area:stream; }
-    #unseen { left:calc(50% + 170px); }
+    #unseen { left:calc(50% + 150px); }
   }
+  @media (min-width:1280px) { .layout { grid-template-columns:340px minmax(0, 1fr); } #unseen { left:calc(50% + 170px); } }
   #rail details { border-bottom:1px solid var(--rule); font-size:12.5px; }
   #rail details:last-child { border-bottom:0; }
   #rail summary { padding:10px 16px; font-size:13px; font-weight:700; cursor:pointer; list-style:none; }
@@ -210,7 +211,7 @@
   /* One toolbar, moved to the line under the pointer or the current line. */
   .acts { position:absolute; top:2px; right:6px; display:flex; gap:4px; visibility:hidden; }
   tr.entry:hover .acts, tr.entry:focus-within .acts, tr.kb .acts { visibility:visible; }
-  .acts button { height:22px; padding:0 6px; font:600 11px var(--sans); }
+  .acts button { height:22px; padding:0 6px; font:600 11px var(--sans); border-color:var(--muted); }
   #stream tr.entry { scroll-margin-top:calc(var(--hdr) + 44px); scroll-margin-bottom:16px; }
   #stream tr.kb > td { background:var(--tint); }
   #stream tr.entry:focus { outline:2px solid var(--focus); outline-offset:-2px; }
@@ -352,6 +353,12 @@
 </div>
 <svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" role="img" aria-label="Volume over time" hidden></svg>
 <div id="axis" role="group" aria-label="Go to an hour" hidden></div>
+<main class="stream">
+<button id="unseen" type="button" hidden></button>
+<table id="stream" tabindex="-1" aria-label="Log entries"><tbody id="rows"></tbody></table>
+<div id="morebar" hidden><button id="more" type="button">Load more</button></div>
+<div id="empty" hidden></div>
+</main>
 <aside id="rail" aria-label="Hosts and analysis">
 <details id="hosts">
   <summary><h2>Hosts <span id="hostsCount"></span></h2></summary>
@@ -381,12 +388,6 @@
   <div class="body"><div id="alertList"></div></div>
 </details>
 </aside>
-<main class="stream">
-<button id="unseen" type="button" hidden></button>
-<table id="stream" tabindex="-1" aria-label="Log entries"><tbody id="rows"></tbody></table>
-<div id="morebar" hidden><button id="more" type="button">Load more</button></div>
-<div id="empty" hidden></div>
-</main>
 </div>
 <script>
 const $ = id => document.getElementById(id);
@@ -1014,9 +1015,10 @@ function drawAxis(d) {
   let list = (days ? marks.filter(m => m.h === 0) : marks).filter(m => m.i / n < 0.95);
   const step = (days ? [1, 2, 7] : [1, 2, 3, 6, 12, 24]).find(s => list.length / s <= room) || 14;
   list = days ? list.filter((m, k) => k % step === 0) : list.filter(m => m.h % step === 0);
-  $('axis').replaceChildren(...list.map(m => {
+  $('axis').replaceChildren(...list.map((m, k) => {
     const s = document.createElement('button');
     s.type = 'button';
+    s.tabIndex = k === 0 ? 0 : -1;
     s.style.left = (100 * m.i / n) + '%';
     s.textContent = days ? m.t.toLocaleDateString([], { weekday: 'short', day: 'numeric', ...(m.utc ? { timeZone: 'UTC' } : {}) })
       : String(m.h).padStart(2, '0') + ':00';
@@ -1027,6 +1029,15 @@ function drawAxis(d) {
   }));
   $('axis').hidden = false;
 }
+
+// The hour scale is a single tab stop: the arrow keys, Home and End move along it.
+$('axis').addEventListener('keydown', e => {
+  const btns = [...$('axis').children], i = btns.indexOf(document.activeElement);
+  const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: btns.length - 1 }[e.key];
+  if (i < 0 || j === undefined || j < 0 || j >= btns.length) return;
+  e.preventDefault();
+  btns[i].tabIndex = -1; btns[j].tabIndex = 0; btns[j].focus();
+});
 
 // Scroll the stream to the newest band of [start, start + span) without searching again; when that time
 // is not in the loaded lines, zoom to it instead.
