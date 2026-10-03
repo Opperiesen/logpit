@@ -91,6 +91,7 @@
   <input id="q" type="search" placeholder="Search messages…" autofocus title="Words must all match. Use OR between alternatives, -word or NOT word to exclude, &quot;a phrase&quot; for adjacent words, and prefix* for prefixes. Example: disk error OR timeout -debug">
   <input id="host" type="search" placeholder="Host" size="12">
   <input id="app" type="search" placeholder="App" size="12">
+  <select id="tag" hidden title="Only the hosts that have this tag (see [[tags]] in the configuration)"><option value="">All tags</option></select>
   <input id="f" type="search" placeholder="field:value" size="14" title="Filter on a structured field: act:blocked (exact), status>=500 (also &gt;, &lt;, &lt;=, numbers only), act!=block, src~^10\. (regular expression). The field must be present.">
   <input id="re" type="search" placeholder="Regex on message" size="14" title="Keep messages matching a regular expression, e.g. timeout|refused or (?i)error [0-9]+. It scans the entries left by the other filters, so narrow the time range first.">
   <select id="level" title="Minimum severity">
@@ -128,7 +129,7 @@
 <details id="hosts">
   <summary>Hosts <span id="hostsCount"></span></summary>
   <table id="hostsTable">
-    <thead><tr><th data-sort="host">Host</th><th class="n" data-sort="count">Entries</th><th class="n" data-sort="errors">Errors</th><th class="n" data-sort="warnings">Warnings</th><th data-sort="last_ts">Last seen</th></tr></thead>
+    <thead><tr><th data-sort="host">Host</th><th>Tags</th><th class="n" data-sort="count">Entries</th><th class="n" data-sort="errors">Errors</th><th class="n" data-sort="warnings">Warnings</th><th data-sort="last_ts">Last seen</th></tr></thead>
     <tbody id="hostsBody"></tbody>
   </table>
 </details>
@@ -325,7 +326,7 @@ async function startTail() {
 // Filters of the last search, so the chart keeps matching the table even if the inputs are
 // edited without searching. The time window slides with the clock (used by live refresh).
 let snap = null;
-const SNAP_KEYS = ['q', 'host', 'app', 'level', 'f', 're'];
+const SNAP_KEYS = ['q', 'host', 'app', 'level', 'f', 're', 'tag'];
 function takeSnapshot() {
   snap = { range: $('range').value };
   if (snap.range === 'custom' && zoomWindow) Object.assign(snap, zoomWindow);
@@ -732,7 +733,17 @@ function renderHosts() {
     const num = (v, cls) => td('n' + (v ? (cls ? ' ' + cls : '') : ' zero'), v.toLocaleString());
     const seen = td('', ago(h.last_ts));
     seen.title = new Date(h.last_ts).toLocaleString();
-    tr.append(name, num(h.count), num(h.errors, 's3'), num(h.warnings, 's4'), seen);
+    const tagCell = td('', '');
+    for (const t of h.tags || []) {
+      const b = document.createElement('span');
+      b.className = 'badge';
+      b.textContent = t;
+      b.style.cursor = 'pointer';
+      b.title = 'Filter on tag ' + t;
+      b.onclick = () => { $('tag').value = t; load(); };
+      tagCell.append(b, ' ');
+    }
+    tr.append(name, tagCell, num(h.count), num(h.errors, 's3'), num(h.warnings, 's4'), seen);
     return tr;
   }));
 }
@@ -784,6 +795,13 @@ function syncUrl(forceReplace) {
 }
 function applyUrl() {
   const p = new URLSearchParams(location.search);
+  // The tag list arrives asynchronously, so a tag from the address must still be selectable.
+  const wantedTag = p.get('tag') || '';
+  if (wantedTag && ![...$('tag').options].some(o => o.value === wantedTag)) {
+    const o = document.createElement('option');
+    o.value = o.textContent = wantedTag;
+    $('tag').append(o);
+  }
   for (const k of SNAP_KEYS) $(k).value = p.get(k) || '';
   const since = Number(p.get('since')), until = Number(p.get('until'));
   if (p.has('since') && p.has('until') && Number.isFinite(since) && Number.isFinite(until) && since <= until) {
@@ -959,9 +977,33 @@ $('go').onclick = load;
 $('token').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 for (const id of ['q', 'host', 'app', 'f', 're']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 $('level').onchange = load;
+$('tag').onchange = load;
+// Host tags from the configuration: the selector only appears when some are defined.
+async function loadTagOptions() {
+  try {
+    const res = await fetch('/api/tags', { headers: authHeaders() });
+    if (!res.ok) return;
+    const names = (await res.json()).map(t => t.name);
+    const current = $('tag').value;
+    const first = $('tag').options[0];
+    $('tag').replaceChildren(first, ...names.map(n => {
+      const o = document.createElement('option');
+      o.value = o.textContent = n;
+      return o;
+    }));
+    if (current && !names.includes(current)) {
+      const o = document.createElement('option');
+      o.value = o.textContent = current;
+      $('tag').append(o);
+    }
+    $('tag').value = current;
+    $('tag').hidden = names.length === 0 && !current;
+  } catch {}
+}
 $('range').onchange = () => { if ($('range').value !== 'custom') leaveZoom(); load(); };
 $('live').onchange = () => { if ($('live').checked) load(); else { stopTail(); load(); } };
 applyUrl();
+loadTagOptions();
 suppressPush = true; // the first load canonicalizes the URL instead of adding an entry
 load();
 </script>

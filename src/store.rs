@@ -453,6 +453,9 @@ pub struct HostSummary {
     /// Whether the silence alert is firing for this host; absent when alerts are off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub silent: Option<bool>,
+    /// The `[[tags]]` the host belongs to; filled in by the API, not the database.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 /// Column of the per-host summary to order by.
@@ -526,6 +529,7 @@ pub fn host_summary(
                 warnings: r.get::<_, i64>(3)? as u64,
                 last_ts: r.get(4)?,
                 silent: None,
+                tags: Vec::new(),
             })
         },
     )?;
@@ -906,6 +910,10 @@ pub struct Query {
     pub before: Option<(i64, i64)>,
     /// What the caller may read, on top of the filters above (unrestricted by default).
     pub access: crate::auth::Access,
+    /// Tag names asked for (`tag=` in the API); the API turns them into `host_globs`.
+    pub tags: Vec<String>,
+    /// The host must match one of these names or patterns (the hosts of the tags asked for).
+    pub host_globs: Vec<String>,
     pub limit: usize,
 }
 
@@ -924,6 +932,14 @@ impl Query {
     /// substrings of the message or field values (no FTS index is involved).
     pub fn matches(&self, e: &LogEntry) -> bool {
         if !self.access.allows(&e.host, &e.app) {
+            return false;
+        }
+        if !self.host_globs.is_empty()
+            && !self
+                .host_globs
+                .iter()
+                .any(|p| crate::tags::glob_match(p, &e.host))
+        {
             return false;
         }
         if self.host.as_ref().is_some_and(|h| *h != e.host)
@@ -1002,21 +1018,63 @@ fn access_conditions(
     first: Option<usize>,
 ) -> (Vec<String>, Vec<Box<dyn ToSql>>) {
     let (mut conds, mut args) = (Vec::new(), Vec::<Box<dyn ToSql>>::new());
-    for (column, list) in [("l.host", &access.hosts), ("l.app", &access.apps)] {
-        if list.is_empty() {
-            continue;
-        }
-        let marks: Vec<String> = (0..list.len())
+    if let Some(cond) = host_pattern_condition(&access.hosts, first, &mut args) {
+        conds.push(cond);
+    }
+    if !access.apps.is_empty() {
+        let marks: Vec<String> = (0..access.apps.len())
             .map(|i| match first {
                 Some(n) => format!("?{}", n + args.len() + i),
                 None => "?".into(),
             })
             .collect();
-        let marks = marks.join(",");
-        conds.push(format!("{column} IN ({marks})"));
-        args.extend(list.iter().map(|v| Box::new(v.clone()) as Box<dyn ToSql>));
+        conds.push(format!("l.app IN ({})", marks.join(",")));
+        args.extend(
+            access
+                .apps
+                .iter()
+                .map(|v| Box::new(v.clone()) as Box<dyn ToSql>),
+        );
     }
     (conds, args)
+}
+
+/// An SQLite `GLOB` pattern equivalent to the host pattern: `*` and `?` stay wildcards, and a `[`
+/// that GLOB would read as a character class is made literal.
+fn glob_for_sql(pattern: &str) -> String {
+    pattern.replace('[', "[[]")
+}
+
+/// `(l.host IN (…) OR l.host GLOB ? OR …)` for host names and patterns, pushing the arguments
+/// (placeholders are numbered from `first` when given); `None` for an empty list.
+fn host_pattern_condition(
+    patterns: &[String],
+    first: Option<usize>,
+    args: &mut Vec<Box<dyn ToSql>>,
+) -> Option<String> {
+    if patterns.is_empty() {
+        return None;
+    }
+    let mark = |args: &Vec<Box<dyn ToSql>>| match first {
+        Some(n) => format!("?{}", n + args.len()),
+        None => "?".to_string(),
+    };
+    let (exact, wild): (Vec<&String>, Vec<&String>) =
+        patterns.iter().partition(|p| !crate::tags::is_wildcard(p));
+    let mut parts = Vec::new();
+    if !exact.is_empty() {
+        let mut marks = Vec::new();
+        for p in exact {
+            marks.push(mark(args));
+            args.push(Box::new(p.clone()));
+        }
+        parts.push(format!("l.host IN ({})", marks.join(",")));
+    }
+    for p in wild {
+        parts.push(format!("l.host GLOB {}", mark(args)));
+        args.push(Box::new(glob_for_sql(p)));
+    }
+    Some(format!("({})", parts.join(" OR ")))
 }
 
 impl Filter {
@@ -1115,6 +1173,9 @@ impl Filter {
         let (dynamic, args) = access_conditions(&q.access, None);
         f.dynamic = dynamic;
         f.args.extend(args);
+        if let Some(cond) = host_pattern_condition(&q.host_globs, None, &mut f.args) {
+            f.dynamic.push(cond);
+        }
         for lf in &q.line_filters {
             use crate::filters::LineOp;
             f.dynamic.push(
@@ -2185,6 +2246,78 @@ mod tests {
         limited.access = access(&["web1", "db1"], &[]);
         limited.severities = Some(vec![3, 6]);
         check(limited, &[1, 4]);
+    }
+
+    #[test]
+    fn host_patterns_work_in_access_and_tag_filters_sql_and_live() {
+        let mut conn = mem();
+        let hosts = ["web1", "web2", "web10", "db1", "proxy1", "[odd]", "a*b"];
+        let batch: Vec<LogEntry> = hosts
+            .iter()
+            .enumerate()
+            .map(|(i, h)| entry(i as i64 + 1, h, 6, "m"))
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let check = |query: Query, expect: &[&str]| {
+            let mut got: Vec<String> = search(&conn, &query)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.host)
+                .collect();
+            got.sort();
+            let mut want: Vec<String> = expect.iter().map(|s| s.to_string()).collect();
+            want.sort();
+            assert_eq!(got, want, "SQL");
+            let mut live: Vec<String> = batch
+                .iter()
+                .filter(|e| query.matches(e))
+                .map(|e| e.host.clone())
+                .collect();
+            live.sort();
+            assert_eq!(live, want, "live tail disagrees");
+        };
+        let globs = |p: &[&str]| Query {
+            host_globs: p.iter().map(|s| s.to_string()).collect(),
+            ..q(100)
+        };
+        check(globs(&["web*"]), &["web1", "web2", "web10"]);
+        check(globs(&["web?"]), &["web1", "web2"]);
+        check(globs(&["web*", "db1"]), &["web1", "web2", "web10", "db1"]);
+        check(globs(&["proxy1"]), &["proxy1"]);
+        check(
+            globs(&["*1"]),
+            &["web1", "web10", "db1", "proxy1"]
+                .iter()
+                .filter(|h| h.ends_with('1'))
+                .copied()
+                .collect::<Vec<_>>(),
+        );
+        // A bracket in a host name is literal, not a character class, in both worlds.
+        check(globs(&["[odd]"]), &["[odd]"]);
+        check(globs(&["[odd]*"]), &["[odd]"]);
+        check(globs(&["a*b"]), &["a*b"]);
+        check(globs(&["nothing*"]), &[]);
+        // Token restrictions accept the same patterns, and combine with the tag filter.
+        let mut limited = globs(&["web*", "db1"]);
+        limited.access = access(&["web1*", "proxy1"], &[]);
+        check(limited, &["web1", "web10"]);
+        let mut only = q(100);
+        only.access = access(&["db*", "proxy?"], &[]);
+        check(only, &["db1", "proxy1"]);
+        // Placeholders stay in step in the statements that number them (context).
+        let id = |ts: i64| {
+            conn.query_row("SELECT id FROM logs WHERE ts = ?", [ts], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap()
+        };
+        let acc = access(&["web*", "db1"], &["app"]);
+        let c = context(&conn, id(1), 10, false, &acc).unwrap().unwrap();
+        assert_eq!(c.after.len(), 3, "web2, web10 and db1 follow web1");
+        assert!(
+            context(&conn, id(5), 10, false, &acc).unwrap().is_none(),
+            "proxy1 is outside"
+        );
     }
 
     #[test]

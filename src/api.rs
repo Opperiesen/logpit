@@ -79,6 +79,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/api/views/{id}", axum::routing::delete(delete_view))
         .route("/api/fields", get(fields))
         .route("/api/patterns", get(patterns))
+        .route("/api/tags", get(tag_list))
         .route("/api/export", get(export))
         .route(
             "/loki/api/v1/query_range",
@@ -613,10 +614,50 @@ fn parse_search(params: Vec<(String, String)>) -> Result<Query, String> {
             },
             // A regular expression the message must match.
             "re" if !v.is_empty() => q.message_re = Some(crate::filters::compile_regex(&v)?),
+            // A host tag to keep (repeat for several: any of them); see `[[tags]]`.
+            "tag" if !v.is_empty() => q.tags.push(v),
             _ => {}
         }
     }
     Ok(q)
+}
+
+/// Turns the tags asked for (`tag=`) into host patterns, or answers 400 for an unknown one.
+fn resolve_tags(state: &AppState, query: &mut Query) -> Option<Response> {
+    if query.tags.is_empty() {
+        return None;
+    }
+    match state.settings.tags.get().patterns(&query.tags) {
+        Ok(patterns) => {
+            query.host_globs = patterns;
+            query.tags.clear();
+            None
+        }
+        Err(msg) => Some((StatusCode::BAD_REQUEST, msg).into_response()),
+    }
+}
+
+#[derive(serde::Serialize)]
+struct TagInfo<'a> {
+    name: &'a str,
+    /// The host names and patterns; hidden from a token limited to some hosts or apps.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hosts: Option<&'a [String]>,
+}
+
+/// The configured host tags, to offer as filters (`tag=`).
+async fn tag_list(State(state): State<AppState>, Extension(who): Extension<Identity>) -> Response {
+    let tags = state.settings.tags.get();
+    let show = who.access.unrestricted();
+    let list: Vec<TagInfo> = tags
+        .all()
+        .iter()
+        .map(|t| TagInfo {
+            name: &t.name,
+            hosts: show.then_some(t.hosts.as_slice()),
+        })
+        .collect();
+    Json(list).into_response()
 }
 
 async fn search(
@@ -629,6 +670,9 @@ async fn search(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     query.access = who.access;
+    if let Some(r) = resolve_tags(&state, &mut query) {
+        return r;
+    }
     let limit = query.limit;
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -711,6 +755,9 @@ async fn stats(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     req.query.access = who.access;
+    if let Some(r) = resolve_tags(&state, &mut req.query) {
+        return r;
+    }
     let path = state.db_path.clone();
     let result =
         tokio::task::spawn_blocking(move || -> anyhow::Result<Result<stats::Stats, String>> {
@@ -810,6 +857,9 @@ async fn hosts(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     query.access = who.access;
+    if let Some(r) = resolve_tags(&state, &mut query) {
+        return r;
+    }
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
@@ -818,8 +868,14 @@ async fn hosts(
     .await;
     match result {
         Ok(Ok(mut rows)) => {
+            let tags = state.settings.tags.get();
             for r in &mut rows {
                 r.silent = state.sink.silence().is_silent(&r.host);
+                r.tags = tags
+                    .of_host(&r.host)
+                    .into_iter()
+                    .map(String::from)
+                    .collect();
             }
             Json(rows).into_response()
         }
@@ -835,8 +891,8 @@ async fn hosts(
 }
 
 /// Query-string keys a saved view may hold: what the web UI puts in its address bar.
-const VIEW_KEYS: [&str; 10] = [
-    "q", "host", "app", "level", "f", "re", "range", "since", "until", "group",
+const VIEW_KEYS: [&str; 11] = [
+    "q", "host", "app", "level", "f", "re", "tag", "range", "since", "until", "group",
 ];
 const MAX_VIEW_NAME_CHARS: usize = 80;
 const MAX_VIEW_QUERY_BYTES: usize = 2000;
@@ -1042,6 +1098,9 @@ async fn top(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     query.access = who.access;
+    if let Some(r) = resolve_tags(&state, &mut query) {
+        return r;
+    }
     let path = state.db_path.clone();
     let for_db = group.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -1110,6 +1169,9 @@ async fn fields(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     query.access = who.access;
+    if let Some(r) = resolve_tags(&state, &mut query) {
+        return r;
+    }
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
@@ -1168,6 +1230,9 @@ async fn patterns(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     query.access = who.access;
+    if let Some(r) = resolve_tags(&state, &mut query) {
+        return r;
+    }
     let path = state.db_path.clone();
     let result = tokio::task::spawn_blocking(move || {
         let conn = store::open(&path)?;
@@ -1287,6 +1352,9 @@ async fn export(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     query.access = who.access;
+    if let Some(r) = resolve_tags(&state, &mut query) {
+        return r;
+    }
     let Ok(permit) = state.exports.clone().try_acquire_owned() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1353,6 +1421,9 @@ async fn tail(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     query.access = who.access;
+    if let Some(r) = resolve_tags(&state, &mut query) {
+        return r;
+    }
     if state.sink.live_subscribers() >= MAX_TAIL_SUBSCRIBERS {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1683,6 +1754,28 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn tag_params_are_collected() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let q = parse_search(p(&[
+            ("tag", "prod"),
+            ("tag", "dmz"),
+            ("tag", ""),
+            ("host", "h"),
+        ]))
+        .unwrap();
+        assert_eq!(q.tags, ["prod", "dmz"]);
+        assert!(
+            q.host_globs.is_empty(),
+            "the handler resolves them against the configuration"
+        );
+        assert!(validate_view("v", "tag=prod&q=x").is_ok());
     }
 
     #[test]

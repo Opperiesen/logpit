@@ -74,6 +74,12 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # headers = ["Authorization: Bearer change-me"]
 # severity = ["warning", "err"]             # also host, app, pattern
 
+# Host tags: names for sets of hosts (exact names or * and ? patterns), usable as `tag=` filters,
+# metric labels and token restrictions.
+# [[tags]]
+# name = "prod"
+# hosts = ["web*", "db1"]
+
 # Regex parsers: named groups become fields (and optionally host, level, timestamp, message).
 # [[parsers]]
 # name = "nginx"

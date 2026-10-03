@@ -38,6 +38,7 @@ pub mod stats;
 pub mod store;
 pub mod structured;
 pub mod syslog;
+pub mod tags;
 pub mod tls;
 pub mod watch;
 pub mod webhook;

@@ -52,6 +52,8 @@ enum Label {
     Host,
     App,
     Level,
+    /// The first `[[tags]]` tag the host belongs to (empty when none).
+    Tag,
     Field(String),
 }
 
@@ -77,6 +79,7 @@ struct Rule {
 #[derive(Default)]
 pub struct LogMetrics {
     rules: Vec<Rule>,
+    tags: crate::tags::Tags,
 }
 
 fn valid_metric_name(name: &str) -> bool {
@@ -89,7 +92,7 @@ fn valid_metric_name(name: &str) -> bool {
 }
 
 impl LogMetrics {
-    pub fn from_config(configs: &[MetricConfig]) -> anyhow::Result<Self> {
+    pub fn from_config(configs: &[MetricConfig], tags: &crate::tags::Tags) -> anyhow::Result<Self> {
         let mut rules = Vec::with_capacity(configs.len());
         let mut names = std::collections::HashSet::new();
         for c in configs {
@@ -113,6 +116,7 @@ impl LogMetrics {
                     "host" => Label::Host,
                     "app" => Label::App,
                     "level" => Label::Level,
+                    "tag" => Label::Tag,
                     other if crate::store::valid_field_key(other) => Label::Field(other.into()),
                     other => bail!("{}: invalid label {other:?}", ctx()),
                 };
@@ -163,7 +167,10 @@ impl LogMetrics {
                 series: Mutex::new(HashMap::new()),
             });
         }
-        Ok(Self { rules })
+        Ok(Self {
+            rules,
+            tags: tags.clone(),
+        })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -173,7 +180,7 @@ impl LogMetrics {
     /// Counts `entry` in every rule it matches.
     pub fn observe(&self, entry: &LogEntry) {
         for rule in &self.rules {
-            rule.observe(entry);
+            rule.observe(entry, &self.tags);
         }
     }
 
@@ -214,7 +221,7 @@ impl Rule {
             && self.pattern.as_ref().is_none_or(|p| p.is_match(&e.message))
     }
 
-    fn observe(&self, e: &LogEntry) {
+    fn observe(&self, e: &LogEntry, tags: &crate::tags::Tags) {
         if !self.matches(e) {
             return;
         }
@@ -225,6 +232,11 @@ impl Rule {
                 Label::Host => e.host.clone(),
                 Label::App => e.app.clone(),
                 Label::Level => level_label(e.severity).to_string(),
+                Label::Tag => tags
+                    .of_host(&e.host)
+                    .first()
+                    .map(|t| t.to_string())
+                    .unwrap_or_default(),
                 Label::Field(k) => e.fields.get(k).cloned().unwrap_or_default(),
             })
             .collect();
@@ -300,7 +312,10 @@ mod tests {
         struct Wrapper {
             metrics: Vec<MetricConfig>,
         }
-        LogMetrics::from_config(&toml::from_str::<Wrapper>(toml_text).unwrap().metrics)
+        LogMetrics::from_config(
+            &toml::from_str::<Wrapper>(toml_text).unwrap().metrics,
+            &crate::tags::Tags::default(),
+        )
     }
 
     fn entry(host: &str, app: &str, severity: u8, message: &str) -> LogEntry {
@@ -334,6 +349,37 @@ mod tests {
         assert!(text.contains("logpit_log_ssh_failures_total{host=\"web1\",level=\"warning\"} 2"));
         assert!(text.contains("logpit_log_ssh_failures_total{host=\"web2\",level=\"error\"} 1"));
         assert!(!text.contains("Accepted"));
+    }
+
+    #[test]
+    fn the_tag_label_is_the_first_tag_of_the_host() {
+        let tags = crate::tags::Tags::from_config(&[
+            crate::tags::TagConfig {
+                name: "prod".into(),
+                hosts: vec!["web*".into()],
+            },
+            crate::tags::TagConfig {
+                name: "web".into(),
+                hosts: vec!["web*".into(), "proxy1".into()],
+            },
+        ])
+        .unwrap();
+        let configs: Vec<MetricConfig> = vec![MetricConfig {
+            name: "by_tag".into(),
+            labels: vec!["tag".into(), "host".into()],
+            ..serde_json::from_str(r#"{"name":"x"}"#).unwrap()
+        }];
+        let m = LogMetrics::from_config(&configs, &tags).unwrap();
+        for h in ["web1", "proxy1", "nas"] {
+            m.observe(&entry(h, "a", 6, "x"));
+        }
+        let text = m.render();
+        assert!(
+            text.contains("logpit_log_by_tag_total{tag=\"prod\",host=\"web1\"} 1"),
+            "{text}"
+        );
+        assert!(text.contains("logpit_log_by_tag_total{tag=\"web\",host=\"proxy1\"} 1"));
+        assert!(text.contains("logpit_log_by_tag_total{tag=\"\",host=\"nas\"} 1"));
     }
 
     #[test]

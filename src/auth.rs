@@ -23,8 +23,9 @@ pub enum Decision {
     Forbidden,
 }
 
-/// Which entries a token may read: the hosts and apps it is limited to. An empty list means no
-/// limit on that dimension, so the default value restricts nothing.
+/// Which entries a token may read: the hosts and apps it is limited to. Hosts are exact names or
+/// patterns with `*` and `?`. An empty list means no limit on that dimension, so the default value
+/// restricts nothing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Access {
     pub hosts: Vec<String>,
@@ -37,7 +38,7 @@ impl Access {
     }
 
     pub fn allows(&self, host: &str, app: &str) -> bool {
-        (self.hosts.is_empty() || self.hosts.iter().any(|h| h == host))
+        (self.hosts.is_empty() || self.hosts.iter().any(|h| crate::tags::glob_match(h, host)))
             && (self.apps.is_empty() || self.apps.iter().any(|a| a == app))
     }
 }

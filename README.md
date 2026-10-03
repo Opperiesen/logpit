@@ -11,6 +11,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   framing, optional client certificates), and HTTP
   (`POST /ingest`) accepting NDJSON or a JSON array, including raw
   `journalctl -o json` output.
+- **Host tags**: `[[tags]]` name sets of hosts (`prod`, `dmz`…), to filter on, label metrics with and restrict
+  tokens to.
 - **Regex parsers**: `[[parsers]]` turn the named groups of a regular expression into fields (and host,
   level, timestamp), for access logs, sshd, firewalls and other plain-text formats.
 - **Structured fields**: CEF events (e.g. UniFi's SIEM export) are parsed into
@@ -137,8 +139,9 @@ A `[[http.tokens]]` entry can be named, given the `admin` scope, and limited to 
 token = "…"
 name = "web-team"            # shown in the audit trail; default token-1, token-2… by position
 scopes = ["read"]
-hosts = ["web1", "web2"]     # only these hosts can be read; empty or absent: every host
-apps = ["nginx"]             # and only these apps; both limits apply together
+hosts = ["web1", "web*"]     # only these hosts (names or * and ? patterns); empty or absent: every host
+tags = ["dmz"]               # and the hosts of these [[tags]]
+apps = ["nginx"]             # and only these apps; hosts/tags and apps apply together
 
 [[http.tokens]]
 token = "…"
@@ -446,6 +449,42 @@ one: the server applies its usual pipeline, so its rate limits, rules and alerts
 ones, and its own retention would purge them again within the hour and archive them a second time.
 `logpit --backup` is the tool for copying the database itself.
 
+## Host tags
+
+`[[tags]]` give names to sets of hosts, so you can ask for *the production web servers* without
+listing them:
+
+```toml
+[[tags]]
+name = "prod"
+hosts = ["web*", "db1", "db2"]     # exact names, or patterns: * (any run of characters) and ? (one)
+
+[[tags]]
+name = "dmz"
+hosts = ["proxy?", "bastion"]
+```
+
+- **Filtering.** `tag=prod` on every search endpoint (`/api/logs`, `/api/stats`, `/api/hosts`,
+  `/api/top`, `/api/patterns`, `/api/export`, the live tail, saved views): `GET /api/logs?tag=prod&level=3`.
+  Repeat it to take the union (`tag=prod&tag=dmz`); an unknown tag is a `400` that lists the known ones.
+  `GET /api/tags` lists the tags (with their patterns, except for tokens limited to some hosts or apps,
+  which only get the names), and `GET /api/hosts` gives each host its `tags`. The web UI shows a *tag*
+  selector in the header once tags exist, a *Tags* column in the Hosts panel and filters on a click.
+- **Resolved at query time.** A tag is its patterns matched against host names when the query runs,
+  using the configuration then in force, so editing a tag (and `SIGHUP`) applies to everything already
+  stored; nothing is written on entries. A host can have several tags, and patterns are case-sensitive
+  and match the whole name.
+- **Metrics.** `labels = ["tag"]` on a [metric rule](#metrics-from-logs) labels it with the *first* tag
+  (in file order) the host belongs to, empty when none. A change to the tags restarts the counters of
+  all `[[metrics]]` rules, since their labels may have changed.
+- **Token restrictions.** A token's `hosts` now takes the same patterns, and `tags = ["web"]` limits it
+  to the hosts of those tags (together with its own `hosts`, a union); `apps` still narrows further. A
+  token's restriction always applies, and a `tag=` filter it asks for can only narrow the result
+  inside it. The tags of a token must exist, and it needs the `read` scope. In a token's `hosts`, a
+  host whose name literally contains `*` or `?` is read as a pattern.
+- Not available: a `tag` label in the [Loki query API](#grafana-and-the-loki-query-api) (use `host`
+  patterns there), and tags on audit events or saved view names.
+
 ## Searching
 
 ```sh
@@ -460,6 +499,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `level` | Maximum severity number: 0 emergency … 3 error … 6 info … 7 debug |
 | `f` | Condition on a structured field: `key:value` exact match, or a [comparison](#field-comparisons-and-regular-expressions); repeat to combine (e.g. `f=act:blocked&f=proto:TCP`) |
 | `re` | Regular expression the message must match, see [below](#field-comparisons-and-regular-expressions) |
+| `tag` | Only the hosts that have this [host tag](#host-tags); repeat for several (any of them) |
 | `since`, `until` | Unix timestamps in milliseconds |
 | `limit` | 1–1000, default 100 |
 | `before` | Paging cursor `<ts>:<id>`: only entries older than that one, as given by the `X-Next-Cursor` header |
@@ -1225,7 +1265,7 @@ podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
 kill -HUP "$(pidof logpit)"
 ```
 
-**Applied by a reload**: `[[ingest.rules]]`, `[[parsers]]`, `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
+**Applied by a reload**: `[[ingest.rules]]`, `[[parsers]]`, `[[tags]]` (and the tokens that use them), `[ingest.dedup]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
 `ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
 (`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
 key and client CA files. The last two are read again on every reload, so renewing a certificate or

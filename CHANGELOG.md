@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Host tags (`[[tags]]`): names for sets of hosts, written as exact names or `*`/`?` patterns, resolved
+  when a query runs. `tag=` filters every search endpoint and the live tail, `GET /api/tags` lists them,
+  `GET /api/hosts` shows each host's tags, metric rules can use a `tag` label, and tokens can be limited
+  with `tags = [...]` (their `hosts` now accept patterns too). The web UI gets a tag selector and a
+  Tags column in the Hosts panel.
+
 - Regex parsers (`[[parsers]]`): the named groups of a regular expression become structured fields,
   and special groups can set the host, app, level, message and timestamp (`rfc3339`, `unix`, `unix_ms` or
   a strftime pattern). First match wins, filters by host, app and severity, linear-time regexes, a

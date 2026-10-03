@@ -23,6 +23,8 @@ pub struct Config {
     pub metrics: Vec<crate::logmetrics::MetricConfig>,
     /// Regex parsers that turn named groups into fields (`[[parsers]]`).
     pub parsers: Vec<crate::parsers::ParserConfig>,
+    /// Names for sets of hosts (`[[tags]]`), to filter on and to restrict tokens with.
+    pub tags: Vec<crate::tags::TagConfig>,
     /// Targets that receive a copy of the matching entries (`[[forward]]`).
     pub forward: Vec<crate::forward::ForwardConfig>,
     pub gelf: GelfConfig,
@@ -93,9 +95,13 @@ pub struct TokenConfig {
     /// position in the list). Letters, digits, `_`, `-` and `.`.
     #[serde(default)]
     pub name: Option<String>,
-    /// Limits reading to these hosts (exact names); empty means every host.
+    /// Limits reading to these hosts (exact names or patterns with `*` and `?`); empty means every
+    /// host unless `tags` is set.
     #[serde(default)]
     pub hosts: Vec<String>,
+    /// Limits reading to the hosts of these `[[tags]]`, together with `hosts`.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// Limits reading to these apps (exact names); empty means every app.
     #[serde(default)]
     pub apps: Vec<String>,
@@ -404,6 +410,21 @@ impl Config {
             .unwrap_or_else(|| format!("token-{}", index + 1))
     }
 
+    /// The host names and patterns a token may read: its own `hosts` plus those of its `tags`.
+    fn token_hosts(&self, t: &TokenConfig) -> Vec<String> {
+        let mut hosts = t.hosts.clone();
+        if let Ok(tags) = crate::tags::Tags::from_config(&self.tags)
+            && let Ok(extra) = tags.patterns(&t.tags)
+        {
+            for h in extra {
+                if !hosts.contains(&h) {
+                    hosts.push(h);
+                }
+            }
+        }
+        hosts
+    }
+
     /// All configured tokens; `http.token` is named `admin` and has every scope.
     pub fn auth(&self) -> crate::auth::Auth {
         use crate::auth::{Access, TokenEntry};
@@ -423,7 +444,7 @@ impl Config {
                 name: Self::token_name(i, t),
                 scopes: t.scopes.clone(),
                 access: Access {
-                    hosts: t.hosts.clone(),
+                    hosts: self.token_hosts(t),
                     apps: t.apps.clone(),
                 },
             });
@@ -467,7 +488,8 @@ impl Config {
         crate::alerts::AlertRules::from_config(&self.alerts)?;
         self.new_patterns.validate()?;
         self.ingest.dedup.validate()?;
-        crate::logmetrics::LogMetrics::from_config(&self.metrics)?;
+        let tags = crate::tags::Tags::from_config(&self.tags)?;
+        crate::logmetrics::LogMetrics::from_config(&self.metrics, &tags)?;
         crate::parsers::Parsers::from_config(&self.parsers)?;
         crate::forward::validate(&self.forward)?;
         let sy = &self.syslog;
@@ -507,19 +529,22 @@ impl Config {
             if !names.insert(name.clone()) {
                 bail!("token name {name:?} is used twice");
             }
-            if !t.hosts.is_empty() || !t.apps.is_empty() {
+            if !t.hosts.is_empty() || !t.apps.is_empty() || !t.tags.is_empty() {
                 if !t.scopes.contains(&Scope::Read) {
                     bail!(
-                        "token {name:?} restricts hosts or apps, which only limits reading: it needs the read scope"
+                        "token {name:?} restricts hosts, apps or tags, which only limits reading: it needs the read scope"
                     );
                 }
-                for (what, list) in [("hosts", &t.hosts), ("apps", &t.apps)] {
+                for (what, list) in [("hosts", &t.hosts), ("apps", &t.apps), ("tags", &t.tags)] {
                     if list.len() > MAX_ACCESS_ITEMS || list.iter().any(|v| v.is_empty()) {
                         bail!(
                             "token {name:?}: {what} takes at most {MAX_ACCESS_ITEMS} non-empty names"
                         );
                     }
                 }
+                crate::tags::validate_patterns(&format!("token {name:?}"), &t.hosts)?;
+                tags.patterns(&t.tags)
+                    .map_err(|e| anyhow::anyhow!("token {name:?}: {e}"))?;
             }
             if !seen.insert(t.token.as_str()) || self.http.token.as_deref() == Some(&t.token) {
                 bail!("the same token is configured twice; give each token one entry");
@@ -911,6 +936,52 @@ mod tests {
         assert!(
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn tags_and_token_tags_config() {
+        assert!(Config::parse("").unwrap().tags.is_empty());
+        let cfg = Config::parse(
+            "[[tags]]\nname = \"web\"\nhosts = [\"web*\", \"proxy1\"]\n\
+             [[tags]]\nname = \"db\"\nhosts = [\"db?\"]\n\
+             [[http.tokens]]\ntoken = \"t\"\nname = \"web-team\"\nscopes = [\"read\"]\ntags = [\"web\"]\nhosts = [\"nas\"]",
+        )
+        .unwrap();
+        let id = cfg.auth().identify(Some("t"), Scope::Read).unwrap();
+        assert_eq!(id.access.hosts, ["nas", "web*", "proxy1"]);
+        assert!(
+            id.access.allows("web7", "x")
+                && id.access.allows("nas", "x")
+                && !id.access.allows("db1", "x")
+        );
+        // Unknown tag, tags on a write-only token, bad tag definitions.
+        assert!(
+            Config::parse("[[http.tokens]]\ntoken = \"t\"\nscopes = [\"read\"]\ntags = [\"nope\"]")
+                .is_err()
+        );
+        assert!(Config::parse("[[tags]]\nname = \"a\"\nhosts = [\"x\"]\n[[http.tokens]]\ntoken = \"t\"\nscopes = [\"write\"]\ntags = [\"a\"]").is_err());
+        assert!(Config::parse("[[tags]]\nname = \"a\"").is_err());
+        assert!(Config::parse("[[tags]]\nname = \"a\"\nhosts = []").is_err());
+        assert!(Config::parse("[[tags]]\nname = \"a\"\nhosts = [\"x\"]\nbogus = 1").is_err());
+        assert!(
+            Config::parse(
+                "[[tags]]\nname = \"a\"\nhosts = [\"x\"]\n[[tags]]\nname = \"a\"\nhosts = [\"y\"]"
+            )
+            .is_err()
+        );
+        // The same patterns are accepted in a token's own hosts.
+        let cfg = Config::parse(
+            "[[http.tokens]]\ntoken = \"t\"\nscopes = [\"read\"]\nhosts = [\"web*\"]",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.auth()
+                .identify(Some("t"), Scope::Read)
+                .unwrap()
+                .access
+                .hosts,
+            ["web*"]
         );
     }
 

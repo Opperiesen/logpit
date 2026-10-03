@@ -86,6 +86,8 @@ pub struct LiveSettings {
     pub metrics: Reloadable<LogMetrics>,
     /// Regex parsers.
     pub parsers: Reloadable<Parsers>,
+    /// Host tags.
+    pub tags: Reloadable<crate::tags::Tags>,
     pub limiter: Reloadable<RateLimiter>,
     pub structured: AtomicBool,
     pub auth: Reloadable<Auth>,
@@ -124,8 +126,12 @@ impl LiveSettings {
         Ok(Self {
             rules: Reloadable::new(Rules::from_config(&cfg.ingest.rules)?),
             alerts: Reloadable::new(AlertRules::from_config(&cfg.alerts)?),
-            metrics: Reloadable::new(LogMetrics::from_config(&cfg.metrics)?),
+            metrics: Reloadable::new(LogMetrics::from_config(
+                &cfg.metrics,
+                &crate::tags::Tags::from_config(&cfg.tags)?,
+            )?),
             parsers: Reloadable::new(Parsers::from_config(&cfg.parsers)?),
+            tags: Reloadable::new(crate::tags::Tags::from_config(&cfg.tags)?),
             limiter: Reloadable::new(RateLimiter::new(&cfg.ingest.rate_limit)),
             structured: AtomicBool::new(cfg.ingest.parse_structured),
             auth: Reloadable::new(cfg.auth()),
@@ -192,8 +198,12 @@ impl LiveSettings {
         let alerts = (old.alerts != new.alerts)
             .then(|| AlertRules::from_config(&new.alerts).map(Arc::new))
             .transpose()?;
-        let metrics = (old.metrics != new.metrics)
-            .then(|| LogMetrics::from_config(&new.metrics).map(Arc::new))
+        // The `tag` label reads the tags, so a change to them rebuilds the counters too.
+        let metrics = (old.metrics != new.metrics || old.tags != new.tags)
+            .then(|| {
+                let tags = crate::tags::Tags::from_config(&new.tags)?;
+                LogMetrics::from_config(&new.metrics, &tags).map(Arc::new)
+            })
             .transpose()?;
         let parsers = (old.parsers != new.parsers)
             .then(|| Parsers::from_config(&new.parsers).map(Arc::new))
@@ -208,6 +218,9 @@ impl LiveSettings {
             _ => None,
         };
         let auth = Arc::new(new.auth());
+        let tags = (old.tags != new.tags)
+            .then(|| crate::tags::Tags::from_config(&new.tags).map(Arc::new))
+            .transpose()?;
         // Checked here so a bad value fails the reload before anything is applied.
         new.new_patterns.validate()?;
         new.ingest.dedup.validate()?;
@@ -224,6 +237,10 @@ impl LiveSettings {
         if let Some(metrics) = metrics {
             self.metrics.set(metrics);
             report.applied.push("log metrics");
+        }
+        if let Some(tags) = tags {
+            self.tags.set(tags);
+            report.applied.push("host tags");
         }
         if let Some(parsers) = parsers {
             self.parsers.set(parsers);
@@ -484,6 +501,60 @@ mod tests {
         let mut bad = new.clone();
         bad.parsers[0].regex = "(".into();
         assert!(live.reload(&new, &bad).is_err());
+    }
+
+    #[test]
+    fn tags_reload_and_rebuild_the_counters_that_use_them() {
+        let text = |hosts: &str| {
+            format!(
+                "[[tags]]\nname = \"prod\"\nhosts = [{hosts}]\n\
+                 [[metrics]]\nname = \"all\"\nlabels = [\"tag\"]\n\
+                 [[http.tokens]]\ntoken = \"t\"\nscopes = [\"read\"]\ntags = [\"prod\"]"
+            )
+        };
+        let old = cfg(&text("\"web*\""));
+        let live = LiveSettings::from_config(&old).unwrap();
+        let e = crate::model::LogEntry {
+            host: "db1".into(),
+            message: "x".into(),
+            ..Default::default()
+        };
+        live.metrics.get().observe(&e);
+        assert!(
+            live.metrics
+                .get()
+                .render()
+                .contains("logpit_log_all_total{tag=\"\"} 1")
+        );
+        assert_eq!(live.tags.get().of_host("web3"), ["prod"]);
+        assert!(
+            !live
+                .auth
+                .get()
+                .identify(Some("t"), Scope::Read)
+                .unwrap()
+                .access
+                .allows("db1", "")
+        );
+        let new = cfg(&text("\"web*\", \"db*\""));
+        let report = live.reload(&old, &new).unwrap();
+        assert!(report.applied.contains(&"host tags") && report.applied.contains(&"log metrics"));
+        assert_eq!(live.tags.get().of_host("db1"), ["prod"]);
+        assert!(
+            live.auth
+                .get()
+                .identify(Some("t"), Scope::Read)
+                .unwrap()
+                .access
+                .allows("db1", "")
+        );
+        live.metrics.get().observe(&e);
+        assert!(
+            live.metrics
+                .get()
+                .render()
+                .contains("logpit_log_all_total{tag=\"prod\"} 1")
+        );
     }
 
     #[test]
