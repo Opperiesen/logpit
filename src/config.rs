@@ -21,6 +21,8 @@ pub struct Config {
     pub new_patterns: crate::watch::WatchConfig,
     /// Prometheus counters derived from the logs (`[[metrics]]`), exposed on `/metrics`.
     pub metrics: Vec<crate::logmetrics::MetricConfig>,
+    /// Targets that receive a copy of the matching entries (`[[forward]]`).
+    pub forward: Vec<crate::forward::ForwardConfig>,
     pub gelf: GelfConfig,
 }
 
@@ -457,6 +459,7 @@ impl Config {
         self.new_patterns.validate()?;
         self.ingest.dedup.validate()?;
         crate::logmetrics::LogMetrics::from_config(&self.metrics)?;
+        crate::forward::validate(&self.forward)?;
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
             bail!("syslog.tls_listen needs syslog.tls_cert and syslog.tls_key");
@@ -899,6 +902,20 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn forward_config() {
+        assert!(Config::parse("").unwrap().forward.is_empty());
+        let cfg = Config::parse(
+            "[[forward]]\nurl = \"http://10.0.0.2:8080/ingest\"\nheaders = [\"Authorization: Bearer t\"]\n\
+             [[forward]]\nsyslog = \"tcp://siem:514\"\nseverity = [\"err\"]",
+        )
+        .unwrap();
+        assert_eq!(cfg.forward.len(), 2);
+        assert!(Config::parse("[[forward]]\nname = \"x\"").is_err());
+        assert!(Config::parse("[[forward]]\nurl = \"http://h/\"\nbogus = 1").is_err());
+        assert!(Config::parse("[[forward]]\nsyslog = \"udp://h\"").is_err());
     }
 
     #[test]

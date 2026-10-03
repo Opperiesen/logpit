@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Forwarding (`[[forward]]`): a filtered copy of the stored entries goes to an HTTP endpoint as NDJSON
+  (the `/ingest` format, with headers for a token) or to a syslog server over UDP or TCP (RFC 5424,
+  structured fields as structured data). Each target has a bounded queue, retries failed batches
+  five times, and exposes sent, dropped and failed counters. Needs a restart to change.
+
 - Deduplication (`[ingest.dedup]`, off by default): runs of identical messages (same host, app,
   severity and text) are stored once, the repeats within `window_secs` are counted, and one summary
   entry (`… [repeated N more times over Ds]`, field `repeats`) replaces them. Alerts, metrics and rate

@@ -9,6 +9,7 @@ pub mod config;
 pub mod dedup;
 pub mod export;
 pub mod filters;
+pub mod forward;
 pub mod framing;
 pub mod gelf;
 pub mod health;

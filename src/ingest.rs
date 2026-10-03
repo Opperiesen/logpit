@@ -40,6 +40,7 @@ pub struct Sink {
     silence: Arc<Tracker>,
     settings: Arc<crate::live::LiveSettings>,
     alert_tx: Option<tokio::sync::mpsc::Sender<crate::silence::Event>>,
+    forwarders: Option<Arc<crate::forward::Forwarders>>,
 }
 
 impl Sink {
@@ -57,7 +58,18 @@ impl Sink {
             silence,
             settings: Arc::default(),
             alert_tx: None,
+            forwarders: None,
         }
+    }
+
+    /// Entries that are stored are also offered to these `[[forward]]` targets.
+    pub fn with_forwarders(mut self, forwarders: Arc<crate::forward::Forwarders>) -> Self {
+        self.forwarders = Some(forwarders);
+        self
+    }
+
+    pub fn forwarders(&self) -> Option<&Arc<crate::forward::Forwarders>> {
+        self.forwarders.as_ref()
     }
 
     /// The settings read on every entry (rules, alerts, rate limits, structured parsing), which
@@ -146,6 +158,9 @@ impl Sink {
             return;
         }
         truncate_utf8(&mut entry.message, self.max_message_bytes);
+        if let Some(forwarders) = &self.forwarders {
+            forwarders.offer(&entry);
+        }
         let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));
         match self.tx.try_send(entry) {
             Ok(()) => {
@@ -166,6 +181,9 @@ impl Sink {
     /// every one of the entries it stands for.
     pub fn push_summary(&self, mut entry: LogEntry) {
         truncate_utf8(&mut entry.message, self.max_message_bytes);
+        if let Some(forwarders) = &self.forwarders {
+            forwarders.offer(&entry);
+        }
         let live = (self.live.receiver_count() > 0).then(|| Arc::new(entry.clone()));
         match self.tx.try_send(entry) {
             Ok(()) => {

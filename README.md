@@ -34,6 +34,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **New-pattern alerts**: get notified when a message pattern never seen before appears, or a known one
   suddenly surges.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
+- **Forwarding**: `[[forward]]` sends a filtered copy of the entries to another LogPit, a collector or a SIEM,
+  over HTTP (NDJSON) or syslog (RFC 5424, UDP or TCP).
 - **Deduplication**: runs of identical messages are stored once, with a summary entry for the repeats.
 - **Observability**: Prometheus metrics at `/metrics`, health at `/healthz`, and counters derived from the
   logs themselves (`[[metrics]]`).
@@ -992,6 +994,49 @@ pattern = '\b\d{1,3}(\.\d{1,3}){3}\b'
 
 Rules apply to what LogPit receives from now on; entries already stored are not rewritten.
 They are TOML-only (there is no environment variable for a list of rules).
+
+## Forwarding entries
+
+`[[forward]]` targets receive a copy of the entries that match their filter, to feed a SIEM, a second
+site or another LogPit while this one keeps the full history:
+
+```toml
+[[forward]]
+name = "siem"                          # label in metrics and logs; default forward-1, forward-2…
+url = "https://siem.example/ingest"    # NDJSON batches over HTTP(S), or
+# syslog = "tcp://10.0.0.5:514"        # RFC 5424 over udp:// or tcp://
+headers = ["Authorization: Bearer …"]  # for url only
+severity = ["warning", "err"]          # filter: severities, host, app, regex on the message
+host = "web1"
+app = "nginx"
+pattern = "denied|refused"
+batch_lines = 200                      # HTTP: entries per request (default 200)
+batch_ms = 1000                        # HTTP: longest wait before sending a partial batch
+queue = 10000                          # entries waiting for this target (default 10 000)
+```
+
+- **HTTP.** One POST per batch, `Content-Type: application/x-ndjson`, one JSON object per line with
+  `ts` (Unix ms), `host`, `app`, `severity` (0-7), `message` and `fields`: exactly what `POST /ingest`
+  of another LogPit reads, so `url = "http://other-logpit:8080/ingest"` with its write token as a
+  `Bearer` header replicates entries with their structured fields. Any 2xx is success.
+- **Syslog.** RFC 5424 messages, facility `user`, the severity as priority, the timestamp of the entry,
+  host and app as the header fields, and the structured fields as one `[logpit@32473 key="value"]`
+  element (the first 32 fields whose name is at most 32 characters, values clipped to 256).
+  UDP sends one datagram per entry; TCP keeps one connection and frames messages by octet
+  counting (RFC 6587), and reconnects when it breaks. There is no TLS for syslog output: use
+  `https://` or a TLS-terminating relay.
+- **What is forwarded.** The entries that are stored, after [collapsing](#collapsing-repeated-messages)
+  (summaries included) and after masking and drop rules, so a secret masked at ingestion is never sent.
+- **When the target is slow or down.** Each target has its own bounded queue and task, so ingestion is
+  never held up. A failed batch (connection error, timeout, HTTP `408`, `425`, `429` or `5xx`) is
+  retried five times after 1, 2, 4, 8 and 16 seconds, then dropped; other `4xx` answers drop it at
+  once. While a batch is being retried, the queue fills and further entries for that target are
+  dropped, not buffered on disk. For delivery that survives outages and restarts, ship from the
+  source with `logpit ship` (see [Sending logs](#sending-logs)).
+- **Metrics.** `logpit_forward_sent_total`, `…dropped_total` (queue full), `…failed_total` (given up or
+  refused) and `…queued`, each with a `target` label, and a warning in the log when a target starts
+  failing (never with the URL or headers, which can hold secrets).
+- Changing `[[forward]]` needs a restart; a reload reports it.
 
 ## Collapsing repeated messages
 

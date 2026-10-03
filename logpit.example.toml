@@ -66,6 +66,13 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # pattern = '(password|token)=\S+'
 # replace = "$1=[hidden]"
 
+# Forward a filtered copy of the stored entries to another LogPit, a collector or a SIEM.
+# [[forward]]
+# name = "siem"
+# url = "https://siem.example/ingest"       # NDJSON over HTTP(S), or: syslog = "tcp://10.0.0.5:514"
+# headers = ["Authorization: Bearer change-me"]
+# severity = ["warning", "err"]             # also host, app, pattern
+
 # Metrics from logs: Prometheus counters on /metrics (logpit_log_<name>_total).
 # [[metrics]]
 # name = "ssh_failures"

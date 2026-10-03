@@ -327,8 +327,10 @@ async fn main() -> anyhow::Result<()> {
     // Pattern alerts reach the notifier through a channel, so ingestion never waits for a webhook.
     let (alert_tx, mut alert_rx) = tokio::sync::mpsc::channel::<silence::Event>(256);
 
+    let forwarders = logpit::forward::Forwarders::start(&cfg.forward)?;
     let sink = Sink::new(tx, metrics, cfg.storage.max_message_bytes, tracker.clone())
         .with_settings(settings.clone())
+        .with_forwarders(forwarders)
         .with_alert_channel(alert_tx);
     let state = AppState {
         sink: sink.clone(),

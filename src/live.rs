@@ -161,6 +161,9 @@ impl LiveSettings {
         if old.http.max_body_bytes != new.http.max_body_bytes {
             out.push("http.max_body_bytes");
         }
+        if old.forward != new.forward {
+            out.push("forward");
+        }
         if old.http.audit_retention_days != new.http.audit_retention_days {
             out.push("http.audit_retention_days");
         }
@@ -435,6 +438,16 @@ mod tests {
         let mut bad = new.clone();
         bad.ingest.dedup.window_secs = 0;
         assert!(live.reload(&off, &bad).is_err());
+    }
+
+    #[test]
+    fn forward_targets_need_a_restart() {
+        let old = cfg("");
+        let live = LiveSettings::from_config(&old).unwrap();
+        let new = cfg("[[forward]]\nsyslog = \"udp://10.0.0.5:514\"");
+        let report = live.reload(&old, &new).unwrap();
+        assert!(report.applied.is_empty());
+        assert_eq!(report.restart_required, ["forward"]);
     }
 
     #[test]
