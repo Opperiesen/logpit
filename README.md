@@ -655,7 +655,7 @@ hosts = ["proxy?", "bastion"]
   Repeat it to take the union (`tag=prod&tag=dmz`); an unknown tag is a `400` that lists the known ones.
   `GET /api/tags` lists the tags (with their patterns, except for tokens limited to some hosts or apps,
   which only get the names), and `GET /api/hosts` gives each host its `tags`. The web UI shows a *tag*
-  selector in the header once tags exist, a *Tags* column in the Hosts panel and filters on a click.
+  selector among the filters once tags exist, the tags under each host in the Hosts panel and filters on a click.
 - **Resolved at query time.** A tag is its patterns matched against host names when the query runs,
   using the configuration then in force, so editing a tag (and `SIGHUP`) applies to everything already
   stored; nothing is written on entries. A host can have several tags, and patterns are case-sensitive
@@ -755,7 +755,7 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/logs/4312/c
 
 Neighbours follow the search order (timestamp, then id). Near the start or the end of the data
 there are simply fewer of them, and an unknown id gives `404`. In the web UI, click the
-timestamp of a line to open its context under it; the panel can show more lines, switch between
+time of a line to open its context under it; the panel can show more lines, switch between
 this host and all hosts, and be closed again. Lines that arrived through the live stream have no
 id yet, so they can be expanded after the next search.
 
@@ -775,7 +775,7 @@ For everything at once, use [export](#export-and-backup).
 
 ## Display preferences
 
-The cog (&#9881;) in the header of the web UI opens the display preferences, kept in this browser
+The *Display* button in the filter row of the web UI opens the display preferences, kept in this browser
 (`localStorage`) and applied before the first search:
 
 | Preference | Choices |
@@ -845,7 +845,7 @@ filters of `/api/logs`, `limit` (default 100) for the number of hosts, and `sort
 (`host`, `count`, `errors`, `warnings` or `last_ts`; default `count`) with `order` (`asc` or
 `desc`; default `asc` for `host`, `desc` otherwise). The limit applies after sorting, so
 `sort=last_ts&order=asc` lists the quietest hosts even when there are more hosts than `limit`.
-It needs the `read` scope. The web UI shows it in the collapsible *Hosts* panel below the chart: it follows the
+It needs the `read` scope. The web UI shows it in the collapsible *Hosts* panel (in the left rail on wide screens): it follows the
 current filters and time range, lists every host even when one is selected, refreshes with the
 chart in Live mode, and clicking a host filters the log table on it. Click a column header to sort by it (again to reverse; Enter or Space works with the
 keyboard); the choice is remembered, and the server does the sorting, so the 200 hosts shown
@@ -938,7 +938,7 @@ are, and `other` the entries whose value is not among those listed. `GET /api/fi
 field names present in the matching entries with how many entries carry each (`limit` up to 200), to
 know what can be asked. Both need the `read` scope.
 
-In the web UI the *Top values* panel, below *Hosts*, does the same for the current results: pick a
+In the web UI the *Top values* panel, under *Hosts*, does the same for the current results: pick a
 field, and each value gets a bar and its share; clicking a value filters on it (a host, an app, a
 severity of error, warning or info, or `field:value`). The filter on the field being listed is
 ignored for that list, so its alternatives stay visible after you click one.
@@ -976,8 +976,8 @@ finds its entries with `q=` (an approximation: other messages may share those wo
   digits, UUIDs made of letters only) keep messages in separate patterns, and a very long message is
   cut after 48 words. Messages whose first line is empty share the pattern `""`.
 
-The web UI has a collapsible *Message patterns* panel below *Top values*: counts, a trend arrow
-(`▲ new`, `▲ +60%`, `▼ -40%`, or `≈` when it barely moved) and the template; hovering shows an example
+The web UI has a collapsible *Message patterns* panel under *Top values*: counts, a trend
+(`new`, `+60%`, `−40%`, or a grey percentage when it barely moved) and the template; hovering shows an example
 and clicking searches for the pattern's words. It follows the current filters and needs the `read` scope.
 
 ### Saved views
@@ -1490,7 +1490,7 @@ logpit search --trace 4bf92f3577b34da6a3ce929d0e0e4736 --since 1h      # oldest 
 
 `trace=<id>` is shorthand for `f=trace_id:<id>`, on search, export, live tail and the other endpoints that
 take filters; read restrictions apply, so a token limited to some hosts sees only its part of the trace.
-In the web UI a line that has a `trace_id` shows a **⇢ trace** link: it opens every entry of the trace
+In the web UI a line that has a `trace_id` shows a **trace** link: it opens every entry of the trace
 under the line, oldest first, with the time since the first one and the hosts involved (up to 500).
 
 ## Regex parsers

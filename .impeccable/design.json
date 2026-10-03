@@ -1,0 +1,1160 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-03T22:22:12+00:00",
+  "title": "Design System: LogPit",
+  "extensions": {
+    "colorMeta": {
+      "timetable-paper": {
+        "role": "neutral",
+        "displayName": "Timetable Paper",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "theme": "light"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#111111",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "theme": "light"
+      },
+      "pencil-grey": {
+        "role": "neutral",
+        "displayName": "Pencil Grey",
+        "canonical": "#5e5e5e",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "theme": "light"
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#d6d6d6",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "theme": "light"
+      },
+      "field-grey": {
+        "role": "neutral",
+        "displayName": "Field Grey",
+        "canonical": "#8a8a8a",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "theme": "light"
+      },
+      "band-grey": {
+        "role": "neutral",
+        "displayName": "Band Grey",
+        "canonical": "#f2f2f2",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "theme": "light"
+      },
+      "platform-navy": {
+        "role": "secondary",
+        "displayName": "Platform Navy",
+        "canonical": "#2d327d",
+        "tonalRamp": [
+          "#060030",
+          "#191660",
+          "#313783",
+          "#4e58a7",
+          "#6d7acd",
+          "#8f9ef3",
+          "#bac6fd",
+          "#eaeefe"
+        ],
+        "theme": "light"
+      },
+      "platform-lavender": {
+        "role": "secondary",
+        "displayName": "Platform Lavender",
+        "canonical": "#c3c6ea",
+        "tonalRamp": [
+          "#09071f",
+          "#21223d",
+          "#3d3f5c",
+          "#5c5e7e",
+          "#7d7fa0",
+          "#9fa2c5",
+          "#c3c6ea",
+          "#ebedfe"
+        ],
+        "theme": "light"
+      },
+      "platform-rule": {
+        "role": "secondary",
+        "displayName": "Platform Rule",
+        "canonical": "#8f94c8",
+        "tonalRamp": [
+          "#08032a",
+          "#1f1f49",
+          "#3a3d6a",
+          "#595c8c",
+          "#797db0",
+          "#9ba0d5",
+          "#bfc4fb",
+          "#ebedff"
+        ],
+        "theme": "light"
+      },
+      "notice-tint": {
+        "role": "neutral",
+        "displayName": "Notice Tint",
+        "canonical": "#eceef8",
+        "tonalRamp": [
+          "#0a0b11",
+          "#23252c",
+          "#404149",
+          "#5f6169",
+          "#80828b",
+          "#a3a4ae",
+          "#c7c8d2",
+          "#eceef8"
+        ],
+        "theme": "light"
+      },
+      "notice-tint-strong": {
+        "role": "neutral",
+        "displayName": "Notice Tint Strong",
+        "canonical": "#d9dcf1",
+        "tonalRamp": [
+          "#090a17",
+          "#222433",
+          "#3e4151",
+          "#5d6072",
+          "#7e8194",
+          "#a1a4b7",
+          "#c5c8dc",
+          "#ebedff"
+        ],
+        "theme": "light"
+      },
+      "selection-lavender": {
+        "role": "neutral",
+        "displayName": "Selection Lavender",
+        "canonical": "#c9cbe8",
+        "tonalRamp": [
+          "#09081b",
+          "#222238",
+          "#3e3f57",
+          "#5d5f78",
+          "#7e809a",
+          "#a1a2be",
+          "#c5c6e3",
+          "#ebedff"
+        ],
+        "theme": "light"
+      },
+      "signal-red": {
+        "role": "primary",
+        "displayName": "Signal Red",
+        "canonical": "#d30000",
+        "tonalRamp": [
+          "#1f0000",
+          "#4d0000",
+          "#7e0a06",
+          "#b80201",
+          "#ea2e22",
+          "#ff7462",
+          "#feb4a8",
+          "#ffe9e5"
+        ],
+        "theme": "light"
+      },
+      "signal-red-deep": {
+        "role": "primary",
+        "displayName": "Signal Red Deep",
+        "canonical": "#b00000",
+        "tonalRamp": [
+          "#1e0000",
+          "#4c0201",
+          "#7f0603",
+          "#b61009",
+          "#df4335",
+          "#fc7665",
+          "#ffb3a7",
+          "#fee9e5"
+        ],
+        "theme": "light"
+      },
+      "warning-amber": {
+        "role": "tertiary",
+        "displayName": "Warning Amber",
+        "canonical": "#9a5300",
+        "tonalRamp": [
+          "#160700",
+          "#3b1c00",
+          "#623506",
+          "#904e01",
+          "#b76e2b",
+          "#dd9151",
+          "#fdb983",
+          "#ffeadb"
+        ],
+        "theme": "light"
+      },
+      "clear-green": {
+        "role": "tertiary",
+        "displayName": "Clear Green",
+        "canonical": "#1b7a34",
+        "tonalRamp": [
+          "#001002",
+          "#002f0c",
+          "#00511b",
+          "#13752f",
+          "#3f9850",
+          "#64bc72",
+          "#89e195",
+          "#cbfed0"
+        ],
+        "theme": "light"
+      },
+      "first-purple": {
+        "role": "tertiary",
+        "displayName": "First Purple",
+        "canonical": "#6b3fa0",
+        "tonalRamp": [
+          "#120026",
+          "#33015b",
+          "#522383",
+          "#7246a8",
+          "#9469cd",
+          "#b78cf4",
+          "#d4bbfe",
+          "#f2eaff"
+        ],
+        "theme": "light"
+      },
+      "chart-info-grey": {
+        "role": "neutral",
+        "displayName": "Chart Info Grey",
+        "canonical": "#b4b4b4",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "theme": "light"
+      },
+      "chart-debug-grey": {
+        "role": "neutral",
+        "displayName": "Chart Debug Grey",
+        "canonical": "#dadada",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "theme": "light"
+      },
+      "board-navy": {
+        "role": "neutral",
+        "displayName": "Board Navy",
+        "canonical": "#141a46",
+        "tonalRamp": [
+          "#05032d",
+          "#19204c",
+          "#343e6d",
+          "#525e90",
+          "#727fb4",
+          "#94a2d9",
+          "#b8c7fd",
+          "#e9eefe"
+        ],
+        "theme": "dark"
+      },
+      "board-band": {
+        "role": "neutral",
+        "displayName": "Board Band",
+        "canonical": "#1b2257",
+        "tonalRamp": [
+          "#050032",
+          "#171e52",
+          "#323c74",
+          "#4f5d97",
+          "#6f7ebc",
+          "#91a1e1",
+          "#b8c6fd",
+          "#e9eefe"
+        ],
+        "theme": "dark"
+      },
+      "board-shell": {
+        "role": "neutral",
+        "displayName": "Board Shell",
+        "canonical": "#0b0f2e",
+        "tonalRamp": [
+          "#050724",
+          "#1c2243",
+          "#373f63",
+          "#565f85",
+          "#7680a8",
+          "#98a3cd",
+          "#bcc7f2",
+          "#e9eeff"
+        ],
+        "theme": "dark"
+      },
+      "board-white": {
+        "role": "neutral",
+        "displayName": "Board White",
+        "canonical": "#f3f4fa",
+        "tonalRamp": [
+          "#0a0b0f",
+          "#242529",
+          "#414246",
+          "#606166",
+          "#818287",
+          "#a4a5aa",
+          "#c8c9ce",
+          "#edeef4"
+        ],
+        "theme": "dark"
+      },
+      "board-muted": {
+        "role": "neutral",
+        "displayName": "Board Muted",
+        "canonical": "#a7acd4",
+        "tonalRamp": [
+          "#080622",
+          "#202140",
+          "#3c3f60",
+          "#5a5e82",
+          "#7b7fa5",
+          "#9da2c9",
+          "#c1c6ef",
+          "#ebedfe"
+        ],
+        "theme": "dark"
+      },
+      "board-rule": {
+        "role": "neutral",
+        "displayName": "Board Rule",
+        "canonical": "#2b3170",
+        "tonalRamp": [
+          "#060031",
+          "#191a58",
+          "#333a7a",
+          "#505a9e",
+          "#707cc2",
+          "#919fe8",
+          "#bac6fd",
+          "#eaeeff"
+        ],
+        "theme": "dark"
+      },
+      "board-field": {
+        "role": "neutral",
+        "displayName": "Board Field",
+        "canonical": "#6f76b3",
+        "tonalRamp": [
+          "#07012f",
+          "#1d1c51",
+          "#373b73",
+          "#555b96",
+          "#757cba",
+          "#979fdf",
+          "#bcc5fe",
+          "#eaedff"
+        ],
+        "theme": "dark"
+      },
+      "board-yellow": {
+        "role": "secondary",
+        "displayName": "Board Yellow",
+        "canonical": "#ffd23f",
+        "tonalRamp": [
+          "#100a00",
+          "#2f2401",
+          "#514004",
+          "#765e0b",
+          "#9d7f14",
+          "#c7a009",
+          "#f1c429",
+          "#ffeebe"
+        ],
+        "theme": "dark"
+      },
+      "board-tint": {
+        "role": "neutral",
+        "displayName": "Board Tint",
+        "canonical": "#1f275f",
+        "tonalRamp": [
+          "#050032",
+          "#171d54",
+          "#313c76",
+          "#4f5c99",
+          "#6e7ebe",
+          "#90a1e4",
+          "#b7c6ff",
+          "#e9eeff"
+        ],
+        "theme": "dark"
+      },
+      "board-tint-strong": {
+        "role": "neutral",
+        "displayName": "Board Tint Strong",
+        "canonical": "#2c3680",
+        "tonalRamp": [
+          "#050032",
+          "#151760",
+          "#2e3883",
+          "#4b59a7",
+          "#6a7ccc",
+          "#8b9ff3",
+          "#b8c6fd",
+          "#e9eefe"
+        ],
+        "theme": "dark"
+      },
+      "board-selection": {
+        "role": "neutral",
+        "displayName": "Board Selection",
+        "canonical": "#3a438f",
+        "tonalRamp": [
+          "#060130",
+          "#181660",
+          "#303883",
+          "#4d59a7",
+          "#6d7bcc",
+          "#8e9ef3",
+          "#b9c6fd",
+          "#e9eefe"
+        ],
+        "theme": "dark"
+      },
+      "board-red": {
+        "role": "primary",
+        "displayName": "Board Red",
+        "canonical": "#c40000",
+        "tonalRamp": [
+          "#1f0000",
+          "#4d0000",
+          "#810000",
+          "#b80302",
+          "#e5382b",
+          "#fe7463",
+          "#feb4a8",
+          "#ffe9e5"
+        ],
+        "theme": "dark"
+      },
+      "board-red-deep": {
+        "role": "primary",
+        "displayName": "Board Red Deep",
+        "canonical": "#a30000",
+        "tonalRamp": [
+          "#1f0000",
+          "#4c0201",
+          "#7f0704",
+          "#b21d14",
+          "#db493a",
+          "#fc7665",
+          "#feb3a7",
+          "#ffe9e5"
+        ],
+        "theme": "dark"
+      },
+      "board-error": {
+        "role": "primary",
+        "displayName": "Board Error Red",
+        "canonical": "#ff6b6b",
+        "tonalRamp": [
+          "#1f0002",
+          "#4c020a",
+          "#7e0718",
+          "#b11d2c",
+          "#d9484c",
+          "#ff7271",
+          "#feb3ae",
+          "#ffe9e7"
+        ],
+        "theme": "dark"
+      },
+      "board-amber": {
+        "role": "tertiary",
+        "displayName": "Board Amber",
+        "canonical": "#ffb54d",
+        "tonalRamp": [
+          "#130800",
+          "#352001",
+          "#5b3a04",
+          "#84560b",
+          "#af7413",
+          "#dc9422",
+          "#fdbb61",
+          "#ffebd3"
+        ],
+        "theme": "dark"
+      },
+      "board-notice": {
+        "role": "secondary",
+        "displayName": "Board Notice Blue",
+        "canonical": "#9cb0ff",
+        "tonalRamp": [
+          "#050032",
+          "#151a5c",
+          "#2f3a7e",
+          "#4c5ba2",
+          "#6b7dc7",
+          "#8da0ee",
+          "#b7c6ff",
+          "#e9eeff"
+        ],
+        "theme": "dark"
+      },
+      "board-green": {
+        "role": "tertiary",
+        "displayName": "Board Green",
+        "canonical": "#5fd38a",
+        "tonalRamp": [
+          "#001004",
+          "#012e15",
+          "#045029",
+          "#0c743f",
+          "#159b56",
+          "#4abf78",
+          "#72e59b",
+          "#c8fed7"
+        ],
+        "theme": "dark"
+      },
+      "board-purple": {
+        "role": "tertiary",
+        "displayName": "Board Purple",
+        "canonical": "#c7a6ff",
+        "tonalRamp": [
+          "#120027",
+          "#310858",
+          "#4e2c7a",
+          "#6e4d9e",
+          "#8f6fc3",
+          "#b291e9",
+          "#d3bbfe",
+          "#f1ebff"
+        ],
+        "theme": "dark"
+      },
+      "board-chart-info": {
+        "role": "neutral",
+        "displayName": "Board Chart Info",
+        "canonical": "#5a619c",
+        "tonalRamp": [
+          "#070031",
+          "#1c1d51",
+          "#373b73",
+          "#545b96",
+          "#757dba",
+          "#96a0e0",
+          "#bcc5fe",
+          "#eaedff"
+        ],
+        "theme": "dark"
+      },
+      "board-chart-debug": {
+        "role": "neutral",
+        "displayName": "Board Chart Debug",
+        "canonical": "#3a4180",
+        "tonalRamp": [
+          "#060031",
+          "#1a1b56",
+          "#343a79",
+          "#515b9c",
+          "#717cc1",
+          "#939fe7",
+          "#bac5ff",
+          "#eaeeff"
+        ],
+        "theme": "dark"
+      },
+      "series-0": {
+        "role": "series",
+        "displayName": "Series 0",
+        "canonical": "#4e79a7",
+        "tonalRamp": [
+          "#000b1d",
+          "#022647",
+          "#19446e",
+          "#3a6491",
+          "#5a86b5",
+          "#7ca9da",
+          "#a2cefd",
+          "#e3f0ff"
+        ],
+        "theme": "light"
+      },
+      "series-1": {
+        "role": "series",
+        "displayName": "Series 1",
+        "canonical": "#f28e2b",
+        "tonalRamp": [
+          "#160700",
+          "#3a1d01",
+          "#633504",
+          "#8e4f0c",
+          "#bd6b14",
+          "#ec8923",
+          "#fdb982",
+          "#ffeada"
+        ],
+        "theme": "light"
+      },
+      "series-2": {
+        "role": "series",
+        "displayName": "Series 2",
+        "canonical": "#59a14f",
+        "tonalRamp": [
+          "#011000",
+          "#042e01",
+          "#0d5102",
+          "#2b7321",
+          "#4e9644",
+          "#71ba67",
+          "#95df8a",
+          "#cdffc6"
+        ],
+        "theme": "light"
+      },
+      "series-3": {
+        "role": "series",
+        "displayName": "Series 3",
+        "canonical": "#b07aa1",
+        "tonalRamp": [
+          "#1b0015",
+          "#3d1034",
+          "#5e2e52",
+          "#804e73",
+          "#a36e95",
+          "#c891b8",
+          "#eeb4dd",
+          "#fee6f7"
+        ],
+        "theme": "light"
+      },
+      "series-4": {
+        "role": "series",
+        "displayName": "Series 4",
+        "canonical": "#76b7b2",
+        "tonalRamp": [
+          "#000f0e",
+          "#022c2a",
+          "#054d49",
+          "#2b6d69",
+          "#4f8f8b",
+          "#72b3ae",
+          "#96d8d2",
+          "#bbfef8"
+        ],
+        "theme": "light"
+      },
+      "series-5": {
+        "role": "series",
+        "displayName": "Series 5",
+        "canonical": "#d4a92a",
+        "tonalRamp": [
+          "#100a00",
+          "#302300",
+          "#533f01",
+          "#785d03",
+          "#a07d08",
+          "#ca9f18",
+          "#efc34c",
+          "#ffedc2"
+        ],
+        "theme": "light"
+      },
+      "series-6": {
+        "role": "series",
+        "displayName": "Series 6",
+        "canonical": "#ff9da7",
+        "tonalRamp": [
+          "#1e0005",
+          "#4c0015",
+          "#731f2f",
+          "#98414d",
+          "#be626e",
+          "#e4858f",
+          "#feb1b8",
+          "#fee8ea"
+        ],
+        "theme": "light"
+      },
+      "series-7": {
+        "role": "series",
+        "displayName": "Series 7",
+        "canonical": "#9c755f",
+        "tonalRamp": [
+          "#180600",
+          "#3b1b07",
+          "#5b3824",
+          "#7d5842",
+          "#a07862",
+          "#c49b84",
+          "#eabfa7",
+          "#ffeade"
+        ],
+        "theme": "light"
+      },
+      "series-8": {
+        "role": "series",
+        "displayName": "Series 8",
+        "canonical": "#7b5fb5",
+        "tonalRamp": [
+          "#110029",
+          "#2e075b",
+          "#4b2d7e",
+          "#6a4ea2",
+          "#8b6fc7",
+          "#ae92ed",
+          "#cfbdfe",
+          "#f0ebff"
+        ],
+        "theme": "light"
+      },
+      "series-9": {
+        "role": "series",
+        "displayName": "Series 9",
+        "canonical": "#86bc86",
+        "tonalRamp": [
+          "#001001",
+          "#022f06",
+          "#1b4f1e",
+          "#3c6f3d",
+          "#5d915e",
+          "#7fb57f",
+          "#a3daa3",
+          "#ccfecb"
+        ],
+        "theme": "light"
+      },
+      "board-series-0": {
+        "role": "series",
+        "displayName": "Board Series 0",
+        "canonical": "#8fb3e0",
+        "tonalRamp": [
+          "#000b1f",
+          "#052549",
+          "#234369",
+          "#42638c",
+          "#6285af",
+          "#84a8d4",
+          "#a8ccfa",
+          "#e4f0fe"
+        ],
+        "theme": "dark"
+      },
+      "board-series-1": {
+        "role": "series",
+        "displayName": "Board Series 1",
+        "canonical": "#ffa64d",
+        "tonalRamp": [
+          "#150700",
+          "#391e01",
+          "#613604",
+          "#8b510c",
+          "#b96e14",
+          "#e58e30",
+          "#feb979",
+          "#ffead9"
+        ],
+        "theme": "dark"
+      },
+      "board-series-2": {
+        "role": "series",
+        "displayName": "Board Series 2",
+        "canonical": "#7fcf6f",
+        "tonalRamp": [
+          "#011000",
+          "#092e02",
+          "#155005",
+          "#24750e",
+          "#499839",
+          "#6dbc5d",
+          "#90e180",
+          "#cefec4"
+        ],
+        "theme": "dark"
+      },
+      "board-series-3": {
+        "role": "series",
+        "displayName": "Board Series 3",
+        "canonical": "#d6a3c9",
+        "tonalRamp": [
+          "#1a0016",
+          "#3b1333",
+          "#5b3152",
+          "#7d5072",
+          "#a07094",
+          "#c593b8",
+          "#eab6dd",
+          "#fee6f8"
+        ],
+        "theme": "dark"
+      },
+      "board-series-4": {
+        "role": "series",
+        "displayName": "Board Series 4",
+        "canonical": "#9ad9d3",
+        "tonalRamp": [
+          "#000f0d",
+          "#012c29",
+          "#034d49",
+          "#2f6d68",
+          "#528f8a",
+          "#75b2ad",
+          "#98d7d1",
+          "#bdfdf7"
+        ],
+        "theme": "dark"
+      },
+      "board-series-5": {
+        "role": "series",
+        "displayName": "Board Series 5",
+        "canonical": "#f5d76e",
+        "tonalRamp": [
+          "#0f0b00",
+          "#2e2400",
+          "#504101",
+          "#745f03",
+          "#9b8008",
+          "#c0a335",
+          "#e5c75e",
+          "#ffeeb7"
+        ],
+        "theme": "dark"
+      },
+      "board-series-6": {
+        "role": "series",
+        "displayName": "Board Series 6",
+        "canonical": "#ffb3bb",
+        "tonalRamp": [
+          "#1e0005",
+          "#460a19",
+          "#692b35",
+          "#8c4a53",
+          "#b16b74",
+          "#d78e96",
+          "#fdb1b9",
+          "#ffe8ea"
+        ],
+        "theme": "dark"
+      },
+      "board-series-7": {
+        "role": "series",
+        "displayName": "Board Series 7",
+        "canonical": "#c9a084",
+        "tonalRamp": [
+          "#170600",
+          "#3b1b02",
+          "#5b391f",
+          "#7d583e",
+          "#a0795e",
+          "#c49b80",
+          "#eabfa3",
+          "#ffeadc"
+        ],
+        "theme": "dark"
+      },
+      "board-series-8": {
+        "role": "series",
+        "displayName": "Board Series 8",
+        "canonical": "#c59fd9",
+        "tonalRamp": [
+          "#160020",
+          "#341343",
+          "#533164",
+          "#745185",
+          "#9672a9",
+          "#ba94cd",
+          "#dfb8f3",
+          "#f7e8fe"
+        ],
+        "theme": "dark"
+      },
+      "board-series-9": {
+        "role": "series",
+        "displayName": "Board Series 9",
+        "canonical": "#a8d8a8",
+        "tonalRamp": [
+          "#001001",
+          "#002f06",
+          "#224d24",
+          "#426e43",
+          "#629063",
+          "#85b385",
+          "#a8d8a8",
+          "#cdfecc"
+        ],
+        "theme": "dark"
+      }
+    },
+    "typographyMeta": {
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "The LogPit wordmark on the header band (18px on phones)."
+      },
+      "hour": {
+        "displayName": "Hour",
+        "purpose": "The hour on each hour band; 16px in compact density."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default UI text; tabular figures on the whole page."
+      },
+      "time": {
+        "displayName": "Time",
+        "purpose": "Bold minutes:seconds leading each stream line; the hour prefix is 400 grey."
+      },
+      "rail-title": {
+        "displayName": "Rail Title",
+        "purpose": "Section heads in the rail."
+      },
+      "rail-body": {
+        "displayName": "Rail Body",
+        "purpose": "Rail content, chart bar, band counts."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Severity column, table headers, small buttons (600 or 700)."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Silent badge, chart axis hours; tags at 400."
+      },
+      "message": {
+        "displayName": "Message",
+        "purpose": "Message bodies, patterns, context lines."
+      },
+      "message-compact": {
+        "displayName": "Message Compact",
+        "purpose": "Message bodies in compact density."
+      },
+      "fields": {
+        "displayName": "Fields",
+        "purpose": "Structured key=value fields under a message (keys 600)."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "hard-step",
+        "value": "none",
+        "purpose": "No transitions or animations: every state change (hover, open, selection, chevron) is immediate."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "759px",
+        "purpose": "max-width: header scrolls away, secondary filters fold behind a Filters toggle, entries become two-line grids."
+      },
+      {
+        "name": "rail",
+        "value": "1100px",
+        "purpose": "min-width: 340px sticky left rail beside the chart and stream."
+      },
+      {
+        "name": "coarse-pointer",
+        "value": "pointer: coarse",
+        "purpose": "Controls grow to 44px minimum height (36px for small buttons)."
+      }
+    ],
+    "themes": {
+      "light": "Timetable paper: --ground #ffffff, --ink #111111, accent platform navy.",
+      "dark": "Departure board: --ground #141a46, --ink #f3f4fa, accent board yellow; tokens prefixed board-."
+    }
+  },
+  "components": [
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Default outlined control: ground fill, field-grey border, bold label; band-grey hover, no easing.",
+      "html": "<button class=\"ds-btn\">Save view</button>",
+      "css": ".ds-btn{height:32px;padding:0 12px;border:1px solid var(--field,#8a8a8a);border-radius:2px;background:var(--ground,#fff);color:var(--ink,#111);font:600 14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif;cursor:pointer}.ds-btn:hover{background:var(--band,#f2f2f2)}.ds-btn:focus-visible{outline:2px solid var(--focus,#2d327d);outline-offset:2px}"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single filled red action per screen (Search).",
+      "html": "<button class=\"ds-btn-primary\">Search</button>",
+      "css": ".ds-btn-primary{height:32px;padding:0 12px;border:1px solid var(--primary,#d30000);border-radius:2px;background:var(--primary,#d30000);color:#fff;font:600 14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif;cursor:pointer}.ds-btn-primary:hover{background:var(--primary-hover,#b00000)}.ds-btn-primary:focus-visible{outline:2px solid var(--focus,#2d327d);outline-offset:2px}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "32px field with a field-grey border and 2px corners.",
+      "html": "<input class=\"ds-input\" type=\"search\" placeholder=\"field:value\">",
+      "css": ".ds-input{height:32px;padding:0 8px;border:1px solid var(--field,#8a8a8a);border-radius:2px;background:var(--ground,#fff);color:var(--ink,#111);font:14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif}.ds-input::placeholder{color:var(--muted,#5e5e5e);opacity:1}.ds-input:focus-visible{outline:2px solid var(--focus,#2d327d);outline-offset:2px}"
+    },
+    {
+      "name": "Header Band",
+      "kind": "nav",
+      "refersTo": "header-band",
+      "description": "Platform-navy control strip: wordmark, wide search, Live, the red Search button, status right.",
+      "html": "<div class=\"ds-hdr\"><b class=\"ds-hdr-mark\">LogPit</b><input class=\"ds-hdr-q\" type=\"search\" placeholder=\"Search messages…\"><label class=\"ds-hdr-l\"><input type=\"checkbox\"> Live</label><button class=\"ds-hdr-go\">Search</button><span class=\"ds-hdr-st\">500 entries</span></div>",
+      "css": ".ds-hdr{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;background:var(--shell,#2d327d);color:#fff;font:14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif}.ds-hdr-mark{margin-right:12px;font-size:20px;line-height:32px;letter-spacing:-.01em}.ds-hdr-q{flex:1 1 200px;height:32px;padding:0 8px;border:1px solid var(--shell-line,#8f94c8);border-radius:2px;background:var(--shell-field,#fff);color:var(--shell-field-ink,#111);font:inherit}.ds-hdr-q:focus-visible,.ds-hdr-go:focus-visible{outline:2px solid #fff;outline-offset:2px}.ds-hdr-l{display:flex;align-items:center;gap:6px;font-weight:600}.ds-hdr-l input{accent-color:#d30000}.ds-hdr-go{height:32px;padding:0 12px;border:1px solid #d30000;border-radius:2px;background:#d30000;color:#fff;font:inherit;font-weight:600;cursor:pointer}.ds-hdr-go:hover{background:#b00000}.ds-hdr-st{margin-left:auto;color:var(--shell-muted,#c3c6ea);font-size:13px}"
+    },
+    {
+      "name": "Hour Band",
+      "kind": "custom",
+      "refersTo": "hour-band",
+      "description": "Signature: the hour stated once on a sticky band; lines below lead with grey HH: and bold MM:SS, errors in red.",
+      "html": "<table class=\"ds-tt\"><tr class=\"ds-band\"><th colspan=\"4\"><span class=\"ds-h\">14:00</span><span class=\"ds-d\">Sun, 4 Oct 2026</span><span class=\"ds-c\">32 entries · <span class=\"ds-e\">4 errors</span> · <span class=\"ds-w\">3 warnings</span></span></th></tr><tr><td class=\"ds-ts\"><span class=\"ds-hh\">14:</span>12:12</td><td class=\"ds-sev ds-s6\">info</td><td class=\"ds-host\">pve</td><td class=\"ds-msg\">GET /api/v1/items/9 HTTP/1.1 200 512</td></tr><tr class=\"ds-err\"><td class=\"ds-ts\"><span class=\"ds-hh\">14:</span>08:41</td><td class=\"ds-sev ds-s3\">err</td><td class=\"ds-host\">lxc-git</td><td class=\"ds-msg\">authentication failure; rhost=10.0.0.54</td></tr><tr><td class=\"ds-ts\"><span class=\"ds-hh\">14:</span>06:27</td><td class=\"ds-sev ds-s4\">warn</td><td class=\"ds-host\">nas</td><td class=\"ds-msg\">query: example69.lan A IN</td></tr></table>",
+      "css": ".ds-tt{width:100%;border-collapse:collapse;font:14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif;font-variant-numeric:tabular-nums;color:var(--ink,#111);background:var(--ground,#fff)}.ds-band th{position:sticky;top:0;padding:8px 10px 6px 16px;background:var(--band,#f2f2f2);border-bottom:1px solid var(--ink,#111);text-align:left;font-weight:400}.ds-h{font-size:20px;font-weight:700;line-height:1;margin-right:10px;color:var(--band-hour,#111)}.ds-d{color:var(--muted,#5e5e5e)}.ds-c{float:right;font-size:12.5px;color:var(--muted,#5e5e5e)}.ds-e{color:var(--err,#d30000);font-weight:700}.ds-w{color:var(--warn,#9a5300);font-weight:700}.ds-tt td{padding:4px 10px;border-bottom:1px solid var(--rule,#d6d6d6);vertical-align:baseline}.ds-tt td:first-child{padding-left:16px}.ds-ts{width:1%;white-space:nowrap;font-weight:700}.ds-hh{color:var(--muted,#5e5e5e);font-weight:400}.ds-err .ds-ts,.ds-err .ds-hh{color:var(--err,#d30000)}.ds-sev{width:1%;font-size:12px;font-weight:700}.ds-s3{color:var(--err,#d30000)}.ds-s4{color:var(--warn,#9a5300)}.ds-s6{color:var(--muted,#5e5e5e)}.ds-host{width:1%;white-space:nowrap;font-weight:600}.ds-msg{font:12.5px/1.45 ui-monospace,\"SF Mono\",Menlo,Consolas,monospace;white-space:pre-wrap}"
+    },
+    {
+      "name": "Silent Badge",
+      "kind": "chip",
+      "refersTo": "badge-silent",
+      "description": "Red marker after a host that stopped sending logs.",
+      "html": "<span class=\"ds-host-name\">udr7</span><span class=\"ds-badge\">silent</span>",
+      "css": ".ds-host-name{font:600 12.5px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif}.ds-badge{display:inline-block;margin-left:6px;padding:0 5px;border-radius:2px;background:var(--err,#d30000);color:var(--ground,#fff);font:700 11px/16px \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif}"
+    },
+    {
+      "name": "Tag",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Outlined host tag, clickable to filter.",
+      "html": "<span class=\"ds-tag\" tabindex=\"0\" role=\"button\">proxmox</span>",
+      "css": ".ds-tag{display:inline-block;margin:2px 4px 0 0;padding:0 5px;border:1px solid var(--field,#8a8a8a);border-radius:2px;color:var(--muted,#5e5e5e);font:400 11px/16px \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif;cursor:pointer}.ds-tag:hover{color:var(--accent,#2d327d)}.ds-tag:focus-visible{outline:2px solid var(--focus,#2d327d);outline-offset:2px}"
+    },
+    {
+      "name": "Context Panel",
+      "kind": "card",
+      "refersTo": "context-panel",
+      "description": "Tinted panel opened under a line, showing the surrounding entries; the current one in the stronger tint.",
+      "html": "<div class=\"ds-ctx\"><div class=\"ds-ctxl\"><span>14:08:40</span><span>info</span><span>sshd</span><span class=\"m\">Connection from 10.0.0.54</span></div><div class=\"ds-ctxl ds-cur\"><span>14:08:41</span><span>err</span><span>sshd</span><span class=\"m\">authentication failure; rhost=10.0.0.54</span></div><div class=\"ds-ctxl\"><span>14:08:43</span><span>info</span><span>sshd</span><span class=\"m\">Disconnected from 10.0.0.54</span></div></div>",
+      "css": ".ds-ctx{padding:8px 16px 12px 32px;background:var(--tint,#eceef8);color:var(--ink,#111)}.ds-ctxl{display:grid;grid-template-columns:auto 4.5em 9em minmax(0,1fr);gap:0 10px;padding:1px 0;font:12px/1.45 ui-monospace,\"SF Mono\",Menlo,Consolas,monospace}.ds-ctxl>span:not(.m){color:var(--muted,#5e5e5e);white-space:nowrap}.ds-cur{background:var(--tint-strong,#d9dcf1);font-weight:700}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Timetable",
+    "overview": "LogPit sets the log stream the way Swiss railway timetable books set departures. The hour is stated once, on a band; every line under it leads with its minutes and seconds in bold tabular figures while the hour recedes in grey; disruptions read in red. Read top to bottom, the stream has the calm, regular cadence of a printed timetable, and an incident shows up the way a cancelled train does: as a red line in an otherwise black column.\n\nThe world has two faces. In light, it is timetable paper: a white ground, near-black ink, hairline rules and a platform-navy band across the top. In dark, it is the station departure board: a deep navy ground, white type and board yellow as the accent. Both are flat, printed surfaces. Nothing floats, nothing glows, nothing eases in; state changes snap like a split-flap board turning over.\n\nThe system is dense but not cramped, and built for long reading during an incident. It rejects the category default (a dark observability console with a grey histogram over undifferentiated rows), the SaaS dashboard (cards, giant KPIs, gradients) and the hacker costume (green on black, CRT, neon). Because the page ships inside the binary under a `default-src 'none'` policy, everything is system type, inline CSS and inline SVG; lightness is part of the look.",
+    "keyCharacteristics": [
+      "The pinned hour band: the hour stated once in large bold figures, the band sticking under the header while its hour scrolls past.",
+      "Bold tabular minutes:seconds leading each line, the hour prefix in grey.",
+      "Helvetica-family system stack for everything, monospace reserved for message text.",
+      "Colour only for meaning: red for errors and the one primary action, amber for warnings, navy for notices and structure, purple for first-ever patterns, yellow as the board accent at night.",
+      "Flat surfaces, hairline rules, radii of 2px at most, no shadows, no easing."
+    ],
+    "rules": [
+      {
+        "name": "The Meaning Rule",
+        "body": "Colour says something or it is ink. Red is an error or the primary action, amber a warning, navy a notice or structure, purple a first sighting, green a recovery. A coloured element with no such meaning is a defect.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Red Button Rule",
+        "body": "Exactly one filled red control per screen: Search. Every other button is outlined in field grey on the ground.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Boards Rule",
+        "body": "The light theme accent is navy; the dark theme accent is yellow. Never carry yellow into light, never carry navy accents into dark (the dark board is already navy).",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "All figures are tabular (`font-variant-numeric: tabular-nums` on the body). Times, counts and hours must line up in columns like a printed timetable.",
+        "section": "typography"
+      },
+      {
+        "name": "The Receding Hour Rule",
+        "body": "On a line, the hour is grey and regular, minutes:seconds black and bold. On an error line the whole timestamp turns red, hour included.",
+        "section": "typography"
+      },
+      {
+        "name": "The Printed Sheet Rule",
+        "body": "Every surface lies on the same sheet of paper (or the same board). If something needs to stand out, give it a rule, a tint or a band, never a shadow or a blur.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Hard Step Rule",
+        "body": "State changes are immediate: hover fills, open sections, chevrons, selections. No transitions, no animations, no easing.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** state the hour once, on a sticky hour band, and lead every line with bold tabular minutes:seconds with the hour prefix in grey.",
+      "**Do** keep every figure tabular so times and counts align in columns.",
+      "**Do** reserve red for errors and the single primary action; amber for warnings; navy for notices and structure; purple for first-seen patterns; green for recoveries.",
+      "**Do** use board yellow as the only accent in dark, and platform navy as the accent in light.",
+      "**Do** separate things with 1px rules (hairline between rows, ink under bands and the chart) and tints, not with boxes.",
+      "**Do** keep corners at 2px or square, and keep everything system type, inline CSS and inline SVG.",
+      "**Do** keep monospace for message text (messages, patterns, context lines)."
+    ],
+    "donts": [
+      "**Don't** add shadows, blurs, gradients or glows; the world is a printed sheet or a departure board.",
+      "**Don't** add transitions or easing; state changes are hard steps.",
+      "**Don't** introduce cards, KPI tiles or dashboard chrome.",
+      "**Don't** use green-on-black terminal styling, CRT effects or neon.",
+      "**Don't** use colour decoratively or to \"brighten\" a section; if it does not mean something it is ink, grey or rule.",
+      "**Don't** add a second filled red button, or radii above 2px.",
+      "**Don't** load web fonts, icon fonts or any external resource; the CSP forbids it and lightness is the point."
+    ]
+  }
+}

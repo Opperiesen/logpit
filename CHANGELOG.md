@@ -2,10 +2,18 @@
 
 ## Unreleased
 
+- Web UI redesign: the log stream is set like a railway timetable, grouped under hour bands that state the
+  hour once with their entry, error and warning counts and stay pinned while scrolling; each line leads with
+  its minutes and seconds. Light theme in timetable paper, dark theme in departure-board navy, system fonts
+  only. Hosts, top values, message patterns and alerts move to a left rail on wide screens; on phones the
+  secondary filters fold behind a *Filters* button and each line stacks so the message gets the full width.
+  The chart gets an hour scale. Severity colors meet WCAG AA contrast in both themes, every clickable value
+  works from the keyboard, and live lines are inserted in batches.
+
 - Trace correlation: `trace_id` and `span_id` are normalized on every ingestion path (OTLP, `traceId`
   and similar fields in JSON logs, Loki labels, a W3C `traceparent`) and lower-cased when hexadecimal.
   `trace=<id>` searches a trace across hosts (API, export, live tail, `logpit search --trace`), and the web
-  UI shows a **⇢ trace** link on lines that have one, listing the whole trace with the time since its
+  UI shows a **trace** link on lines that have one, listing the whole trace with the time since its
   first entry. `key=value` extraction now falls back to the first line of a multi-line message.
 
 - Multi-line events in `logpit ship`: `--multiline-start REGEX` joins the lines that follow a matching

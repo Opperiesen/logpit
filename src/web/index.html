@@ -5,193 +5,325 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LogPit</title>
 <style>
-  :root { color-scheme: light dark; --bg:#fff; --fg:#1b1f24; --muted:#6a737d; --line:#d8dee4; --accent:#0969da; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#30363d; --accent:#58a6ff; } }
-  :root[data-theme=light] { color-scheme:light; --bg:#fff; --fg:#1b1f24; --muted:#6a737d; --line:#d8dee4; --accent:#0969da; }
-  :root[data-theme=dark] { color-scheme:dark; --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#30363d; --accent:#58a6ff; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; }
-  header { display:flex; flex-wrap:wrap; gap:8px; padding:12px 16px; border-bottom:1px solid var(--line); align-items:center; position:sticky; top:0; background:var(--bg); }
-  h1 { font-size:16px; margin:0 8px 0 0; }
-  input, select, button { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
-  input[type=search] { flex:1 1 240px; min-width:160px; }
-  button { cursor:pointer; background:var(--accent); color:#fff; border-color:var(--accent); }
-  label { color:var(--muted); display:flex; align-items:center; gap:4px; }
-  #status { color:var(--muted); margin-left:auto; }
+  :root {
+    color-scheme: light dark;
+    --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --ground:#fff; --band:#f2f2f2; --ink:#111; --muted:#5e5e5e; --rule:#d6d6d6; --field:#8a8a8a;
+    --shell:#2d327d; --shell-ink:#fff; --shell-muted:#c3c6ea; --shell-line:#8f94c8; --shell-field:#fff; --shell-field-ink:#111;
+    --accent:#2d327d; --focus:#2d327d; --band-hour:#111; --sel:#c9cbe8; --tint:#eceef8; --tint-strong:#d9dcf1;
+    --primary:#d30000; --primary-hover:#b00000;
+    --err:#d30000; --warn:#9a5300; --notice:#2d327d; --ok:#1b7a34; --new:#6b3fa0;
+    --c0:#4e79a7; --c1:#f28e2b; --c2:#59a14f; --c3:#b07aa1; --c4:#76b7b2; --c5:#d4a92a; --c6:#ff9da7; --c7:#9c755f; --c8:#7b5fb5; --c9:#86bc86; --other:#8a8a8a;
+    --chart-info:#b4b4b4; --chart-debug:#dadada;
+    --hdr:0px;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme=light]) {
+    color-scheme:dark;
+    --ground:#141a46; --band:#1b2257; --ink:#f3f4fa; --muted:#a7acd4; --rule:#2b3170; --field:#6f76b3;
+    --shell:#0b0f2e; --shell-muted:#a7acd4; --shell-line:#6f76b3; --shell-field:#141a46; --shell-field-ink:#f3f4fa;
+    --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
+    --primary:#c40000; --primary-hover:#a30000;
+    --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
+    --chart-info:#5a619c; --chart-debug:#3a4180; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
+  } }
+  :root[data-theme=light] { color-scheme:light; }
+  :root[data-theme=dark] {
+    color-scheme:dark;
+    --ground:#141a46; --band:#1b2257; --ink:#f3f4fa; --muted:#a7acd4; --rule:#2b3170; --field:#6f76b3;
+    --shell:#0b0f2e; --shell-muted:#a7acd4; --shell-line:#6f76b3; --shell-field:#141a46; --shell-field-ink:#f3f4fa;
+    --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
+    --primary:#c40000; --primary-hover:#a30000;
+    --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
+    --chart-info:#5a619c; --chart-debug:#3a4180; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
+  }
+
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--ground); color:var(--ink); font:14px/1.45 var(--sans); font-variant-numeric:tabular-nums; caret-color:var(--accent); scrollbar-color:var(--field) var(--ground); }
+  ::selection { background:var(--sel); color:inherit; }
+  :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+  input, select, button { font:inherit; color:inherit; }
+  input, select { height:32px; padding:0 8px; border:1px solid var(--field); border-radius:2px; background:var(--ground); color:var(--ink); }
+  input::placeholder { color:var(--muted); opacity:1; }
+  input[type=checkbox] { width:16px; height:16px; margin:0; padding:0; accent-color:var(--primary); }
+  button { height:32px; padding:0 12px; border:1px solid var(--field); border-radius:2px; background:var(--ground); color:var(--ink); font-weight:600; cursor:pointer; }
+  button:hover { background:var(--band); }
+  button:disabled { opacity:.6; cursor:default; }
+  button.primary { background:var(--primary); border-color:var(--primary); color:#fff; }
+  button.primary:hover { background:var(--primary-hover); }
+  button.small { height:24px; padding:0 8px; font-size:12px; }
+  button.link { height:auto; padding:0; border:0; background:none; font:inherit; color:inherit; text-align:left; }
+  button.link:hover { background:none; color:var(--accent); }
+  [role=button] { cursor:pointer; }
+  [role=button]:hover { color:var(--accent); }
+  @media (pointer:coarse) { input:not([type=checkbox]), select, button:not(.link) { min-height:44px; } button.small { min-height:36px; } }
+
+  /* Header: the platform-navy band carries the search; the row under it the secondary filters. */
+  header { position:sticky; top:0; z-index:10; background:var(--shell); color:var(--shell-ink); }
+  .row1 { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:10px 16px; }
+  h1 { margin:0 12px 0 0; font-size:20px; line-height:32px; font-weight:700; letter-spacing:-.01em; }
+  .row1 input, .row1 select { background:var(--shell-field); color:var(--shell-field-ink); border-color:var(--shell-line); }
+  .row1 label { display:flex; align-items:center; gap:6px; color:var(--shell-ink); font-weight:600; }
+  .row1 button:not(.primary) { background:transparent; color:var(--shell-ink); border-color:var(--shell-line); }
+  .row1 :focus-visible { outline-color:#fff; }
+  #q { flex:1 1 280px; min-width:180px; }
+  #status { margin-left:auto; color:var(--shell-muted); font-size:13px; }
+  #filtersToggle { display:none; }
+  .row2 { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 16px; background:var(--band); color:var(--ink); border-bottom:1px solid var(--rule); }
+  .row2 .sep { flex:1; }
+  .row2 .tok { display:flex; align-items:center; gap:6px; color:var(--muted); }
   .prefs { position:relative; }
-  .prefs summary { cursor:pointer; padding:5px 9px; border:1px solid var(--line); border-radius:6px; list-style:none; user-select:none; }
+  .prefs summary { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 10px; border:1px solid var(--field); border-radius:2px; background:var(--ground); font-weight:600; cursor:pointer; list-style:none; user-select:none; }
   .prefs summary::-webkit-details-marker { display:none; }
-  .prefs .panel { position:absolute; right:0; top:calc(100% + 6px); z-index:20; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:grid; gap:8px; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.28); }
-  .prefs .panel label { justify-content:space-between; }
-  .prefs .panel .cols { display:flex; flex-wrap:wrap; gap:4px 12px; }
-  .prefs .panel .cols label { gap:4px; }
-  .prefs .panel button { justify-self:start; padding:2px 10px; font-size:12px; }
-  body.compact td { padding:1px 8px; } body.compact table { font-size:11.5px; line-height:1.25; }
-  body.nowrap td.msg { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
-  body.hide-ts td.ts, body.hide-sev td.sev, body.hide-host td.host, body.hide-app td.app, body.hide-fields .fields { display:none; }
-  table { width:100%; border-collapse:collapse; font:12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  td { padding:3px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
-  td.ts, td.host, td.app { white-space:nowrap; color:var(--muted); }
-  td.msg { white-space:pre-wrap; word-break:break-word; width:100%; }
-  td.ts.ctxable { cursor:pointer; } td.ts.ctxable:hover { color:var(--accent); text-decoration:underline dotted; }
-  tr.ctx > td { padding:6px 10px 10px 28px; background:color-mix(in srgb, var(--accent) 6%, transparent); }
-  .ctxhead { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-bottom:4px; color:var(--muted); font:12px system-ui, sans-serif; }
-  .ctxhead button { padding:1px 8px; font-size:11px; }
-  .ctxline { display:grid; grid-template-columns:auto 4.5em 8em 1fr; gap:0 10px; padding:1px 0; }
-  .ctxline > span:first-child, .ctxline .app { color:var(--muted); white-space:nowrap; }
-  .ctxline .m { white-space:pre-wrap; word-break:break-word; }
-  .ctxline.cur { background:color-mix(in srgb, var(--accent) 18%, transparent); font-weight:600; }
-  .ctxline.other .m { opacity:.85; }
-  .sev { font-weight:600; }
-  .fields { margin-top:2px; display:flex; flex-wrap:wrap; gap:2px 8px; color:var(--muted); font-size:11.5px; }
-  .fields span { cursor:pointer; } .fields span:hover { color:var(--accent); }
-  .fields b { font-weight:600; }
-  .fields .tracebtn { color:var(--accent); }
-  .s0,.s1,.s2,.s3 { color:#d1242f; } .s4 { color:#bf8700; } .s5 { color:#0969da; } .s6 { color:var(--muted); } .s7 { color:var(--muted); opacity:.7; }
-  :root { --c0:#4e79a7; --c1:#f28e2b; --c2:#59a14f; --c3:#b07aa1; --c4:#76b7b2; --c5:#edc948; --c6:#ff9da7; --c7:#9c755f; --c8:#af7aa1; --c9:#86bc86; --other:#8b949e; }
-  #chartbar { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; padding:6px 16px; font-size:12px; color:var(--muted); }
-  #chartbar .exp { margin-left:auto; display:flex; align-items:center; gap:6px; }
-  #chartbar .exp button { padding:1px 8px; font-size:11px; }
-  #chartbar select { padding:2px 6px; font-size:12px; }
-  #legend { display:flex; flex-wrap:wrap; gap:2px 12px; }
-  .lg { display:inline-flex; align-items:center; gap:5px; }
-  .lg[data-key] { cursor:pointer; } .lg[data-key]:hover { color:var(--accent); }
-  .lg i { width:10px; height:10px; border-radius:2px; background:currentColor; display:inline-block; }
-  .lg b { font-weight:600; color:var(--fg); }
-  #chart { display:block; width:100%; height:64px; border-bottom:1px solid var(--line); }
-  #chart rect { fill:currentColor; }
-  #chart .hit { fill:transparent; cursor:zoom-in; } #chart .hit:hover { fill:var(--accent); fill-opacity:.15; }
-  #chart .hit.flat { cursor:default; }
-  #chart { touch-action:pan-y; user-select:none; }
-  #chart .sel { fill:var(--accent); fill-opacity:.3; stroke:var(--accent); stroke-width:1; vector-effect:non-scaling-stroke; pointer-events:none; }
-  #top { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
-  #top summary { cursor:pointer; padding:6px 0; color:var(--muted); }
-  #top .topctl { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-bottom:6px; color:var(--muted); }
-  #top select { padding:2px 6px; font-size:12px; }
-  .toprow { display:grid; grid-template-columns:minmax(8em, 22em) minmax(80px, 1fr) 11em; gap:0 10px; align-items:center; padding:1px 0; max-width:60em; }
-  .toprow .v { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; cursor:pointer; }
-  .toprow .v:hover { color:var(--accent); }
-  .toprow .bar { height:10px; background:color-mix(in srgb, var(--accent) 55%, transparent); border-radius:2px; min-width:1px; }
-  .toprow .n { text-align:right; color:var(--muted); } .toprow .n b { color:var(--fg); font-weight:600; }
-  #patterns { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
-  #patterns summary { cursor:pointer; padding:6px 0; color:var(--muted); }
-  .patrow { display:grid; grid-template-columns:5.5em 6.5em minmax(10em, 1fr) 15em; gap:0 10px; align-items:baseline; padding:2px 0; }
-  .patrow .n { text-align:right; font-weight:600; }
-  .patrow .p { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .patrow .p.link { cursor:pointer; } .patrow .p.link:hover { color:var(--accent); }
-  .patrow .m { color:var(--muted); text-align:right; white-space:nowrap; }
-  .patrow .t { white-space:nowrap; } .t.up { color:#cf222e; } .t.down { color:#1a7f37; } .t.flat { color:var(--muted); }
-  #alerts { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
-  #alerts summary { cursor:pointer; padding:6px 0; color:var(--muted); }
-  .alrow { display:grid; grid-template-columns:6em 9em 10em minmax(10em, 1fr) 10em; gap:0 10px; align-items:baseline; padding:2px 0; }
-  .alrow .k { font-weight:600; } .alrow .k.bad { color:#cf222e; } .alrow .k.ok { color:#1a7f37; }
-  .alrow .h { cursor:pointer; } .alrow .h:hover { color:var(--accent); }
-  .alrow .m { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .alrow .d { text-align:right; color:var(--muted); }
+  .prefs .panel { position:absolute; right:0; top:calc(100% + 4px); z-index:20; display:grid; gap:10px; min-width:260px; padding:12px; background:var(--ground); border:1px solid var(--field); border-radius:2px; }
+  .prefs .panel label { display:flex; justify-content:space-between; align-items:center; gap:12px; color:var(--muted); }
+  .prefs .panel .cols { display:flex; flex-wrap:wrap; gap:6px 14px; }
+  .prefs .panel .cols label { gap:6px; color:var(--ink); }
+  .prefs .panel button { justify-self:start; }
+
+  /* Work areas: the rail (hosts, top values, alerts, patterns) beside the chart and the stream. */
+  .layout { display:grid; grid-template-columns:minmax(0, 1fr); }
+  #rail { border-bottom:1px solid var(--rule); }
+  @media (min-width:1100px) {
+    .layout { grid-template-columns:340px minmax(0, 1fr); grid-template-areas:"rail bar" "rail chart" "rail axis" "rail stream"; grid-template-rows:auto auto auto 1fr; }
+    #rail { grid-area:rail; position:sticky; top:var(--hdr); align-self:start; max-height:calc(100vh - var(--hdr)); overflow:auto; border-bottom:0; border-right:1px solid var(--rule); }
+    #chartbar { grid-area:bar; } #chart { grid-area:chart; } #axis { grid-area:axis; } .stream { grid-area:stream; }
+  }
+  #rail details { border-bottom:1px solid var(--rule); font-size:12.5px; }
+  #rail details:last-child { border-bottom:0; }
+  #rail summary { padding:10px 16px; font-size:13px; font-weight:700; cursor:pointer; list-style:none; }
+  #rail summary::-webkit-details-marker { display:none; }
+  #rail summary::before { content:''; display:inline-block; width:6px; height:6px; margin:0 10px 2px 2px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(-45deg); }
+  #rail details[open] > summary::before { transform:rotate(45deg); }
+  #rail summary span { color:var(--muted); font-weight:400; }
+  #rail .body { padding:0 16px 12px; }
+  .note { color:var(--muted); margin-bottom:6px; }
+
+  #hostsTable { width:100%; border-collapse:collapse; }
+  #hostsTable th { text-align:left; font-size:12px; font-weight:600; color:var(--muted); padding:4px 8px 4px 0; border-bottom:1px solid var(--rule); white-space:nowrap; }
+  #hostsTable th[data-sort] { cursor:pointer; user-select:none; } #hostsTable th[data-sort]:hover { color:var(--accent); }
+  #hostsTable th[aria-sort]::after { content:''; display:inline-block; margin:0 0 2px 5px; border:4px solid transparent; border-top:0; border-bottom:5px solid currentColor; vertical-align:middle; }
+  #hostsTable th[aria-sort=descending]::after { border-bottom:0; border-top:5px solid currentColor; }
+  #hostsTable th.n, #hostsTable td.n { text-align:right; }
+  #hostsTable td { padding:4px 8px 4px 0; border-bottom:1px solid var(--rule); white-space:nowrap; vertical-align:baseline; }
+  #hostsTable td.name { white-space:normal; font-weight:600; }
+  #hostsTable tr.active td.name > [role=button] { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
+  #hostsTable td.zero { color:var(--muted); }
+  #hostsTable td.s3 { color:var(--err); font-weight:700; } #hostsTable td.s4 { color:var(--warn); font-weight:700; }
+  .badge { display:inline-block; margin-left:6px; padding:0 5px; border-radius:2px; background:var(--err); color:var(--ground); font:700 11px/16px var(--sans); }
+  .tag { display:inline-block; margin:2px 4px 0 0; padding:0 5px; border:1px solid var(--field); border-radius:2px; font:400 11px/16px var(--sans); color:var(--muted); }
+
+  .topctl { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-bottom:8px; color:var(--muted); }
+  .topctl label { display:flex; align-items:center; gap:6px; }
+  .topctl select { height:28px; }
+  .toprow { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:2px 10px; align-items:baseline; padding:3px 0; }
+  .toprow .v { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); }
+  .toprow .bar { grid-column:1 / -1; grid-row:2; height:4px; background:var(--notice); min-width:1px; }
+  .toprow .n { text-align:right; color:var(--muted); } .toprow .n b { color:var(--ink); }
+
+  .alrow { display:grid; grid-template-columns:auto auto minmax(0, 1fr) auto; gap:2px 10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--rule); }
+  .alrow:last-child { border-bottom:0; }
+  .alrow > span:first-child { color:var(--muted); white-space:nowrap; }
+  .alrow .k { font-weight:700; white-space:nowrap; } .alrow .k.bad { color:var(--err); } .alrow .k.ok { color:var(--ok); }
+  .alrow .h { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .alrow .m { grid-column:1 / -1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .alrow .d { grid-row:1; grid-column:4; color:var(--muted); white-space:nowrap; }
+
+  .patrow { display:grid; grid-template-columns:auto auto minmax(0, 1fr); gap:2px 10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--rule); }
+  .patrow:last-child { border-bottom:0; }
+  .patrow .n { font-weight:700; }
+  .patrow .p { grid-column:1 / -1; grid-row:2; font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .patrow .m { color:var(--muted); text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .patrow .t { white-space:nowrap; font-weight:600; } .t.up { color:var(--err); } .t.new { color:var(--new); } .t.down { color:var(--ok); } .t.flat { color:var(--muted); }
   #alertList:empty::after { content:'No notifications yet.'; color:var(--muted); }
   #patList:empty::after { content:'No entries in the current results.'; color:var(--muted); }
   #topList:empty::after { content:'No values for this field in the current results.'; color:var(--muted); }
-  #hosts { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
-  #hosts summary { cursor:pointer; padding:6px 0; color:var(--muted); }
-  #hostsTable { width:auto; min-width:min(100%, 520px); margin:0 0 8px; }
-  #hostsTable th { text-align:left; font-weight:600; color:var(--muted); padding:2px 14px 2px 0; border-bottom:1px solid var(--line); }
-  #hostsTable th[data-sort] { cursor:pointer; user-select:none; } #hostsTable th[data-sort]:hover { color:var(--accent); }
-  #hostsTable th[aria-sort]::after { content:' \25B2'; font-size:9px; } #hostsTable th[aria-sort=descending]::after { content:' \25BC'; }
-  #hostsTable th.n, #hostsTable td.n { text-align:right; }
-  #hostsTable td { padding:2px 14px 2px 0; border-bottom:1px solid var(--line); white-space:nowrap; }
-  #hostsTable td.name { cursor:pointer; } #hostsTable td.name:hover { color:var(--accent); }
-  #hostsTable tr.active td.name { font-weight:700; }
-  #hostsTable td.zero { color:var(--muted); opacity:.6; }
-  .badge { background:#d1242f; color:#fff; border-radius:4px; padding:0 5px; margin-left:6px; font:600 11px system-ui, sans-serif; }
-  #morebar { text-align:center; padding:12px; }
-  #empty { padding:24px 16px; color:var(--muted); }
+
+  /* Volume chart. */
+  #chartbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; padding:10px 16px 6px; font-size:12.5px; color:var(--muted); }
+  #chartbar label { display:flex; align-items:center; gap:6px; }
+  #chartbar select { height:28px; }
+  #chartbar .exp { margin-left:auto; display:flex; align-items:center; gap:6px; }
+  #legend { display:flex; flex-wrap:wrap; gap:2px 14px; }
+  .lg { display:inline-flex; align-items:center; gap:6px; }
+  .lg i { width:10px; height:10px; background:currentColor; display:inline-block; }
+  #legend i.s6 { color:var(--chart-info); } #legend i.s7 { color:var(--chart-debug); }
+  .lg b { color:var(--ink); }
+  #chart { display:block; width:calc(100% - 32px); height:72px; margin:0 16px; border-bottom:1px solid var(--ink); touch-action:pan-y; user-select:none; }
+  #axis { position:relative; height:18px; margin:0 16px; font-size:11px; font-weight:700; overflow:hidden; }
+  #axis span { position:absolute; top:2px; padding-left:3px; border-left:1px solid var(--ink); line-height:14px; white-space:nowrap; }
+  #chart rect { fill:currentColor; }
+  #chart .s6 { color:var(--chart-info); } #chart .s7 { color:var(--chart-debug); }
+  #chart .hit { fill:transparent; cursor:zoom-in; } #chart .hit:hover { fill:var(--accent); fill-opacity:.18; }
+  #chart .hit.flat { cursor:default; }
+  #chart .sel { fill:var(--accent); fill-opacity:.3; stroke:var(--accent); stroke-width:1; vector-effect:non-scaling-stroke; pointer-events:none; }
+
+  /* The stream, set like a timetable: the hour once on its band, minutes and seconds on each line. */
+  .stream { min-width:0; padding-top:8px; }
+  #stream { width:100%; border-collapse:collapse; }
+  #stream td { padding:4px 10px; border-bottom:1px solid var(--rule); vertical-align:baseline; }
+  #stream td:first-child { padding-left:16px; }
+  #stream td.ts { width:1%; white-space:nowrap; font-weight:700; }
+  #stream td.ts .hh { color:var(--muted); font-weight:400; }
+  #stream tr.e td.ts { color:var(--err); } #stream tr.e td.ts .hh { color:inherit; }
+  #stream td.sev { width:1%; white-space:nowrap; font-size:12px; font-weight:700; }
+  #stream td.host, #stream td.app { width:1%; max-width:14em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
+  #stream td.host { color:var(--ink); font-weight:600; }
+  #stream td.msg { font:12.5px/1.45 var(--mono); white-space:pre-wrap; word-break:break-word; }
+  #stream tr.band th { position:sticky; top:var(--hdr); z-index:1; padding:8px 10px 6px 16px; background:var(--band); border-bottom:1px solid var(--ink); text-align:left; font-weight:400; }
+  .band .h { font-size:20px; font-weight:700; line-height:1; margin-right:10px; color:var(--band-hour); }
+  .band .d { color:var(--muted); }
+  .band .c { float:right; font-size:12.5px; color:var(--muted); }
+  .band .c .e { color:var(--err); font-weight:700; } .band .c .w { color:var(--warn); font-weight:700; }
+  .sev { font-weight:700; }
+  .s0, .s1, .s2, .s3 { color:var(--err); } .s4 { color:var(--warn); } .s5 { color:var(--notice); } .s6, .s7 { color:var(--muted); }
+  .fields { margin-top:3px; display:flex; flex-wrap:wrap; gap:2px 10px; color:var(--muted); font-size:11.5px; }
+  .fields b { font-weight:600; }
+  .fields .tracebtn { color:var(--accent); font-weight:600; text-decoration:underline; text-underline-offset:3px; }
+  body.compact #stream td { padding-top:1px; padding-bottom:1px; } body.compact #stream { font-size:12px; } body.compact #stream td.msg { font-size:11.5px; line-height:1.3; }
+  body.compact #stream tr.band th { padding-top:4px; padding-bottom:3px; } body.compact .band .h { font-size:16px; }
+  body.nowrap #stream td.msg { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
+  body.hide-ts td.ts, body.hide-sev td.sev, body.hide-host td.host, body.hide-app td.app, body.hide-fields .fields { display:none; }
+
+  tr.ctx > td { padding:8px 16px 12px 32px !important; background:var(--tint); }
+  .ctxhead { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; margin-bottom:6px; color:var(--muted); font:12.5px var(--sans); }
+  .ctxline { display:grid; grid-template-columns:auto 4.5em 9em minmax(0, 1fr); gap:0 10px; padding:1px 0; font:12px/1.45 var(--mono); }
+  .ctxline > span:first-child, .ctxline .app { color:var(--muted); white-space:nowrap; }
+  .ctxline .m { white-space:pre-wrap; word-break:break-word; }
+  .ctxline.cur { background:var(--tint-strong); font-weight:700; }
+
+  #morebar { text-align:center; padding:16px; }
+  #empty { padding:32px 16px; color:var(--muted); font-size:15px; }
+
+  @media (max-width:759px) {
+    header { position:static; }
+    h1 { font-size:18px; }
+    #filtersToggle { display:inline-flex; align-items:center; }
+    header:not(.filters-open) .row2 { display:none; }
+    #status { flex-basis:100%; margin-left:0; }
+    #stream tr.band th { top:0; }
+    #stream tr.entry { display:grid; grid-template-columns:auto auto auto minmax(0, 1fr); column-gap:10px; padding:6px 16px; border-bottom:1px solid var(--rule); }
+    #stream tr.entry td { padding:0 !important; border:0; width:auto; max-width:none; }
+    #stream tr.entry td.msg { grid-column:1 / -1; margin-top:2px; }
+    body.nowrap #stream tr.entry td.msg { max-width:none; }
+    tr.ctx > td { padding:8px 16px 12px !important; }
+    .ctxline { grid-template-columns:auto auto minmax(0, 1fr); }
+    .ctxline .m { grid-column:1 / -1; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>LogPit</h1>
-  <input id="q" type="search" placeholder="Search messages…" autofocus title="Words must all match. Use OR between alternatives, -word or NOT word to exclude, &quot;a phrase&quot; for adjacent words, and prefix* for prefixes. Example: disk error OR timeout -debug">
-  <input id="host" type="search" placeholder="Host" size="12">
-  <input id="app" type="search" placeholder="App" size="12">
-  <select id="tag" hidden title="Only the hosts that have this tag (see [[tags]] in the configuration)"><option value="">All tags</option></select>
-  <input id="f" type="search" placeholder="field:value" size="14" title="Filter on a structured field: act:blocked (exact), status>=500 (also &gt;, &lt;, &lt;=, numbers only), act!=block, src~^10\. (regular expression). The field must be present.">
-  <input id="re" type="search" placeholder="Regex on message" size="14" title="Keep messages matching a regular expression, e.g. timeout|refused or (?i)error [0-9]+. It scans the entries left by the other filters, so narrow the time range first.">
-  <select id="level" title="Minimum severity">
-    <option value="">All levels</option>
-    <option value="3">Error and above</option>
-    <option value="4">Warning and above</option>
-    <option value="6">Info and above</option>
-  </select>
-  <select id="range" title="Time range">
-    <option value="900000">Last 15 min</option>
-    <option value="3600000" selected>Last hour</option>
-    <option value="86400000">Last 24 h</option>
-    <option value="604800000">Last 7 days</option>
-    <option value="">All time</option>
-  </select>
-  <input id="token" type="password" placeholder="Token (if set)" size="12" autocomplete="off">
-  <label title="Stream new entries as they arrive"><input id="live" type="checkbox"> Live</label>
-  <button id="go">Search</button>
-  <select id="views" title="Saved views, shared by everyone who uses this LogPit"><option value="">Views</option></select>
-  <button id="saveView" type="button" title="Save the current search, time range and chart grouping under a name">Save view</button>
-  <button id="delView" type="button" title="Delete the selected view" hidden>Delete</button>
-  <details class="prefs" id="prefs">
-    <summary title="Display preferences, kept in this browser">&#9881;</summary>
-    <div class="panel">
-      <label>Theme <select id="prefTheme"><option value="auto">Follow the system</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
-      <label>Times <select id="prefTime"><option value="local">Local time</option><option value="utc">UTC</option><option value="iso">ISO 8601 (UTC)</option></select></label>
-      <label>Density <select id="prefDensity"><option value="normal">Comfortable</option><option value="compact">Compact</option></select></label>
-      <label>Long messages <select id="prefWrap"><option value="wrap">Wrap</option><option value="nowrap">One line</option></select></label>
-      <div class="cols" title="Columns of the table"><label><input type="checkbox" data-col="ts"> Time</label><label><input type="checkbox" data-col="sev"> Level</label><label><input type="checkbox" data-col="host"> Host</label><label><input type="checkbox" data-col="app"> App</label><label><input type="checkbox" data-col="fields"> Fields</label></div>
-      <button id="prefReset" type="button">Reset</button>
-    </div>
-  </details>
-  <span id="status"></span>
+  <div class="row1">
+    <h1>LogPit</h1>
+    <input id="q" type="search" placeholder="Search messages…" aria-label="Search messages" autofocus title="Words must all match. Use OR between alternatives, -word or NOT word to exclude, &quot;a phrase&quot; for adjacent words, and prefix* for prefixes. Example: disk error OR timeout -debug">
+    <select id="level" title="Minimum severity" aria-label="Minimum severity">
+      <option value="">All levels</option>
+      <option value="3">Error and above</option>
+      <option value="4">Warning and above</option>
+      <option value="6">Info and above</option>
+    </select>
+    <select id="range" title="Time range" aria-label="Time range">
+      <option value="900000">Last 15 min</option>
+      <option value="3600000" selected>Last hour</option>
+      <option value="86400000">Last 24 h</option>
+      <option value="604800000">Last 7 days</option>
+      <option value="">All time</option>
+    </select>
+    <label title="Stream new entries as they arrive"><input id="live" type="checkbox"> Live</label>
+    <button id="go" class="primary">Search</button>
+    <button id="filtersToggle" type="button" aria-expanded="false" aria-controls="filters">Filters<span id="filterCount"></span></button>
+    <span id="status" role="status"></span>
+  </div>
+  <div class="row2" id="filters">
+    <input id="host" type="search" placeholder="Host" aria-label="Host" size="12">
+    <input id="app" type="search" placeholder="App" aria-label="App" size="12">
+    <select id="tag" hidden aria-label="Host tag" title="Only the hosts that have this tag (see [[tags]] in the configuration)"><option value="">All tags</option></select>
+    <input id="f" type="search" placeholder="field:value" aria-label="Field filter" size="14" title="Filter on a structured field: act:blocked (exact), status>=500 (also &gt;, &lt;, &lt;=, numbers only), act!=block, src~^10\. (regular expression). The field must be present.">
+    <input id="re" type="search" placeholder="Regex on message" aria-label="Regular expression on message" size="18" title="Keep messages matching a regular expression, e.g. timeout|refused or (?i)error [0-9]+. It scans the entries left by the other filters, so narrow the time range first.">
+    <span class="sep"></span>
+    <select id="views" aria-label="Saved views" title="Saved views, shared by everyone who uses this LogPit"><option value="">Views</option></select>
+    <button id="saveView" type="button" title="Save the current search, time range and chart grouping under a name">Save view</button>
+    <button id="delView" type="button" title="Delete the selected view" hidden>Delete</button>
+    <label class="tok">Token <input id="token" type="password" placeholder="if set" size="12" autocomplete="off"></label>
+    <details class="prefs" id="prefs">
+      <summary title="Display preferences, kept in this browser"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="4" r="2" fill="currentColor"/><circle cx="11" cy="8" r="2" fill="currentColor"/><circle cx="7" cy="12" r="2" fill="currentColor"/></svg>Display</summary>
+      <div class="panel">
+        <label>Theme <select id="prefTheme"><option value="auto">Follow the system</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <label>Times <select id="prefTime"><option value="local">Local time</option><option value="utc">UTC</option><option value="iso">ISO 8601 (UTC)</option></select></label>
+        <label>Density <select id="prefDensity"><option value="normal">Comfortable</option><option value="compact">Compact</option></select></label>
+        <label>Long messages <select id="prefWrap"><option value="wrap">Wrap</option><option value="nowrap">One line</option></select></label>
+        <div class="cols" title="Columns of the table"><label><input type="checkbox" data-col="ts"> Time</label><label><input type="checkbox" data-col="sev"> Level</label><label><input type="checkbox" data-col="host"> Host</label><label><input type="checkbox" data-col="app"> App</label><label><input type="checkbox" data-col="fields"> Fields</label></div>
+        <button id="prefReset" type="button" class="small">Reset</button>
+      </div>
+    </details>
+  </div>
 </header>
+<div class="layout">
 <div id="chartbar" hidden>
   <label>Stack by
     <select id="group"><option value="severity">severity</option><option value="host">host</option><option value="app">app</option></select>
   </label>
   <div id="legend"></div>
   <span class="exp">Export
-    <button id="expNdjson" type="button" title="Download the matching entries as NDJSON (up to 100,000)">NDJSON</button>
-    <button id="expCsv" type="button" title="Download the matching entries as CSV (up to 100,000)">CSV</button>
+    <button id="expNdjson" type="button" class="small" title="Download the matching entries as NDJSON (up to 100,000)">NDJSON</button>
+    <button id="expCsv" type="button" class="small" title="Download the matching entries as CSV (up to 100,000)">CSV</button>
   </span>
 </div>
-<svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" hidden></svg>
+<svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" role="img" aria-label="Volume over time" hidden></svg>
+<div id="axis" aria-hidden="true" hidden></div>
+<aside id="rail" aria-label="Hosts and analysis">
 <details id="hosts">
   <summary>Hosts <span id="hostsCount"></span></summary>
+  <div class="body">
   <table id="hostsTable">
-    <thead><tr><th data-sort="host">Host</th><th>Tags</th><th class="n" data-sort="count">Entries</th><th class="n" data-sort="errors">Errors</th><th class="n" data-sort="warnings">Warnings</th><th data-sort="last_ts">Last seen</th></tr></thead>
+    <thead><tr><th data-sort="host">Host</th><th class="n" data-sort="count">Entries</th><th class="n" data-sort="errors" title="Errors">Err</th><th class="n" data-sort="warnings" title="Warnings">Warn</th><th data-sort="last_ts">Seen</th></tr></thead>
     <tbody id="hostsBody"></tbody>
   </table>
+  </div>
 </details>
 <details id="top">
   <summary>Top values <span id="topMeta"></span></summary>
+  <div class="body">
   <div class="topctl"><label>Field <select id="topField"></select></label><span id="topNote"></span></div>
   <div id="topList"></div>
-</details>
-<details id="alerts">
-  <summary>Alerts <span id="alertsMeta"></span></summary>
-  <div id="alertList"></div>
+  </div>
 </details>
 <details id="patterns">
   <summary>Message patterns <span id="patMeta"></span></summary>
-  <div id="patNote" style="color:var(--muted); margin-bottom:4px;"></div>
+  <div class="body">
+  <div id="patNote" class="note"></div>
   <div id="patList"></div>
+  </div>
 </details>
-<table><tbody id="rows"></tbody></table>
+<details id="alerts">
+  <summary>Alerts <span id="alertsMeta"></span></summary>
+  <div class="body"><div id="alertList"></div></div>
+</details>
+</aside>
+<main class="stream">
+<table id="stream"><tbody id="rows"></tbody></table>
 <div id="morebar" hidden><button id="more" type="button">Load more</button></div>
 <div id="empty" hidden></div>
+</main>
+</div>
 <script>
 const $ = id => document.getElementById(id);
 const LEVELS = ['emerg','alert','crit','err','warn','notice','info','debug'];
 try { $('token').value = localStorage.getItem('logpit-token') || ''; } catch {}
 
-// Log lines in the table; expanded context panels are rows too, but not entries.
-function entryCount() { return $('rows').querySelectorAll('tr:not(.ctx)').length; }
-
 function td(cls, text) { const c = document.createElement('td'); c.className = cls; c.textContent = text; return c; }
+
+// Something to click that is not a button element still answers to the keyboard.
+function clickable(el, fn, title) {
+  el.tabIndex = 0;
+  el.setAttribute('role', 'button');
+  if (title) el.title = title;
+  el.onclick = fn;
+  el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } };
+  return el;
+}
 
 // Message cell: the message plus its structured fields (click a field to filter on it).
 function msgCell(r, tr) {
@@ -205,16 +337,14 @@ function msgCell(r, tr) {
       const b = document.createElement('b');
       b.textContent = k + '=';
       s.append(b, document.createTextNode(r.fields[k]));
-      s.title = 'Filter on ' + k + ':' + r.fields[k];
-      s.onclick = () => { $('f').value = k + ':' + r.fields[k]; load(); };
+      clickable(s, () => { $('f').value = k + ':' + r.fields[k]; load(); }, 'Filter on ' + k + ':' + r.fields[k]);
       box.append(s);
       // A trace id also opens the whole trace, across hosts, under the line.
       if (k === 'trace_id' && tr) {
         const t = document.createElement('span');
         t.className = 'tracebtn';
-        t.textContent = '⇢ trace';
-        t.title = 'Show every entry of this trace';
-        t.onclick = () => togglePanel(tr, 'trace', box => fillTrace(box, r));
+        t.textContent = 'trace';
+        clickable(t, () => togglePanel(tr, 'trace', box => fillTrace(box, r)), 'Show every entry of this trace');
         box.append(t);
       }
     }
@@ -246,14 +376,14 @@ async function fillContext(box, row, opts) {
     const title = document.createElement('span');
     title.textContent = 'Around this entry, oldest first (' + (opts.scope === 'host' ? 'host ' + row.host : 'all hosts') + ')';
     const more = document.createElement('button');
-    more.type = 'button'; more.textContent = '+' + CONTEXT_STEP + ' lines';
+    more.type = 'button'; more.className = 'small'; more.textContent = '+' + CONTEXT_STEP + ' lines';
     more.disabled = opts.lines >= 100;
     more.onclick = () => fillContext(box, row, { ...opts, lines: Math.min(100, opts.lines + CONTEXT_STEP) });
     const scope = document.createElement('button');
-    scope.type = 'button'; scope.textContent = opts.scope === 'host' ? 'all hosts' : 'this host only';
+    scope.type = 'button'; scope.className = 'small'; scope.textContent = opts.scope === 'host' ? 'all hosts' : 'this host only';
     scope.onclick = () => fillContext(box, row, { ...opts, scope: opts.scope === 'host' ? 'all' : 'host' });
     const close = document.createElement('button');
-    close.type = 'button'; close.textContent = 'close';
+    close.type = 'button'; close.className = 'small'; close.textContent = 'close';
     close.onclick = () => box.closest('tr').remove();
     head.append(title, more, scope, close);
 
@@ -310,10 +440,10 @@ async function fillTrace(box, row) {
     title.textContent = 'Trace ' + id + ': ' + rows.length + (rows.length === TRACE_LIMIT ? '+' : '') + ' entries on ' +
       hosts.size + ' host' + (hosts.size === 1 ? '' : 's') + ' over ' + span + ' ms, oldest first';
     const only = document.createElement('button');
-    only.type = 'button'; only.textContent = 'search it';
+    only.type = 'button'; only.className = 'small'; only.textContent = 'search it';
     only.onclick = () => { $('f').value = 'trace_id:' + id; load(); };
     const close = document.createElement('button');
-    close.type = 'button'; close.textContent = 'close';
+    close.type = 'button'; close.className = 'small'; close.textContent = 'close';
     close.onclick = () => box.closest('tr').remove();
     head.append(title, only, close);
 
@@ -374,19 +504,85 @@ $('prefReset').onclick = () => { const t = prefs.time; prefs = { ...PREF_DEFAULT
 document.addEventListener('click', e => { if (!$('prefs').contains(e.target)) $('prefs').open = false; });
 applyPrefs();
 
+// The stream is set like a timetable: a band states the hour once (in the chosen time zone) with
+// its counts, and each line leads with its minutes and seconds.
+function hourOf(ms) {
+  const d = new Date(ms), utc = prefs.time !== 'local';
+  const h = utc ? d.getUTCHours() : d.getHours();
+  const key = utc ? d.toISOString().slice(0, 13) : d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() + '-' + h;
+  return { d, utc, h, key };
+}
+function bandEl(ms) {
+  const { d, utc, h, key } = hourOf(ms);
+  const tr = document.createElement('tr');
+  tr.className = 'band';
+  Object.assign(tr, { _key: key, _n: 0, _e: 0, _w: 0 });
+  const th = document.createElement('th');
+  th.colSpan = 5; th.scope = 'colgroup';
+  const hh = document.createElement('span'); hh.className = 'h'; hh.textContent = String(h).padStart(2, '0') + ':00';
+  const day = document.createElement('span'); day.className = 'd';
+  day.textContent = prefs.time === 'iso' ? d.toISOString().slice(0, 10) + ' UTC'
+    : d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', ...(utc ? { timeZone: 'UTC' } : {}) }) + (utc ? ' UTC' : '');
+  tr._c = document.createElement('span'); tr._c.className = 'c';
+  th.append(hh, day, tr._c);
+  tr.append(th);
+  return tr;
+}
+function countInBand(band, r, k) {
+  band._n += k;
+  if (r.severity <= 3) band._e += k; else if (r.severity === 4) band._w += k;
+  const parts = [document.createTextNode(band._n.toLocaleString() + (band._n === 1 ? ' entry' : ' entries'))];
+  const add = (n, cls, word) => { if (!n) return; const s = document.createElement('span'); s.className = cls; s.textContent = n.toLocaleString() + ' ' + word; parts.push(document.createTextNode(' · '), s); };
+  add(band._e, 'e', band._e === 1 ? 'error' : 'errors');
+  add(band._w, 'w', band._w === 1 ? 'warning' : 'warnings');
+  band._c.replaceChildren(...parts);
+}
+
 function rowEl(r) {
   const tr = document.createElement('tr');
-  const ts = td('ts', fmtTime(r.ts));
+  tr.className = 'entry' + (r.severity <= 3 ? ' e' : '');
+  tr._r = r;
+  const { d, utc } = hourOf(r.ts);
+  const two = n => String(n).padStart(2, '0');
+  const hh = document.createElement('span'); hh.className = 'hh';
+  hh.textContent = two(utc ? d.getUTCHours() : d.getHours()) + ':';
+  const ms = document.createTextNode(two(utc ? d.getUTCMinutes() : d.getMinutes()) + ':' + two(utc ? d.getUTCSeconds() : d.getSeconds()));
+  const ts = td('ts', '');
   if (r.id !== undefined) {
-    ts.classList.add('ctxable');
-    ts.title = 'Show the entries around this one';
-    ts.onclick = () => toggleContext(tr, r);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'link';
+    b.title = fmtTime(r.ts) + ' · show the entries around this one';
+    b.onclick = () => toggleContext(tr, r);
+    b.append(hh, ms);
+    ts.append(b);
+  } else {
+    ts.title = fmtTime(r.ts);
+    ts.append(hh, ms);
   }
   tr.append(
     ts,
     td('sev s' + r.severity, LEVELS[r.severity] || r.severity),
     td('host', r.host), td('app', r.app), msgCell(r, tr));
   return tr;
+}
+
+// Entries shown, and the first and last hour bands, so pages and live lines join the right band.
+let entries = 0, firstBand = null, lastBand = null;
+function addRows(rows, append) {
+  const frag = document.createDocumentFragment();
+  if (!append) { entries = 0; firstBand = lastBand = null; }
+  let band = lastBand;
+  for (const r of rows) {
+    const key = hourOf(r.ts).key;
+    if (!band || band._key !== key) { band = bandEl(r.ts); frag.append(band); firstBand = firstBand || band; }
+    const tr = rowEl(r);
+    tr._band = band;
+    frag.append(tr);
+    countInBand(band, r, 1);
+  }
+  lastBand = band;
+  entries += rows.length;
+  if (append) $('rows').append(frag); else $('rows').replaceChildren(frag);
 }
 
 function authHeaders() {
@@ -404,6 +600,9 @@ const CHART_REFRESH_MS = 5000;
 function stopTail() {
   if (tailCtl) tailCtl.abort();
   tailCtl = null;
+  clearTimeout(liveTimer);
+  liveTimer = 0;
+  liveQueue = [];
   clearInterval(chartTimer);
   chartTimer = null;
 }
@@ -423,11 +622,44 @@ function handleEvent(raw) {
   }
   if (name === 'lagged') { $('status').textContent = 'live: skipped ' + data + ' entries'; return; }
   if (!data) return;
-  const body = $('rows');
-  body.prepend(rowEl(JSON.parse(data)));
-  while (entryCount() > MAX_LIVE_ROWS) body.lastElementChild.remove();
+  liveQueue.push(JSON.parse(data));
+  if (!liveTimer) liveTimer = setTimeout(flushLive, LIVE_BATCH_MS);
+}
+
+// Live lines are inserted in batches, so a burst costs one DOM update instead of one per line.
+let liveQueue = [], liveTimer = 0;
+const LIVE_BATCH_MS = 100;
+function flushLive() {
+  liveTimer = 0;
+  const body = $('rows'), batch = liveQueue;
+  liveQueue = [];
+  for (const r of batch) {
+    let band = firstBand;
+    if (!band || band._key !== hourOf(r.ts).key) {
+      band = bandEl(r.ts);
+      body.prepend(band);
+      firstBand = band;
+      lastBand = lastBand || band;
+    }
+    const tr = rowEl(r);
+    tr._band = band;
+    band.after(tr);
+    countInBand(band, r, 1);
+    entries++;
+  }
+  // Drop the oldest lines beyond the cap, with their context panels and emptied bands.
+  while (entries > MAX_LIVE_ROWS) {
+    const el = body.lastElementChild;
+    if (el._r) { entries--; countInBand(el._band, el._r, -1); }
+    el.remove();
+  }
+  while (body.lastElementChild && !body.lastElementChild._r && body.lastElementChild.classList.contains('band')) body.lastElementChild.remove();
+  let last = body.lastElementChild;
+  while (last && !last._band) last = last.previousElementSibling;
+  lastBand = last ? last._band : null;
+  if (!lastBand) firstBand = null;
   $('empty').hidden = true;
-  $('status').textContent = 'live · ' + entryCount() + ' entries';
+  $('status').textContent = 'live · ' + entries + ' entries';
 }
 
 async function startTail() {
@@ -559,7 +791,7 @@ async function loadChart() {
   const chart = $('chart'), bar = $('chartbar'), group = $('group').value;
   const p = chartParams();
   p.set('group_by', group);
-  const hide = () => { chart.hidden = true; bar.hidden = true; };
+  const hide = () => { chart.toggleAttribute('hidden', true); bar.hidden = true; $('axis').hidden = true; }; // an SVG element has no hidden property
   try {
     const res = await fetch('/api/stats?' + p, { headers: authHeaders() });
     if (!res.ok) { hide(); return; }
@@ -606,7 +838,8 @@ async function loadChart() {
     chartGeo = { bucket_ms: d.bucket_ms, buckets: d.buckets };
     chart.setAttribute('viewBox', '0 0 ' + Math.max(1, d.buckets.length) + ' 100');
     chart.replaceChildren(...bars, ...hits);
-    chart.hidden = false;
+    chart.toggleAttribute('hidden', false);
+    drawAxis(d);
 
     const items = keys.map((k, ki) => {
       const el = document.createElement('span');
@@ -620,14 +853,43 @@ async function loadChart() {
       el.append(sw, name, n);
       if ((group === 'host' || group === 'app') && k && k !== 'other') {
         el.dataset.key = k;
-        el.title = 'Filter on ' + group + ' ' + k;
-        el.onclick = () => { $(group).value = k; load(); };
+        clickable(el, () => { $(group).value = k; load(); }, 'Filter on ' + group + ' ' + k);
       }
       return el;
     });
     $('legend').replaceChildren(...items);
+    const total = Object.values(totals).reduce((a, b) => a + b, 0);
+    const peak = d.buckets.reduce((a, b) => (b.total > (a ? a.total : -1) ? b : a), null);
+    chart.setAttribute('aria-label', 'Volume over time: ' + total.toLocaleString() + ' entries in ' + d.buckets.length + ' buckets' +
+      (peak && peak.total ? ', peak of ' + peak.total.toLocaleString() + ' at ' + fmtTime(peak.ts) : ''));
     bar.hidden = false;
   } catch { hide(); }
+}
+
+// Hour graduation under the chart, in the stream's time zone so it lines up with the hour bands.
+// Over a long window the hours thin out to every few hours, then to days.
+function drawAxis(d) {
+  const n = d.buckets.length, marks = [];
+  let prev = null;
+  d.buckets.forEach((b, i) => {
+    const { d: t, utc, h, key } = hourOf(b.ts);
+    if (prev !== null && key !== prev) marks.push({ i, h, day: utc ? t.getUTCDate() : t.getDate(), t, utc });
+    prev = key;
+  });
+  // As many labels as fit (about 56px each), none hugging the right edge.
+  const room = Math.max(2, Math.floor($('chart').getBoundingClientRect().width / 56));
+  const days = marks.length / 12 > room;
+  let list = (days ? marks.filter(m => m.h === 0) : marks).filter(m => m.i / n < 0.95);
+  const step = (days ? [1, 2, 7] : [1, 2, 3, 6, 12, 24]).find(s => list.length / s <= room) || 14;
+  list = days ? list.filter((m, k) => k % step === 0) : list.filter(m => m.h % step === 0);
+  $('axis').replaceChildren(...list.map(m => {
+    const s = document.createElement('span');
+    s.style.left = (100 * m.i / n) + '%';
+    s.textContent = days ? m.t.toLocaleDateString([], { weekday: 'short', day: 'numeric', ...(m.utc ? { timeZone: 'UTC' } : {}) })
+      : String(m.h).padStart(2, '0') + ':00';
+    return s;
+  }));
+  $('axis').hidden = false;
 }
 
 // Download the entries of the last search (its filters and time window) through /api/export.
@@ -668,7 +930,9 @@ $('expCsv').onclick = () => exportLogs('csv');
 // Top values of one field among the current results (a field chosen from what the results carry).
 const TOP_BUILTIN = ['host', 'app', 'severity'];
 let topReq = 0;
-try { $('top').open = localStorage.getItem('logpit-top-open') === '1'; } catch {}
+// On phones the rail sits above the stream, so its panels start folded whatever was remembered.
+const NARROW = matchMedia('(max-width: 759px)').matches;
+try { $('top').open = !NARROW && localStorage.getItem('logpit-top-open') === '1'; } catch {}
 $('top').addEventListener('toggle', () => {
   try { localStorage.setItem('logpit-top-open', $('top').open ? '1' : '0'); } catch {}
   loadTop();
@@ -734,8 +998,8 @@ async function loadTop() {
       const row = document.createElement('div');
       row.className = 'toprow';
       const val = document.createElement('span');
-      val.className = 'v'; val.textContent = v.value; val.title = 'Filter on ' + wanted + ' = ' + v.value;
-      val.onclick = () => filterOnTop(wanted, v.value);
+      val.className = 'v'; val.textContent = v.value;
+      clickable(val, () => filterOnTop(wanted, v.value), 'Filter on ' + wanted + ' = ' + v.value);
       const bar = document.createElement('div');
       bar.className = 'bar'; bar.style.width = (100 * v.count / max) + '%';
       const n = document.createElement('span');
@@ -750,8 +1014,8 @@ async function loadTop() {
       more.className = 'toprow';
       const t = document.createElement('span'); t.className = 'v'; t.style.cursor = 'default'; t.style.color = 'var(--muted)';
       t.textContent = 'other (' + (d.distinct - d.values.length).toLocaleString() + ' values)';
-      const n = document.createElement('span'); n.className = 'n'; n.style.gridColumn = '3'; n.textContent = d.other.toLocaleString();
-      more.append(t, document.createElement('span'), n);
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = d.other.toLocaleString();
+      more.append(t, n);
       $('topList').append(more);
     }
   } catch {}
@@ -760,7 +1024,7 @@ async function loadTop() {
 // The notifications LogPit raised (silence, pattern, new-pattern and volume alerts), newest first, whether
 // or not the webhook took them. They do not depend on the search filters.
 let alertReq = 0;
-try { $('alerts').open = localStorage.getItem('logpit-alerts-open') === '1'; } catch {}
+try { $('alerts').open = !NARROW && localStorage.getItem('logpit-alerts-open') === '1'; } catch {}
 $('alerts').addEventListener('toggle', () => {
   try { localStorage.setItem('logpit-alerts-open', $('alerts').open ? '1' : '0'); } catch {}
   loadAlerts();
@@ -785,7 +1049,7 @@ async function loadAlerts() {
       const host = document.createElement('span');
       host.className = a.host ? 'h' : '';
       host.textContent = a.host || '';
-      if (a.host) { host.title = 'Filter on host ' + a.host; host.onclick = () => { $('host').value = a.host; load(); }; }
+      if (a.host) clickable(host, () => { $('host').value = a.host; load(); }, 'Filter on host ' + a.host);
       const msg = document.createElement('span');
       msg.className = 'm'; msg.textContent = a.message; msg.title = a.message;
       const sent = document.createElement('span');
@@ -801,16 +1065,16 @@ async function loadAlerts() {
 // Message patterns of the current results: messages that differ only by numbers are counted together.
 // The trend compares the second half of the window with the first one.
 let patReq = 0;
-try { $('patterns').open = localStorage.getItem('logpit-patterns-open') === '1'; } catch {}
+try { $('patterns').open = !NARROW && localStorage.getItem('logpit-patterns-open') === '1'; } catch {}
 $('patterns').addEventListener('toggle', () => {
   try { localStorage.setItem('logpit-patterns-open', $('patterns').open ? '1' : '0'); } catch {}
   loadPatterns();
 });
 function trendOf(prev, recent) {
-  if (prev === 0) return recent > 0 ? { cls: 'up', text: '▲ new' } : { cls: 'flat', text: '' };
+  if (prev === 0) return recent > 0 ? { cls: 'new', text: 'new' } : { cls: 'flat', text: '' };
   const pct = Math.round(100 * (recent - prev) / prev);
-  if (Math.abs(recent - prev) < 3 || Math.abs(pct) < 25) return { cls: 'flat', text: '≈ ' + (pct > 0 ? '+' : '') + pct + '%' };
-  return pct > 0 ? { cls: 'up', text: '▲ +' + pct + '%' } : { cls: 'down', text: '▼ ' + pct + '%' };
+  if (Math.abs(recent - prev) < 3 || Math.abs(pct) < 25) return { cls: 'flat', text: (pct > 0 ? '+' : '') + pct + '%' };
+  return pct > 0 ? { cls: 'up', text: '+' + pct + '%' } : { cls: 'down', text: '−' + -pct + '%' };
 }
 async function loadPatterns() {
   if (!snap || !$('patterns').open) return;
@@ -832,10 +1096,10 @@ async function loadPatterns() {
       const tr = trendOf(x.previous, x.recent);
       const t = document.createElement('span'); t.className = 't ' + tr.cls; t.textContent = tr.text;
       const pat = document.createElement('span');
-      pat.className = 'p' + (x.search ? ' link' : '');
+      pat.className = 'p';
       pat.textContent = x.pattern || '(empty)';
       pat.title = x.example.message.slice(0, 300) + (x.search ? '\n\nClick to search: ' + x.search : '');
-      if (x.search) pat.onclick = () => { $('q').value = x.search; load(); };
+      if (x.search) clickable(pat, () => { $('q').value = x.search; load(); });
       const m = document.createElement('span'); m.className = 'm';
       m.textContent = x.severity + ' · ' + x.hosts + (x.hosts >= 100 ? '+' : '') + ' host' + (x.hosts === 1 ? '' : 's') + ' · ' + ago(x.last_ts);
       row.append(n, t, pat, m);
@@ -899,9 +1163,10 @@ function renderHosts() {
   $('hostsBody').replaceChildren(...hostRows.map(h => {
     const tr = document.createElement('tr');
     if (snap && h.host === snap.host) tr.className = 'active';
-    const name = td('name', h.host);
-    name.title = 'Filter on host ' + h.host;
-    name.onclick = () => { $('host').value = h.host; load(); };
+    const name = td('name', '');
+    const label = document.createElement('span');
+    label.textContent = h.host;
+    name.append(clickable(label, () => { $('host').value = h.host; load(); }, 'Filter on host ' + h.host));
     if (h.silent) {
       const b = document.createElement('span');
       b.className = 'badge';
@@ -912,17 +1177,18 @@ function renderHosts() {
     const num = (v, cls) => td('n' + (v ? (cls ? ' ' + cls : '') : ' zero'), v.toLocaleString());
     const seen = td('', ago(h.last_ts));
     seen.title = new Date(h.last_ts).toLocaleString();
-    const tagCell = td('', '');
-    for (const t of h.tags || []) {
-      const b = document.createElement('span');
-      b.className = 'badge';
-      b.textContent = t;
-      b.style.cursor = 'pointer';
-      b.title = 'Filter on tag ' + t;
-      b.onclick = () => { $('tag').value = t; load(); };
-      tagCell.append(b, ' ');
+    // Tags sit under the host name, so the rail keeps to five narrow columns.
+    if ((h.tags || []).length) {
+      const tags = document.createElement('div');
+      for (const t of h.tags) {
+        const b = document.createElement('span');
+        b.className = 'tag';
+        b.textContent = t;
+        tags.append(clickable(b, () => { $('tag').value = t; load(); }, 'Filter on tag ' + t));
+      }
+      name.append(tags);
     }
-    tr.append(name, tagCell, num(h.count), num(h.errors, 's3'), num(h.warnings, 's4'), seen);
+    tr.append(name, num(h.count), num(h.errors, 's3'), num(h.warnings, 's4'), seen);
     return tr;
   }));
 }
@@ -946,7 +1212,7 @@ async function loadHosts() {
   } catch {}
 }
 markSort();
-try { $('hosts').open = localStorage.getItem('logpit-hosts-open') === '1'; } catch {}
+try { $('hosts').open = !NARROW && localStorage.getItem('logpit-hosts-open') === '1'; } catch {}
 $('hosts').addEventListener('toggle', () => {
   try { localStorage.setItem('logpit-hosts-open', $('hosts').open ? '1' : '0'); } catch {}
   loadHosts();
@@ -1092,11 +1358,10 @@ async function loadMore() {
   try {
     const res = await fetch('/api/logs?' + p, { headers: authHeaders() });
     if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
-    const rows = await res.json();
-    $('rows').append(...rows.map(rowEl));
+    addRows(await res.json(), true);
     nextCursor = res.headers.get('X-Next-Cursor');
     $('morebar').hidden = !nextCursor;
-    $('status').textContent = entryCount() + ' entries' + (nextCursor ? ' (more available)' : '');
+    $('status').textContent = entries + ' entries' + (nextCursor ? ' (more available)' : '');
   } catch (e) { $('status').textContent = String(e.message || e); }
   finally { $('more').disabled = false; }
 }
@@ -1109,6 +1374,7 @@ async function load() {
   $('morebar').hidden = true;
   if (snap.range === 'custom') $('live').checked = false;
   syncUrl();
+  markFilters();
   const p = new URLSearchParams({ limit: String(PAGE_SIZE) });
   for (const k of SNAP_KEYS) if ($(k).value.trim()) p.set(k, $(k).value.trim());
   applyWindow(p, snap);
@@ -1118,25 +1384,26 @@ async function load() {
   try {
     const res = await fetch('/api/logs?' + p, { headers });
     if (res.status === 401) {
-      $('rows').replaceChildren();
+      addRows([], false);
       $('empty').textContent = token ? 'Invalid token. Check the Token field above.' : 'This LogPit requires a token. Enter it in the Token field above, then press Search.';
       $('empty').hidden = false;
       $('status').textContent = 'unauthorized';
+      showFilters(true);
       $('token').focus();
       return;
     }
     if (res.status === 403) {
-      $('rows').replaceChildren();
+      addRows([], false);
       $('empty').textContent = 'This token is not allowed to read logs (it has no read scope). Enter a token with read access.';
       $('empty').hidden = false;
       $('status').textContent = 'forbidden';
+      showFilters(true);
       $('token').focus();
       return;
     }
     if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
     const rows = await res.json();
-    const body = $('rows');
-    body.replaceChildren(...rows.map(rowEl));
+    addRows(rows, false);
     $('empty').textContent = 'No matching entries.';
     $('empty').hidden = rows.length > 0;
     pageParams = p.toString();
@@ -1181,6 +1448,27 @@ async function loadTagOptions() {
   } catch {}
 }
 $('range').onchange = () => { if ($('range').value !== 'custom') leaveZoom(); load(); };
+
+// On phones the secondary filters fold behind a toggle that counts the active ones.
+function showFilters(open) {
+  document.querySelector('header').classList.toggle('filters-open', open);
+  $('filtersToggle').setAttribute('aria-expanded', String(open));
+}
+$('filtersToggle').onclick = () => showFilters(!document.querySelector('header').classList.contains('filters-open'));
+function markFilters() {
+  const n = ['host', 'app', 'tag', 'f', 're'].filter(k => $(k).value.trim()).length;
+  $('filterCount').textContent = n ? ' · ' + n : '';
+}
+
+// The sticky header's height, so the rail and the hour bands stick right under it (none on phones,
+// where the header scrolls away).
+(function () {
+  const header = document.querySelector('header');
+  const set = () => document.documentElement.style.setProperty('--hdr',
+    (getComputedStyle(header).position === 'sticky' ? header.offsetHeight : 0) + 'px');
+  new ResizeObserver(set).observe(header);
+  window.addEventListener('resize', set);
+})();
 $('live').onchange = () => { if ($('live').checked) load(); else { stopTail(); load(); } };
 syncPrefControls();
 applyUrl();
