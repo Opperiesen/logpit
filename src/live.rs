@@ -13,6 +13,7 @@ use tokio_rustls::TlsAcceptor;
 use crate::alerts::AlertRules;
 use crate::auth::Auth;
 use crate::config::Config;
+use crate::logmetrics::LogMetrics;
 use crate::ratelimit::RateLimiter;
 use crate::rules::Rules;
 use crate::silence;
@@ -79,6 +80,8 @@ impl SilenceSettings {
 pub struct LiveSettings {
     pub rules: Reloadable<Rules>,
     pub alerts: Reloadable<AlertRules>,
+    /// Counters derived from the logs.
+    pub metrics: Reloadable<LogMetrics>,
     pub limiter: Reloadable<RateLimiter>,
     pub structured: AtomicBool,
     pub auth: Reloadable<Auth>,
@@ -115,6 +118,7 @@ impl LiveSettings {
         Ok(Self {
             rules: Reloadable::new(Rules::from_config(&cfg.ingest.rules)?),
             alerts: Reloadable::new(AlertRules::from_config(&cfg.alerts)?),
+            metrics: Reloadable::new(LogMetrics::from_config(&cfg.metrics)?),
             limiter: Reloadable::new(RateLimiter::new(&cfg.ingest.rate_limit)),
             structured: AtomicBool::new(cfg.ingest.parse_structured),
             auth: Reloadable::new(cfg.auth()),
@@ -177,6 +181,9 @@ impl LiveSettings {
         let alerts = (old.alerts != new.alerts)
             .then(|| AlertRules::from_config(&new.alerts).map(Arc::new))
             .transpose()?;
+        let metrics = (old.metrics != new.metrics)
+            .then(|| LogMetrics::from_config(&new.metrics).map(Arc::new))
+            .transpose()?;
         let limiter = (old.ingest.rate_limit != new.ingest.rate_limit)
             .then(|| Arc::new(RateLimiter::new(&new.ingest.rate_limit)));
         let silence = (old.silence != new.silence)
@@ -198,6 +205,10 @@ impl LiveSettings {
         if let Some(alerts) = alerts {
             self.alerts.set(alerts);
             report.applied.push("alerts");
+        }
+        if let Some(metrics) = metrics {
+            self.metrics.set(metrics);
+            report.applied.push("log metrics");
         }
         if let Some(limiter) = limiter {
             self.limiter.set(limiter);
@@ -341,6 +352,50 @@ mod tests {
             ..Default::default()
         };
         assert!(live.watch.observe(&other, now + 2).is_empty());
+    }
+
+    #[test]
+    fn log_metrics_reload_when_changed_and_are_kept_otherwise() {
+        let old = cfg("[[metrics]]\nname = \"errors\"\nseverity = [\"err\"]");
+        let live = LiveSettings::from_config(&old).unwrap();
+        let e = crate::model::LogEntry {
+            severity: 3,
+            message: "boom".into(),
+            ..Default::default()
+        };
+        live.metrics.get().observe(&e);
+        assert!(
+            live.metrics
+                .get()
+                .render()
+                .contains("logpit_log_errors_total 1")
+        );
+        // An unrelated change keeps the counters.
+        let same = cfg(
+            "[[metrics]]\nname = \"errors\"\nseverity = [\"err\"]\n[ingest.rate_limit]\nper_host_per_sec = 10",
+        );
+        let report = live.reload(&old, &same).unwrap();
+        assert!(!report.applied.contains(&"log metrics"));
+        assert!(
+            live.metrics
+                .get()
+                .render()
+                .contains("logpit_log_errors_total 1")
+        );
+        // A changed rule list starts from zero.
+        let changed = cfg("[[metrics]]\nname = \"errors\"\nseverity = [\"err\", \"crit\"]");
+        let report = live.reload(&same, &changed).unwrap();
+        assert!(report.applied.contains(&"log metrics"));
+        assert!(
+            live.metrics
+                .get()
+                .render()
+                .contains("logpit_log_errors_total 0")
+        );
+        // A bad rule fails the reload and changes nothing.
+        let mut bad = changed.clone();
+        bad.metrics[0].name = "Bad".into();
+        assert!(live.reload(&changed, &bad).is_err());
     }
 
     #[test]

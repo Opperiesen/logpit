@@ -66,6 +66,14 @@ parse_structured = true      # extract JSON objects and key=value pairs from mes
 # pattern = '(password|token)=\S+'
 # replace = "$1=[hidden]"
 
+# Metrics from logs: Prometheus counters on /metrics (logpit_log_<name>_total).
+# [[metrics]]
+# name = "ssh_failures"
+# pattern = "Failed password"
+# labels = ["host", "level"]     # host, app, level or a structured field; each combination is a series
+# value_field = "bytes"          # optional: also sum a numeric field (logpit_log_<name>_value_sum)
+# max_series = 200
+
 # New-pattern alerts: notify through the [silence] webhook when a message template never seen
 # before appears (numbers and ids are masked), and optionally when a known one surges.
 # [new_patterns]

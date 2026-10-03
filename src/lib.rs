@@ -14,6 +14,7 @@ pub mod health;
 pub mod inflate;
 pub mod ingest;
 pub mod live;
+pub mod logmetrics;
 pub mod logql;
 pub mod loki;
 pub mod lokiapi;

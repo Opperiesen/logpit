@@ -34,7 +34,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **New-pattern alerts**: get notified when a message pattern never seen before appears, or a known one
   suddenly surges.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
-- **Observability**: Prometheus metrics at `/metrics`, health at `/healthz`.
+- **Observability**: Prometheus metrics at `/metrics`, health at `/healthz`, and counters derived from the
+  logs themselves (`[[metrics]]`).
 
 ## Quick start
 
@@ -864,6 +865,52 @@ surge_window_secs = 60         # ...of this length, and 8x the template's usual 
   `logpit_pattern_alerts_suppressed_total` and `logpit_known_patterns`. It uses the webhook of
   `[silence]` (see [Alert webhook](#alert-webhook)); without one, notifications go to the log only.
 
+## Metrics from logs
+
+`[[metrics]]` rules turn log lines into Prometheus counters on `/metrics`, to graph and alert on things
+that exist only as text (failed logins, 5xx responses, backup runs) with the tools you already have:
+
+```toml
+[[metrics]]
+name = "ssh_failures"                  # exposes logpit_log_ssh_failures_total
+help = "Failed SSH logins"             # optional
+pattern = "Failed password|Invalid user"   # regex on the message (optional)
+severity = ["warning", "err"]          # names or numbers (optional)
+host = "bastion"                       # exact match (optional)
+app = "sshd"                           # exact match (optional)
+labels = ["host", "level"]             # dimensions, see below
+
+[[metrics]]
+name = "api_requests"
+app = "api"
+labels = ["http.status"]               # a structured field (JSON, key=value, CEF…)
+value_field = "bytes"                  # also adds up this numeric field
+max_series = 100                       # default 200
+```
+
+```
+logpit_log_ssh_failures_total{host="bastion",level="warning"} 14
+logpit_log_api_requests_total{http_status="200"} 1209
+logpit_log_api_requests_value_sum{http_status="200"} 5.1e+06
+```
+
+- **What is counted.** Entries after rate limits, `[[ingest.rules]]` (dropped entries are not counted,
+  masked ones are matched on their masked text) and structured extraction, whether or not they are later
+  stored, so the counters do not depend on retention. `name` must be unique, lower-case letters, digits
+  and `_`, up to 48 characters; a rule without conditions counts everything.
+- **Labels.** `host`, `app`, `level` (`critical`, `error`, `warning`, `info`, `debug`), or the name of a
+  structured field (`.` and `-` become `_` in the label name; an entry without the field gets an empty
+  value). At most 5 labels. Every distinct combination is a time series: once a rule has `max_series`
+  of them (default 200, at most 10 000), further combinations are counted under the value `_other`
+  of every label, so a runaway field cannot exhaust memory or your Prometheus.
+- **Sums.** With `value_field`, the numeric values of that field are added in
+  `logpit_log_<name>_value_sum`; a missing or non-numeric value counts the entry but adds nothing.
+- **Reloading.** A change to any `[[metrics]]` rule (`SIGHUP`) replaces the rules and restarts their
+  counters from zero, which Prometheus handles as a counter reset; reloads that leave them alone keep
+  the counts. Counters are in memory only, so they also restart with LogPit.
+- Every rule examines every entry, so keep patterns cheap and the list short. To be notified rather than
+  to graph, use [pattern alerts](#pattern-alerts), or alert in Prometheus on these counters.
+
 ## Structured fields
 
 Messages that contain a CEF record (`CEF:0|Vendor|Product|…|key=value …`), whether
@@ -986,7 +1033,7 @@ podman kill --signal HUP logpit      # or: docker kill --signal HUP logpit
 kill -HUP "$(pidof logpit)"
 ```
 
-**Applied by a reload**: `[[ingest.rules]]`, `[[alerts]]`, `[new_patterns]`, `[ingest.rate_limit]`,
+**Applied by a reload**: `[[ingest.rules]]`, `[[alerts]]`, `[[metrics]]`, `[new_patterns]`, `[ingest.rate_limit]`,
 `ingest.parse_structured`, the silence thresholds, webhook and check interval, the API tokens
 (`http.token`, `[[http.tokens]]` and the `*_FILE` secret files), and the syslog TLS certificate,
 key and client CA files. The last two are read again on every reload, so renewing a certificate or

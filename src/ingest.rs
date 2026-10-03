@@ -128,6 +128,7 @@ impl Sink {
         if !self.settings.rules.get().apply(&mut entry) {
             return;
         }
+        self.settings.metrics.get().observe(&entry);
         if let Some(tx) = &self.alert_tx {
             for event in self.settings.alerts.get().observe(&entry, now) {
                 let _ = tx.try_send(event);

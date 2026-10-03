@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Metrics from logs: `[[metrics]]` rules count the entries that match a regex, host, app or severity as
+  Prometheus counters on `/metrics` (`logpit_log_<name>_total`), per `host`, `app`, `level` or structured
+  field labels with a series cap, and can sum a numeric field. Applied by `SIGHUP`.
+
 ## 0.10.0 - 2026-10-03
 
 - Loki query API for Grafana: `query_range`, `query`, `labels`, `label/<name>/values` and `series` under

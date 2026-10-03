@@ -19,6 +19,8 @@ pub struct Config {
     /// Notifications for message patterns never seen before (`[new_patterns]`), sent through the
     /// same webhook.
     pub new_patterns: crate::watch::WatchConfig,
+    /// Prometheus counters derived from the logs (`[[metrics]]`), exposed on `/metrics`.
+    pub metrics: Vec<crate::logmetrics::MetricConfig>,
     pub gelf: GelfConfig,
 }
 
@@ -450,6 +452,7 @@ impl Config {
         self.ingest.rate_limit.validate()?;
         crate::alerts::AlertRules::from_config(&self.alerts)?;
         self.new_patterns.validate()?;
+        crate::logmetrics::LogMetrics::from_config(&self.metrics)?;
         let sy = &self.syslog;
         if !sy.tls_listen.is_empty() && (sy.tls_cert.is_none() || sy.tls_key.is_none()) {
             bail!("syslog.tls_listen needs syslog.tls_cert and syslog.tls_key");
@@ -892,6 +895,21 @@ mod tests {
             cfg.apply_env(&env(&[("LOGPIT_RATE_LIMIT_PER_HOST", "fast")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn metrics_config() {
+        assert!(Config::parse("").unwrap().metrics.is_empty());
+        let cfg = Config::parse(
+            "[[metrics]]\nname = \"ssh_failures\"\npattern = \"Failed\"\nlabels = [\"host\"]\n\
+             [[metrics]]\nname = \"bytes\"\nvalue_field = \"bytes\"\nmax_series = 50",
+        )
+        .unwrap();
+        assert_eq!(cfg.metrics.len(), 2);
+        assert!(Config::parse("[[metrics]]\nname = \"Bad\"").is_err());
+        assert!(Config::parse("[[metrics]]\nname = \"a\"\nbogus = 1").is_err());
+        assert!(Config::parse("[[metrics]]\npattern = \"x\"").is_err());
+        assert!(Config::parse("[[metrics]]\nname = \"a\"\npattern = \"(\"").is_err());
     }
 
     #[test]
