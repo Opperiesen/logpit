@@ -52,6 +52,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Maintenance windows**: hold the notifications about some hosts back during planned work, from the
   configuration or the API.
 - **Multi-line events**: `logpit ship` joins stack traces and wrapped output into one entry.
+- **Trace correlation**: `trace_id` and `span_id` are normalized from OpenTelemetry, JSON logs and
+  `traceparent`, and one search or one click shows a request across hosts.
 - **Retention rules**: `[[retention]]` keeps entries of some hosts, apps or severities for a different time.
 - **Cold archive**: entries leaving through retention or the size cap are first written to daily gzip files,
   readable with `zcat` and reloadable with `logpit restore`.
@@ -684,6 +686,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `f` | Condition on a structured field: `key:value` exact match, or a [comparison](#field-comparisons-and-regular-expressions); repeat to combine (e.g. `f=act:blocked&f=proto:TCP`) |
 | `re` | Regular expression the message must match, see [below](#field-comparisons-and-regular-expressions) |
 | `tag` | Only the hosts that have this [host tag](#host-tags); repeat for several (any of them) |
+| `trace` | Only the entries of this [trace](#trace-correlation) (its `trace_id`, any case) |
 | `since`, `until` | Unix timestamps in milliseconds |
 | `limit` | 1–1000, default 100 |
 | `before` | Paging cursor `<ts>:<id>`: only entries older than that one, as given by the `X-Next-Cursor` header |
@@ -1016,7 +1019,7 @@ logpit tail --tag prod --level err                                 # last 10, th
 | Option | Meaning |
 |---|---|
 | `--url`, `--token-file` | The server (or `LOGPIT_URL`) and a read token (or `LOGPIT_TOKEN`, `LOGPIT_TOKEN_FILE`); never on the command line |
-| `-q`, `--host`, `--app`, `--level`, `-f`, `--regex`, `--tag` | The [search filters](#searching): `-f` and `--tag` can be repeated; `--level` takes `err`, `warn`… or 0-7 and means that severity and worse |
+| `-q`, `--host`, `--app`, `--level`, `-f`, `--regex`, `--tag`, `--trace` | The [search filters](#searching): `-f` and `--tag` can be repeated; `--level` takes `err`, `warn`… or 0-7 and means that severity and worse |
 | `--since`, `--until` | `search` only: a duration before now (`15m`, `2h`, `1d`, `1h30m`), an RFC 3339 time, or Unix seconds or milliseconds |
 | `-n`, `--limit` | Entries to print: `search` 100 by default (up to 1 000 000, fetched 1000 at a time), `tail` 10 |
 | `--format` | `text` (default), `json` (one array, `search` only) or `ndjson` |
@@ -1469,6 +1472,26 @@ Plain text is left alone: `key=value` data only counts when there are at least t
 no more bare words than pairs, so a sentence containing `a=b` is not mistaken for logfmt. Entries
 that already carry fields (parsed CEF, or sent with `fields`) are not touched. Turn the
 extraction off with `LOGPIT_PARSE_STRUCTURED=false` (or `[ingest] parse_structured = false`).
+
+### Trace correlation
+
+OpenTelemetry logs carry the trace and span of the request they belong to. LogPit keeps them as the
+`trace_id` and `span_id` fields (lower-case hex), and does the same for logs from other sources: a
+field named `traceId`, `trace-id`, `trace.id`, `otel.trace_id`, `dd.trace_id`, `x-b3-traceid` or
+`x-trace-id` (and the span equivalents) is copied to `trace_id`/`span_id` when the entry has none, and a
+`traceparent` field (W3C Trace Context) gives both. Hexadecimal ids are lower-cased, so `4BF9…` and
+`4bf9…` are the same trace; the original field stays. This happens on every ingestion path, after
+parsers and JSON or `key=value` extraction, and before ingestion rules and alerts.
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/logs?trace=4bf92f3577b34da6a3ce929d0e0e4736'
+logpit search --trace 4bf92f3577b34da6a3ce929d0e0e4736 --since 1h      # oldest first, across hosts
+```
+
+`trace=<id>` is shorthand for `f=trace_id:<id>`, on search, export, live tail and the other endpoints that
+take filters; read restrictions apply, so a token limited to some hosts sees only its part of the trace.
+In the web UI a line that has a `trace_id` shows a **⇢ trace** link: it opens every entry of the trace
+under the line, oldest first, with the time since the first one and the hosts involved (up to 500).
 
 ## Regex parsers
 

@@ -48,6 +48,7 @@ pub mod structured;
 pub mod syslog;
 pub mod tags;
 pub mod tls;
+pub mod trace;
 pub mod volume;
 pub mod watch;
 pub mod webhook;

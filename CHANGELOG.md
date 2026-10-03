@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Trace correlation: `trace_id` and `span_id` are normalized on every ingestion path (OTLP, `traceId`
+  and similar fields in JSON logs, Loki labels, a W3C `traceparent`) and lower-cased when hexadecimal.
+  `trace=<id>` searches a trace across hosts (API, export, live tail, `logpit search --trace`), and the web
+  UI shows a **⇢ trace** link on lines that have one, listing the whole trace with the time since its
+  first entry. `key=value` extraction now falls back to the first line of a multi-line message.
+
 - Multi-line events in `logpit ship`: `--multiline-start REGEX` joins the lines that follow a matching
   line (stack traces, wrapped output) into one entry, with `--multiline-wait-ms` and
   `--multiline-max-lines`.

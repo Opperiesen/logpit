@@ -46,6 +46,7 @@
   .fields { margin-top:2px; display:flex; flex-wrap:wrap; gap:2px 8px; color:var(--muted); font-size:11.5px; }
   .fields span { cursor:pointer; } .fields span:hover { color:var(--accent); }
   .fields b { font-weight:600; }
+  .fields .tracebtn { color:var(--accent); }
   .s0,.s1,.s2,.s3 { color:#d1242f; } .s4 { color:#bf8700; } .s5 { color:#0969da; } .s6 { color:var(--muted); } .s7 { color:var(--muted); opacity:.7; }
   :root { --c0:#4e79a7; --c1:#f28e2b; --c2:#59a14f; --c3:#b07aa1; --c4:#76b7b2; --c5:#edc948; --c6:#ff9da7; --c7:#9c755f; --c8:#af7aa1; --c9:#86bc86; --other:#8b949e; }
   #chartbar { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; padding:6px 16px; font-size:12px; color:var(--muted); }
@@ -193,7 +194,7 @@ function entryCount() { return $('rows').querySelectorAll('tr:not(.ctx)').length
 function td(cls, text) { const c = document.createElement('td'); c.className = cls; c.textContent = text; return c; }
 
 // Message cell: the message plus its structured fields (click a field to filter on it).
-function msgCell(r) {
+function msgCell(r, tr) {
   const c = td('msg', r.message);
   const keys = Object.keys(r.fields || {}).filter(k => !k.startsWith('cef_') && k !== 'msg');
   if (keys.length) {
@@ -207,6 +208,15 @@ function msgCell(r) {
       s.title = 'Filter on ' + k + ':' + r.fields[k];
       s.onclick = () => { $('f').value = k + ':' + r.fields[k]; load(); };
       box.append(s);
+      // A trace id also opens the whole trace, across hosts, under the line.
+      if (k === 'trace_id' && tr) {
+        const t = document.createElement('span');
+        t.className = 'tracebtn';
+        t.textContent = '⇢ trace';
+        t.title = 'Show every entry of this trace';
+        t.onclick = () => togglePanel(tr, 'trace', box => fillTrace(box, r));
+        box.append(t);
+      }
     }
     c.append(box);
   }
@@ -261,16 +271,65 @@ async function fillContext(box, row, opts) {
   } catch (e) { box.textContent = 'Could not load the context: ' + String(e.message || e); }
 }
 
-function toggleContext(tr, row) {
+// The panel under a line (its context or its trace): the same button closes it, another replaces it.
+function togglePanel(tr, kind, fill) {
   const next = tr.nextElementSibling;
-  if (next && next.classList.contains('ctx')) { next.remove(); return; }
+  if (next && next.classList.contains('ctx')) {
+    next.remove();
+    if (next.dataset.kind === kind) return;
+  }
   const ctx = document.createElement('tr');
   ctx.className = 'ctx';
+  ctx.dataset.kind = kind;
   const cell = document.createElement('td');
   cell.colSpan = 5;
   ctx.append(cell);
   tr.after(ctx);
-  fillContext(cell, row, { lines: 5, scope: 'host' });
+  fill(cell);
+}
+
+function toggleContext(tr, row) {
+  togglePanel(tr, 'context', cell => fillContext(cell, row, { lines: 5, scope: 'host' }));
+}
+
+// Every entry sharing the line's trace id, oldest first, with the time since the first one.
+const TRACE_LIMIT = 500;
+async function fillTrace(box, row) {
+  const id = row.fields.trace_id;
+  box.replaceChildren(document.createTextNode('Loading…'));
+  try {
+    const res = await fetch('/api/logs?' + new URLSearchParams({ trace: id, limit: String(TRACE_LIMIT) }), { headers: authHeaders() });
+    if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
+    const rows = (await res.json()).sort((a, b) => a.ts - b.ts || a.id - b.id);
+    const hosts = new Set(rows.map(r => r.host));
+    const span = rows.length ? rows[rows.length - 1].ts - rows[0].ts : 0;
+
+    const head = document.createElement('div');
+    head.className = 'ctxhead';
+    const title = document.createElement('span');
+    title.textContent = 'Trace ' + id + ': ' + rows.length + (rows.length === TRACE_LIMIT ? '+' : '') + ' entries on ' +
+      hosts.size + ' host' + (hosts.size === 1 ? '' : 's') + ' over ' + span + ' ms, oldest first';
+    const only = document.createElement('button');
+    only.type = 'button'; only.textContent = 'search it';
+    only.onclick = () => { $('f').value = 'trace_id:' + id; load(); };
+    const close = document.createElement('button');
+    close.type = 'button'; close.textContent = 'close';
+    close.onclick = () => box.closest('tr').remove();
+    head.append(title, only, close);
+
+    const line = r => {
+      const el = document.createElement('div');
+      el.className = 'ctxline' + (r.id === row.id ? ' cur' : '');
+      const t = document.createElement('span'); t.textContent = '+' + (r.ts - rows[0].ts) + ' ms';
+      t.title = fmtTime(r.ts);
+      const sev = document.createElement('span'); sev.className = 'sev s' + r.severity; sev.textContent = LEVELS[r.severity] || r.severity;
+      const app = document.createElement('span'); app.className = 'app'; app.textContent = r.host + ' ' + r.app;
+      const m = document.createElement('span'); m.className = 'm'; m.textContent = r.message;
+      el.append(t, sev, app, m);
+      return el;
+    };
+    box.replaceChildren(head, ...rows.map(line));
+  } catch (e) { box.textContent = 'Could not load the trace: ' + String(e.message || e); }
 }
 
 // Display preferences, kept in this browser: theme, how times are written, density, wrapping and the
@@ -326,7 +385,7 @@ function rowEl(r) {
   tr.append(
     ts,
     td('sev s' + r.severity, LEVELS[r.severity] || r.severity),
-    td('host', r.host), td('app', r.app), msgCell(r));
+    td('host', r.host), td('app', r.app), msgCell(r, tr));
   return tr;
 }
 

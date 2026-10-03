@@ -785,6 +785,11 @@ fn parse_search(params: Vec<(String, String)>) -> Result<Query, String> {
             },
             // A regular expression the message must match.
             "re" if !v.is_empty() => q.message_re = Some(crate::filters::compile_regex(&v)?),
+            // Every entry of a trace, across hosts: a shorthand for `f=trace_id:<id>`.
+            "trace" if !v.is_empty() => q.fields.push((
+                crate::trace::TRACE_ID.into(),
+                crate::trace::normalize_id(&v).ok_or("invalid trace")?,
+            )),
             // A host tag to keep (repeat for several: any of them); see `[[tags]]`.
             "tag" if !v.is_empty() => q.tags.push(v),
             _ => {}

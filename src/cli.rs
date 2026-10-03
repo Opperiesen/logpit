@@ -25,6 +25,7 @@ filters:
   -f, --field EXPR       structured field: key:value, status>=500, act!=block, src~regex (repeatable)
   --regex REGEX          regular expression on the message
   --tag TAG              hosts with this tag (repeatable)
+  --trace ID             every entry of this trace (its trace_id), across hosts
   --since WHEN           (search) 15m, 2h, 1d, an RFC 3339 time, or Unix seconds/ms (default: all)
   --until WHEN           (search) same forms
 
@@ -127,6 +128,7 @@ impl Cli {
                 "-f" | "--field" => cli.params.push(("f".into(), value(arg)?)),
                 "--regex" => cli.params.push(("re".into(), value(arg)?)),
                 "--tag" => cli.params.push(("tag".into(), value(arg)?)),
+                "--trace" => cli.params.push(("trace".into(), value(arg)?)),
                 "--since" | "--until" => {
                     let ms = parse_when(&value(arg)?, now_ms).with_context(|| arg.to_string())?;
                     let key = if arg == "--since" { "since" } else { "until" };
@@ -456,6 +458,8 @@ mod tests {
             "t(im|o)e",
             "--tag",
             "prod",
+            "--trace",
+            "4BF9",
             "--since",
             "15m",
             "--until",
@@ -483,6 +487,7 @@ mod tests {
                 ("f", "act:block"),
                 ("re", "t(im|o)e"),
                 ("tag", "prod"),
+                ("trace", "4BF9"),
                 ("since", "999100000"),
                 ("until", "1000000000"),
             ]

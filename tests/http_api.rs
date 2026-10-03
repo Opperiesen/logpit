@@ -965,3 +965,45 @@ async fn maintenance_windows_are_managed_by_admins() {
         .json();
     assert_eq!(listed.as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn one_search_finds_a_trace_across_hosts_whatever_its_id_is_called() {
+    let s = start(TOKENS).await;
+    let body = [
+        r#"{"host":"web1","app":"nginx","message":"GET /pay","fields":{"traceId":"4BF92F3577B34DA6A3CE929D0E0E4736"}}"#,
+        r#"{"host":"api1","app":"api","message":"charging","fields":{"trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00F067AA0BA902B7"}}"#,
+        r#"{"host":"db1","app":"pg","message":"INSERT","fields":{"traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}}"#,
+        r#"{"host":"web2","app":"nginx","message":"other request","fields":{"traceId":"ffffffffffffffffffffffffffffffff"}}"#,
+    ]
+    .join("\n");
+    assert_eq!(ingest(s.addr, &body).await.status, 200);
+    wait_for(s.addr, "/api/logs", 4).await;
+    // Case does not matter, the shorthand and the field filter agree.
+    for q in [
+        "trace=4bf92f3577b34da6a3ce929d0e0e4736",
+        "trace=4BF92F3577B34DA6A3CE929D0E0E4736",
+        "f=trace_id:4bf92f3577b34da6a3ce929d0e0e4736",
+    ] {
+        let hits = get(s.addr, &format!("/api/logs?{q}"), ADMIN).await.json();
+        let mut hosts: Vec<&str> = hits
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["host"].as_str().unwrap())
+            .collect();
+        hosts.sort();
+        assert_eq!(hosts, ["api1", "db1", "web1"], "{q}");
+    }
+    // A blank id is refused, an empty parameter is ignored like the others.
+    assert_eq!(get(s.addr, "/api/logs?trace=%20", ADMIN).await.status, 400);
+    assert_eq!(get(s.addr, "/api/logs?trace=", ADMIN).await.status, 200);
+    // A token limited to web hosts sees only its part of the trace.
+    let web = get(
+        s.addr,
+        "/api/logs?trace=4bf92f3577b34da6a3ce929d0e0e4736",
+        WEB_ONLY,
+    )
+    .await
+    .json();
+    assert_eq!(web.as_array().unwrap().len(), 1);
+}

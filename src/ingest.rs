@@ -154,6 +154,7 @@ impl Sink {
                 crate::structured::enrich(&mut entry);
             }
         }
+        crate::trace::normalize(&mut entry);
         if !self.settings.rules.get().apply(&mut entry) {
             return;
         }
