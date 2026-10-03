@@ -839,6 +839,34 @@ tab shows that count, plus the error lines that arrived live while the tab was i
 marks it in the list: the lines above the mark came since. Relative ages in the side panels ("3m ago")
 refresh every 30 seconds.
 
+## Board, host pages, administration and comparison
+
+Besides the search page, the web UI has four views (links in the filter row, and in the command palette).
+They use the same token as the main page, kept in the same browser, and the same theme.
+
+- **`/board`**: a departure board of the hosts, made for a screen left on the wall. Each host is a row
+  with its state over the last 15 minutes (`?minutes=60` for another window): *Cancelled* (silent),
+  *Disrupted* (errors, with the latest error), *Delayed* (warnings, with the latest warning) or *On time*,
+  its last log and its counts, worst first. It refreshes every 30 seconds and is dark unless the light
+  theme is chosen under Settings.
+- **`/host/<name>`**: everything about one host: its volume over 7 days by severity, latest errors, apps
+  and message patterns over 24 hours, its alerts, tags and state, and a link to search its logs. The
+  Hosts panel links each host to its page.
+- **`/admin`** (admin scope): the maintenance windows (start one for some hosts and minutes, end an API
+  window), the tokens with their scopes, restrictions and quotas and how many requests each had refused
+  for quota (from `/metrics`), and the audit trail, filterable by token and to refused requests.
+- **`/compare`**: two time windows side by side (by default the hour before and the last hour, with
+  optional host, app and search filters): totals, each host's entries and errors with the change, and the
+  message patterns that appeared, went away or at least doubled. The address keeps the windows, so a
+  comparison can be shared.
+
+On the main page, the alerts of the chart's window appear as ticks under it (red for problems, green for
+recoveries; a tick zooms to the 20 minutes around it), and maintenance windows that cover the searched
+host (or all of them) shade the chart when the token has the admin scope. *Copy as CLI* copies the
+current search as the equivalent `logpit search` command. A trace panel places each line on a bar
+between the first and the last entry of the trace. A server that has received nothing yet shows how to
+send logs to it, with its own address in the commands.
+
 ## Web UI links
 
 The address bar always reflects the last search, so a link reproduces the same view and the

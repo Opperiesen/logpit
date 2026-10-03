@@ -553,6 +553,23 @@ async fn oversized_names_and_bodies_are_bounded() {
 }
 
 #[tokio::test]
+async fn the_board_host_admin_and_compare_views_are_served_like_the_main_page() {
+    let s = start("").await;
+    for path in ["/board", "/host/pve", "/host/a%20b", "/admin", "/compare"] {
+        let r = call(s.addr, "GET", path, None, b"").await;
+        assert_eq!(r.status, 200, "{path}");
+        assert!(
+            r.body.contains("<title>LogPit</title>") && r.body.contains("</script>"),
+            "{path}"
+        );
+        // The shared theme is put in, and the page keeps the main page's protections.
+        assert!(r.body.contains("--ground:#fff;"), "{path}");
+        let csp = r.header("content-security-policy").unwrap();
+        assert!(csp.contains("default-src 'none'"), "{path}");
+    }
+}
+
+#[tokio::test]
 async fn the_web_ui_is_gzipped_for_browsers_that_accept_it() {
     let s = start("").await;
     let mut stream = tokio::net::TcpStream::connect(s.addr).await.unwrap();

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Web UI views: a departure board of the hosts for a wall screen (`/board`), a page per host
+  (`/host/<name>`), an administration page for maintenance windows, tokens and the audit trail (`/admin`,
+  admin scope) and a comparison of two time windows (`/compare`). They are one more embedded page sharing
+  the main page's theme (`src/web/theme.css`), served minified and gzipped with the same headers.
+- Web UI: alerts as ticks under the chart, maintenance windows shading it (admin scope), *Copy as CLI*
+  for the current search, trace lines placed on a time bar, and a welcome with ready-made commands on a
+  server that has received nothing yet.
+
 - Web UI: keyboard shortcuts (`/` search, `L` live, `J`/`K` move between lines, `Enter` context, `Esc`
   close), the active filters of the last search as removable chips under the header, and the access
   token moved into a *Settings* panel (formerly *Display*) that opens on its own when a token is needed.

@@ -362,6 +362,18 @@ There are no cards. Containers are bands and sheets:
 - **Custom range:** opened from the selector without taking the focus (another choice closes it); a ground-coloured popover under the range selector with two local date-time fields, a red *Apply*, a *Cancel* and an inline error in alarm red.
 - **Command palette:** a native modal `dialog`, 560px wide, 1px field-grey border, flat (a 30% black backdrop is its only depth); a borderless 44px input over a list whose rows show the group in muted 12px beside the label; the selected row takes the strong tint. Arrow keys move, Enter runs, Escape closes.
 
+### Alert Ticks and Maintenance Shading
+- **Alert ticks:** a 14px row under the chart; each alert of the window is a 6×12px button at its time, alarm red for problems, ok green for recoveries, notice otherwise; one tab stop walked with the arrow keys, a click zooms to the 20 minutes around it.
+- **Maintenance:** a window shades the chart over its span with the warning colour at 16% and a 2px warning rule on top, labelled in micro type ("maintenance: kernel upgrade"); not interactive.
+- **Trace bar:** in a trace panel, a 10em track (hairline ends and middle) where each line is a 3px mark in its severity colour, from the first entry to the last.
+- **Welcome:** on a server with no entries, the empty state becomes a 72ch column: a 20px heading, muted explanations, and each command in a band-grey monospace block with a *copy* button.
+
+### Other Views (board, host, admin, compare)
+- **Shared shell:** one page serves the four views; the header band carries the wordmark, links to Search, Board, Compare and Admin (the current one underlined 2px) and the status on the right. Content sits in a 16px gutter; sections open with a 14px bold heading over a 1px ink rule; data is in hairline-ruled tables with muted 12px column heads and tabular figures.
+- **Departure board:** dark board by default. Rows of 20px type, the host in 24px bold; states as words in their colour (*Disrupted* red, *Delayed* amber, *On time* green) and *Cancelled* as an alarm-red badge; the latest message in monospace, clipped; a 24px clock top right.
+- **Host page:** a 96px stacked volume chart by severity over 7 days with day marks, then a two-column grid of latest errors, apps (notice-blue meters), patterns and alerts.
+- **Admin and compare:** forms in one wrapping row of labelled fields ending with the red primary button; changes in compare read red for growth and green for decline, `=` muted when unchanged.
+
 ### Navigation
 There is no navigation in the site sense; the header band is the control strip. Wordmark left, search taking the remaining width, filters inline, status pushed right in lavender. Rail sections act as the secondary navigation, each opened or closed with a hard-turning chevron.
 

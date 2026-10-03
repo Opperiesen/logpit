@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogPit</title>
+<style>
+/*@theme*/
+  /* The other views share the main page's world: the navy band on top, timetable rows below. */
+  header.bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; padding:10px 16px; background:var(--shell); color:var(--shell-ink); }
+  header.bar a { color:var(--shell-ink); text-decoration:none; font-weight:600; }
+  header.bar a:hover { text-decoration:underline; text-underline-offset:3px; }
+  header.bar .brand { font-size:20px; font-weight:700; letter-spacing:-.01em; }
+  header.bar nav { display:flex; gap:16px; }
+  header.bar nav a[aria-current=page] { text-decoration:underline; text-decoration-thickness:2px; text-underline-offset:6px; }
+  header.bar :focus-visible { outline-color:var(--shell-ink); }
+  #status { margin-left:auto; color:var(--shell-muted); font-size:13px; }
+  main { padding:16px 16px 32px; }
+  h1 { margin:0 0 4px; font-size:20px; font-weight:700; }
+  h2 { margin:24px 0 8px; padding-bottom:4px; border-bottom:1px solid var(--ink); font-size:14px; font-weight:700; }
+  .sub { color:var(--muted); margin:0 0 8px; }
+  .msg { padding:24px 0; color:var(--muted); }
+  a { color:var(--accent); text-underline-offset:3px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:12px; font-weight:600; color:var(--muted); padding:4px 12px 4px 0; border-bottom:1px solid var(--rule); white-space:nowrap; }
+  td { padding:5px 12px 5px 0; border-bottom:1px solid var(--rule); vertical-align:baseline; }
+  td.n, th.n { text-align:right; }
+  .mono { font-family:var(--mono); font-size:12.5px; }
+  .clip { max-width:0; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .muted { color:var(--muted); }
+  .nw { white-space:nowrap; }
+  .e { color:var(--err); font-weight:700; } .w { color:var(--warn); font-weight:700; } .ok { color:var(--ok); font-weight:700; }
+  .up { color:var(--err); font-weight:700; } .down { color:var(--ok); font-weight:700; }
+  .badge { display:inline-block; padding:0 6px; border-radius:2px; background:var(--err); color:var(--ground); font-weight:700; }
+  .tag { display:inline-block; margin-right:4px; padding:0 5px; border:1px solid var(--field); border-radius:2px; font-size:11px; color:var(--muted); }
+  .grid { display:grid; gap:0 32px; }
+  @media (min-width:1000px) { .grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+  form.row { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:0 0 12px; }
+  form.row label { display:grid; gap:2px; font-size:12px; color:var(--muted); }
+  .s0, .s1, .s2, .s3 { color:var(--err); } .s4 { color:var(--warn); } .s5 { color:var(--notice); } .s6 { color:var(--chart-info); } .s7 { color:var(--chart-debug); }
+  svg.vol { display:block; width:100%; height:96px; border-bottom:1px solid var(--ink); }
+  svg.vol rect { fill:currentColor; }
+  .ticks { position:relative; height:18px; font-size:11px; font-weight:700; }
+  .ticks span { position:absolute; padding-left:3px; border-left:1px solid var(--ink); }
+  .meter { height:4px; background:var(--notice); }
+
+  /* The departure board: hosts as departures, in large type, for a screen left on the wall. */
+  .board h1 { font-size:24px; }
+  .board .clock { font-size:24px; font-weight:700; }
+  .board table td { padding:10px 16px 10px 0; font-size:20px; white-space:nowrap; }
+  .board table td.latest { white-space:nowrap; }
+  .board td.host { font-size:24px; font-weight:700; white-space:nowrap; }
+  .board td.host a { color:inherit; text-decoration:none; }
+  .board td.host a:hover { text-decoration:underline; }
+  .board td.state { font-weight:700; white-space:nowrap; }
+  .board td.latest { font-size:15px; }
+  .board tr { cursor:pointer; }
+  .board tr:hover td { background:var(--tint); }
+  .state.cancelled .badge { font-size:18px; padding:2px 8px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="/">LogPit</a>
+  <nav aria-label="Views"><a href="/">Search</a><a href="/board">Board</a><a href="/compare">Compare</a><a href="/admin">Admin</a></nav>
+  <span id="status" role="status"></span>
+</header>
+<main id="view"></main>
+<script>
+const $ = id => document.getElementById(id);
+// A small element builder: h('td', 'n e', '3') or h('a', { href: '/' }, 'text').
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  if (typeof attrs === 'string') e.className = attrs;
+  else if (attrs) for (const [k, v] of Object.entries(attrs)) if (v !== undefined) e.setAttribute(k, v);
+  e.append(...kids.filter(k => k !== null && k !== undefined && k !== false));
+  return e;
+}
+const LEVELS = ['emerg', 'alert', 'crit', 'err', 'warn', 'notice', 'info', 'debug'];
+let prefs = {};
+try { prefs = JSON.parse(localStorage.getItem('logpit-prefs') || '{}'); } catch {}
+let token = '';
+try { token = localStorage.getItem('logpit-token') || ''; } catch {}
+const path = location.pathname.split('/').filter(Boolean);
+const view = path[0] || 'board';
+// The board is a departure board: dark unless light was chosen; the other views follow the settings.
+const theme = view === 'board' ? (prefs.theme === 'light' ? 'light' : 'dark') : prefs.theme;
+if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+for (const a of document.querySelectorAll('header nav a')) if (a.getAttribute('href') === '/' + view) a.setAttribute('aria-current', 'page');
+
+function fmtTime(ms) {
+  const d = new Date(ms);
+  if (prefs.time === 'utc') return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  if (prefs.time === 'iso') return d.toISOString();
+  return d.toLocaleString();
+}
+function ago(ms) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  return s < 60 ? s + 's ago' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago';
+}
+class HttpError extends Error { constructor(status, text) { super(text || 'HTTP ' + status); this.status = status; } }
+async function api(url, init = {}) {
+  const res = await fetch(url, { ...init, headers: { ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(init.headers || {}) } });
+  if (!res.ok) throw new HttpError(res.status, (await res.text()).slice(0, 160));
+  return res.status === 204 ? null : res.json();
+}
+const q = obj => new URLSearchParams(Object.entries(obj).filter(([, v]) => v !== '' && v !== undefined && v !== null)).toString();
+function say(text) { $('status').textContent = text; }
+// One failure message for every view: a missing or weak token points to the main page's Settings.
+function failed(e, need) {
+  const box = $('view');
+  const text = e.status === 401 ? 'This LogPit needs a token. Enter it under Settings on the main page, then come back.'
+    : e.status === 403 ? 'This token does not have the ' + need + ' scope this page needs.'
+    : 'Could not load: ' + e.message;
+  box.replaceChildren(h('p', 'msg', text, ' ', h('a', { href: '/' }, 'Open the main page')));
+  say('');
+}
+const empty = (cols, text) => h('tr', null, h('td', { colspan: String(cols), class: 'muted' }, text));
+
+// Stacked volume bars from /api/stats, by severity, with day or hour marks under them.
+function volume(d) {
+  const NS = 'http://www.w3.org/2000/svg', n = d.buckets.length;
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'vol'); svg.setAttribute('viewBox', '0 0 ' + Math.max(1, n) + ' 100'); svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('role', 'img');
+  const max = Math.max(1, ...d.buckets.map(b => b.total));
+  let total = 0;
+  d.buckets.forEach((b, i) => {
+    let y = 100;
+    for (const k of LEVELS) {
+      const v = (b.groups || {})[k];
+      if (!v) continue;
+      total += v;
+      const r = document.createElementNS(NS, 'rect'), hgt = 100 * v / max;
+      y -= hgt;
+      r.setAttribute('x', i + 0.1); r.setAttribute('width', 0.8); r.setAttribute('y', y); r.setAttribute('height', hgt);
+      r.setAttribute('class', 's' + LEVELS.indexOf(k));
+      svg.append(r);
+    }
+  });
+  svg.setAttribute('aria-label', total.toLocaleString() + ' entries in ' + n + ' buckets');
+  const ticks = h('div', 'ticks');
+  let prev = null;
+  d.buckets.forEach((b, i) => {
+    const day = new Date(b.ts).toDateString();
+    if (prev !== null && day !== prev && i / n < 0.95) {
+      const s = h('span', null, new Date(b.ts).toLocaleDateString([], { weekday: 'short', day: 'numeric' }));
+      s.style.left = (100 * i / n) + '%';
+      ticks.append(s);
+    }
+    prev = day;
+  });
+  return [svg, ticks];
+}
+
+// ---------- Departure board ----------
+const STATES = { cancelled: ['Cancelled', 0], disrupted: ['Disrupted', 1], delayed: ['Delayed', 2], ontime: ['On time', 3] };
+async function board() {
+  const win = Number(new URLSearchParams(location.search).get('minutes')) || 15;
+  const clock = h('span', 'clock');
+  const tick = () => { clock.textContent = new Date().toLocaleTimeString([], { hour12: false }); };
+  tick(); setInterval(tick, 1000);
+  const body = h('tbody');
+  $('view').replaceChildren(h('div', 'board',
+    h('div', { style: 'display:flex;align-items:baseline;gap:16px;flex-wrap:wrap' },
+      h('h1', null, 'Hosts'), h('span', 'sub', 'errors and warnings over the last ' + win + ' minutes'), h('span', { style: 'margin-left:auto' }, clock)),
+    h('table', null,
+      h('thead', null, h('tr', null, h('th', null, 'Host'), h('th', null, 'Status'), h('th', null, 'Last log'), h('th', 'n', 'Errors'), h('th', 'n', 'Warnings'), h('th', null, 'Latest'))),
+      body)));
+  async function refresh() {
+    if (document.hidden) return;
+    try {
+      const now = Date.now();
+      // Every known host (a week back, so silent ones are listed), then what each did in the window.
+      const [known, recent] = await Promise.all([
+        api('/api/hosts?' + q({ since: now - 7 * 86400000, limit: 200, sort: 'host', order: 'asc' })),
+        api('/api/hosts?' + q({ since: now - win * 60000, limit: 200, sort: 'errors', order: 'desc' })),
+      ]);
+      const inWin = Object.fromEntries(recent.map(r => [r.host, r]));
+      const rows = known.map(k => {
+        const r = inWin[k.host] || { errors: 0, warnings: 0 };
+        const state = k.silent ? 'cancelled' : r.errors ? 'disrupted' : r.warnings ? 'delayed' : 'ontime';
+        return { host: k.host, state, errors: r.errors, warnings: r.warnings, last: k.last_ts };
+      }).sort((a, b) => STATES[a.state][1] - STATES[b.state][1] || b.errors - a.errors || a.host.localeCompare(b.host));
+      // The latest error or warning of the hosts in trouble (a few requests, not one per host).
+      const troubled = rows.filter(r => r.state === 'disrupted' || r.state === 'delayed').slice(0, 20);
+      const latest = Object.fromEntries(await Promise.all(troubled.map(async r => {
+        try {
+          const l = await api('/api/logs?' + q({ host: r.host, level: r.state === 'disrupted' ? 3 : 4, since: now - win * 60000, limit: 1 }));
+          return [r.host, l[0] ? l[0].message : ''];
+        } catch { return [r.host, '']; }
+      })));
+      body.replaceChildren(...(rows.length ? rows.map(r => {
+        const [label] = STATES[r.state];
+        const tr = h('tr', null,
+          h('td', 'host', h('a', { href: '/host/' + encodeURIComponent(r.host) }, r.host)),
+          h('td', 'state ' + r.state + ' ' + { disrupted: 'e', delayed: 'w', ontime: 'ok' }[r.state], r.state === 'cancelled' ? h('span', 'badge', label) : label),
+          h('td', 'muted', ago(r.last)),
+          h('td', 'n' + (r.errors ? ' e' : ' muted'), r.errors.toLocaleString()),
+          h('td', 'n' + (r.warnings ? ' w' : ' muted'), r.warnings.toLocaleString()),
+          h('td', 'latest mono clip', latest[r.host] || ''));
+        tr.onclick = () => { location.href = '/host/' + encodeURIComponent(r.host); };
+        return tr;
+      }) : [empty(6, 'No host has sent logs in the last week.')]));
+      say('updated ' + new Date().toLocaleTimeString([], { hour12: false }));
+    } catch (e) { failed(e, 'read'); }
+  }
+  await refresh();
+  setInterval(refresh, 30000);
+}
+
+// ---------- Host page ----------
+async function hostPage() {
+  const name = decodeURIComponent(path[1] || '');
+  document.title = name + ' · LogPit';
+  say('loading…');
+  try {
+    const now = Date.now(), week = now - 7 * 86400000, day = now - 86400000;
+    const [hosts, stats, errors, apps, pats, alerts] = await Promise.all([
+      api('/api/hosts?' + q({ since: week, limit: 200 })),
+      api('/api/stats?' + q({ host: name, since: week, group_by: 'severity' })),
+      api('/api/logs?' + q({ host: name, level: 3, since: week, limit: 15 })),
+      api('/api/top?' + q({ host: name, field: 'app', since: day, limit: 10 })),
+      api('/api/patterns?' + q({ host: name, since: day, limit: 10 })),
+      api('/api/alerts?' + q({ host: name, limit: 20 })).catch(() => []),
+    ]);
+    const me = hosts.find(x => x.host === name);
+    const head = h('div', null,
+      h('h1', null, name, ' ', me && me.silent ? h('span', 'badge', 'silent') : null),
+      h('p', 'sub', me ? 'Last log ' + ago(me.last_ts) + ' · ' + me.count.toLocaleString() + ' entries this week, ' + me.errors.toLocaleString() + ' errors, ' + me.warnings.toLocaleString() + ' warnings · ' : 'No logs this week · ',
+        ...(me && me.tags || []).map(t => h('span', 'tag', t)), ' ', h('a', { href: '/?' + q({ host: name, range: 604800000 }) }, 'Search its logs')));
+    const errRows = errors.length ? errors.map(r => h('tr', null, h('td', 'muted nw', fmtTime(r.ts)), h('td', 'muted nw', r.app), h('td', 'mono clip', r.message))) : [empty(3, 'No errors this week.')];
+    const maxApp = Math.max(1, ...apps.values.map(v => v.count));
+    const appRows = apps.values.length ? apps.values.map(v => h('tr', null, h('td', 'mono', v.value), h('td', { style: 'width:50%' }, Object.assign(h('div', 'meter'), { style: 'width:' + (100 * v.count / maxApp) + '%' })), h('td', 'n', v.count.toLocaleString()))) : [empty(3, 'No logs in the last 24 hours.')];
+    const patRows = pats.patterns.length ? pats.patterns.map(p => h('tr', null, h('td', 'n', p.count.toLocaleString()), h('td', 'mono clip', p.pattern || '(empty)'))) : [empty(2, 'No logs in the last 24 hours.')];
+    const alRows = alerts.length ? alerts.map(a => h('tr', null, h('td', 'muted', ago(a.ts)), h('td', a.kind === 'host_recovered' ? 'ok' : 'e', a.kind.replace(/_/g, ' ')), h('td', 'clip', a.message))) : [empty(3, 'No notifications about this host.')];
+    $('view').replaceChildren(head,
+      h('h2', null, 'Volume, last 7 days'), ...volume(stats),
+      h('div', 'grid',
+        h('section', null, h('h2', null, 'Latest errors'), h('table', null, h('tbody', null, ...errRows))),
+        h('section', null, h('h2', null, 'Apps, last 24 hours'), h('table', null, h('tbody', null, ...appRows))),
+        h('section', null, h('h2', null, 'Message patterns, last 24 hours'), h('table', null, h('tbody', null, ...patRows))),
+        h('section', null, h('h2', null, 'Alerts'), h('table', null, h('tbody', null, ...alRows)))));
+    say('');
+  } catch (e) { failed(e, 'read'); }
+}
+
+// ---------- Admin ----------
+async function admin() {
+  say('loading…');
+  const box = h('div');
+  $('view').replaceChildren(h('h1', null, 'Administration'), box);
+  try {
+    const [windows, tokens, metrics] = await Promise.all([
+      api('/api/maintenance'), api('/api/tokens'),
+      fetch('/metrics').then(r => r.ok ? r.text() : '').catch(() => ''),
+    ]);
+    // Refusals for quota, from the Prometheus text: logpit_quota_rejected_total{token="name"} 12
+    const rejected = {};
+    for (const m of metrics.matchAll(/^logpit_quota_rejected_total\{token="([^"]*)"\} (\d+)/gm)) rejected[m[1]] = Number(m[2]);
+    const schedule = w => w.from ? fmtTime(w.from) + ' → ' + fmtTime(w.until) : (w.between || '') + ' UTC' + (w.days && w.days.length ? ' on ' + w.days.join(', ') : ' every day');
+    const winRows = windows.length ? windows.map(w => h('tr', null,
+      h('td', 'mono', w.hosts.join(', ')), h('td', null, w.reason || ''), h('td', 'muted', schedule(w)),
+      h('td', w.active ? 'w' : 'muted', w.active ? 'active' : 'waiting'), h('td', 'muted', w.source),
+      h('td', null, w.id !== undefined ? Object.assign(h('button', { type: 'button', class: 'small' }, 'End'), { onclick: () => endWindow(w.id) }) : null))) : [empty(6, 'No maintenance window.')];
+    const form = h('form', 'row',
+      h('label', null, 'Hosts (names or patterns)', h('input', { name: 'hosts', required: '', placeholder: 'web*, db1', size: '22' })),
+      h('label', null, 'Minutes', h('input', { name: 'minutes', type: 'number', min: '1', max: '10080', value: '60', required: '', style: 'width:7em' })),
+      h('label', null, 'Reason', h('input', { name: 'reason', placeholder: 'kernel upgrade', size: '24' })),
+      h('button', { class: 'primary' }, 'Start a window'));
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const f = new FormData(form);
+      try {
+        await api('/api/maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hosts: String(f.get('hosts')).split(',').map(s => s.trim()).filter(Boolean), minutes: Number(f.get('minutes')), reason: String(f.get('reason')) }) });
+        admin();
+      } catch (err) { say('could not start the window: ' + err.message); }
+    };
+    const tokRows = tokens.map(t => h('tr', null,
+      h('td', 'mono', t.name), h('td', null, (t.scopes || []).join(', ')),
+      h('td', 'muted', [...(t.hosts || []), ...(t.tags || []).map(x => 'tag ' + x), ...(t.apps || []).map(x => 'app ' + x)].join(', ') || 'everything'),
+      h('td', 'muted', [t.events_per_sec ? t.events_per_sec + '/s' : '', t.events_per_day ? t.events_per_day.toLocaleString() + '/day' : ''].filter(Boolean).join(', ') || '—'),
+      h('td', 'n' + (rejected[t.name] ? ' e' : ' muted'), (rejected[t.name] || 0).toLocaleString())));
+    const auditBody = h('tbody');
+    const refusedOnly = h('input', { type: 'checkbox', id: 'refused' });
+    const who = h('select', { id: 'who' }, h('option', { value: '' }, 'All tokens'), ...tokens.map(t => h('option', { value: t.name }, t.name)));
+    async function loadAudit() {
+      try {
+        const ev = await api('/api/audit?' + q({ limit: 100, refused: refusedOnly.checked ? 'true' : '', token: who.value }));
+        auditBody.replaceChildren(...(ev.length ? ev.map(a => h('tr', null, h('td', 'muted nw', fmtTime(a.ts)), h('td', 'mono', a.token || '—'),
+          h('td', 'mono clip', a.method + ' ' + a.path + (a.query ? '?' + a.query : '')), h('td', 'n' + (a.status >= 400 ? ' e' : ''), String(a.status)), h('td', 'muted mono', a.peer || ''))) : [empty(5, 'No event.')]));
+      } catch (err) { auditBody.replaceChildren(empty(5, 'Could not load the audit trail: ' + err.message)); }
+    }
+    refusedOnly.onchange = loadAudit; who.onchange = loadAudit;
+    box.replaceChildren(
+      h('h2', null, 'Maintenance windows'), form,
+      h('table', null, h('thead', null, h('tr', null, h('th', null, 'Hosts'), h('th', null, 'Reason'), h('th', null, 'When'), h('th', null, 'State'), h('th', null, 'From'), h('th', null, ''))), h('tbody', null, ...winRows)),
+      h('h2', null, 'Tokens'),
+      h('table', null, h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Scopes'), h('th', null, 'Reads'), h('th', null, 'Quota'), h('th', 'n', 'Refused for quota'))), h('tbody', null, ...tokRows)),
+      h('h2', null, 'Audit trail'),
+      h('form', 'row', h('label', { style: 'display:flex;gap:6px;align-items:center' }, refusedOnly, 'Refused requests only'), who),
+      h('table', null, h('thead', null, h('tr', null, h('th', null, 'Time'), h('th', null, 'Token'), h('th', null, 'Request'), h('th', 'n', 'Status'), h('th', null, 'Peer'))), auditBody));
+    await loadAudit();
+    say('');
+  } catch (e) { failed(e, 'admin'); }
+}
+async function endWindow(id) {
+  try { await api('/api/maintenance/' + id, { method: 'DELETE' }); admin(); } catch (e) { say('could not end the window: ' + e.message); }
+}
+
+// ---------- Compare two windows ----------
+const toInput = ms => new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+async function compare() {
+  const p = new URLSearchParams(location.search), now = Date.now(), hour = 3600000;
+  const num = (k, d) => Number(p.get(k)) || d;
+  const w = { a0: num('a_since', now - 2 * hour), a1: num('a_until', now - hour), b0: num('b_since', now - hour), b1: num('b_until', now) };
+  const field = (name, label, value, type = 'datetime-local') => h('label', null, label, h('input', { name, type, value, size: '14' }));
+  const form = h('form', 'row',
+    field('a0', 'Before, from', toInput(w.a0)), field('a1', 'to', toInput(w.a1)),
+    field('b0', 'After, from', toInput(w.b0)), field('b1', 'to', toInput(w.b1)),
+    field('host', 'Host', p.get('host') || '', 'text'), field('app', 'App', p.get('app') || '', 'text'), field('q', 'Search', p.get('q') || '', 'text'),
+    h('button', { class: 'primary' }, 'Compare'));
+  const out = h('div');
+  $('view').replaceChildren(h('h1', null, 'Compare two windows'), h('p', 'sub', 'What changed between a window before and a window after, such as around an upgrade.'), form, out);
+  form.onsubmit = e => {
+    e.preventDefault();
+    const f = new FormData(form), t = k => new Date(String(f.get(k))).getTime();
+    history.replaceState(null, '', '/compare?' + q({ a_since: t('a0'), a_until: t('a1'), b_since: t('b0'), b_until: t('b1'), host: f.get('host'), app: f.get('app'), q: f.get('q') }));
+    compare();
+  };
+  if (!(w.a0 < w.a1 && w.b0 < w.b1)) { out.replaceChildren(h('p', 'msg', 'Each window needs its start before its end.')); return; }
+  say('comparing…');
+  try {
+    const filters = { host: p.get('host') || '', app: p.get('app') || '', q: p.get('q') || '' };
+    const get = (url, a, b, extra) => api(url + '?' + q({ ...filters, since: a, until: b, ...extra }));
+    const [ha, hb, pa, pb] = await Promise.all([
+      get('/api/hosts', w.a0, w.a1, { limit: 200 }), get('/api/hosts', w.b0, w.b1, { limit: 200 }),
+      get('/api/patterns', w.a0, w.a1, { limit: 50 }), get('/api/patterns', w.b0, w.b1, { limit: 50 }),
+    ]);
+    const sum = (rows, k) => rows.reduce((s, r) => s + r[k], 0);
+    const delta = (a, b) => {
+      if (a === b) return h('td', 'n muted', '=');
+      const pct = a ? Math.round(100 * (b - a) / a) : null;
+      return h('td', 'n ' + (b > a ? 'up' : 'down'), (b > a ? '+' : '−') + Math.abs(b - a).toLocaleString() + (pct !== null ? ' (' + (pct > 0 ? '+' : '') + pct + '%)' : ''));
+    };
+    const totals = h('table', null,
+      h('thead', null, h('tr', null, h('th', null, ''), h('th', 'n', 'Before'), h('th', 'n', 'After'), h('th', 'n', 'Change'))),
+      h('tbody', null, ...[['Entries', 'count'], ['Errors', 'errors'], ['Warnings', 'warnings']].map(([label, k]) => {
+        const a = sum(ha, k), b = sum(hb, k);
+        return h('tr', null, h('td', null, label), h('td', 'n', a.toLocaleString()), h('td', 'n', b.toLocaleString()), delta(a, b));
+      })));
+    const byHost = {};
+    for (const r of ha) byHost[r.host] = { a: r, b: null };
+    for (const r of hb) (byHost[r.host] = byHost[r.host] || { a: null }).b = r;
+    const hostRows = Object.entries(byHost).map(([host, { a, b }]) => ({ host, a: a ? a.count : 0, b: b ? b.count : 0, ea: a ? a.errors : 0, eb: b ? b.errors : 0 }))
+      .sort((x, y) => Math.abs(y.eb - y.ea) - Math.abs(x.eb - x.ea) || Math.abs(y.b - y.a) - Math.abs(x.b - x.a));
+    const hostTable = h('table', null,
+      h('thead', null, h('tr', null, h('th', null, 'Host'), h('th', 'n', 'Entries before'), h('th', 'n', 'after'), h('th', 'n', 'Change'), h('th', 'n', 'Errors before'), h('th', 'n', 'after'), h('th', 'n', 'Change'))),
+      h('tbody', null, ...(hostRows.length ? hostRows.map(r => h('tr', null, h('td', null, h('a', { href: '/host/' + encodeURIComponent(r.host) }, r.host)),
+        h('td', 'n', r.a.toLocaleString()), h('td', 'n', r.b.toLocaleString()), delta(r.a, r.b), h('td', 'n', r.ea.toLocaleString()), h('td', 'n', r.eb.toLocaleString()), delta(r.ea, r.eb))) : [empty(7, 'No entries in either window.')])));
+    // Patterns: new after, gone after, and those that at least doubled (with five more at least).
+    const A = Object.fromEntries(pa.patterns.map(x => [x.pattern, x.count])), B = Object.fromEntries(pb.patterns.map(x => [x.pattern, x.count]));
+    const appeared = pb.patterns.filter(x => !(x.pattern in A)), gone = pa.patterns.filter(x => !(x.pattern in B));
+    const grew = pb.patterns.filter(x => x.pattern in A && x.count >= 2 * A[x.pattern] && x.count - A[x.pattern] >= 5);
+    const patTable = (rows, count, none) => h('table', null, h('tbody', null, ...(rows.length ? rows.map(x => h('tr', null, h('td', 'n', count(x)), h('td', 'mono clip', x.pattern || '(empty)'))) : [empty(2, none)])));
+    out.replaceChildren(
+      h('h2', null, 'Totals'), totals,
+      h('h2', null, 'Hosts'), hostTable,
+      h('div', 'grid',
+        h('section', null, h('h2', null, 'Patterns that appeared'), patTable(appeared, x => x.count.toLocaleString(), 'None.')),
+        h('section', null, h('h2', null, 'Patterns that went away'), patTable(gone, x => x.count.toLocaleString(), 'None.')),
+        h('section', null, h('h2', null, 'Patterns that at least doubled'), patTable(grew, x => A[x.pattern].toLocaleString() + ' → ' + x.count.toLocaleString(), 'None.'))));
+    say('');
+  } catch (e) { failed(e, 'read'); }
+}
+
+({ board, host: hostPage, admin, compare }[view] || board)();
+</script>
+</body>
+</html>

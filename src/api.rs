@@ -47,6 +47,10 @@ pub const MAX_EXPORTS: usize = 2;
 /// Formatted rows are sent to the client in chunks of about this many bytes.
 const EXPORT_CHUNK_BYTES: usize = 64 * 1024;
 const INDEX_HTML: &str = include_str!("web/index.html");
+/// The board, host, admin and compare views: one page that shows the view its path names.
+const PAGES_HTML: &str = include_str!("web/pages.html");
+/// Colours, type and base controls shared by both pages, put where a page has `/*@theme*/`.
+const THEME_CSS: &str = include_str!("web/theme.css");
 
 #[derive(Clone)]
 pub struct AppState {
@@ -128,6 +132,10 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
 
     Router::new()
         .route("/", get(index))
+        .route("/board", get(pages))
+        .route("/host/{name}", get(pages))
+        .route("/admin", get(pages))
+        .route("/compare", get(pages))
         .route("/healthz", get(|| async { "ok" }))
         .route("/metrics", get(metrics))
         .merge(protected)
@@ -140,24 +148,33 @@ const INDEX_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; \
     style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; \
     base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
-/// The page as served, built once: the source without its indentation, blank lines and whole-line
-/// `//` and `/* */` comments (kept in the source for its readers), and that page gzipped. The
-/// script has no multi-line strings, so dropping whole lines and leading spaces changes no value.
+/// A page as served: its source with the shared theme put in, without indentation, blank lines and
+/// whole-line `//` and `/* */` comments (kept in the sources for their readers), and gzipped. The
+/// scripts have no multi-line strings, so dropping whole lines and leading spaces changes no value.
+fn build_page(source: &str) -> (String, Vec<u8>) {
+    let source = source.replace("/*@theme*/", THEME_CSS);
+    let mut page = String::with_capacity(source.len());
+    for line in source.lines().map(str::trim) {
+        let comment = line.starts_with("//") || (line.starts_with("/*") && line.ends_with("*/"));
+        if !line.is_empty() && !comment {
+            page.push_str(line);
+            page.push('\n');
+        }
+    }
+    let gzipped = crate::archive::gzip_member(page.as_bytes());
+    (page, gzipped)
+}
+
+/// The main page, built once.
 fn index_page() -> &'static (String, Vec<u8>) {
     static PAGE: std::sync::OnceLock<(String, Vec<u8>)> = std::sync::OnceLock::new();
-    PAGE.get_or_init(|| {
-        let mut page = String::with_capacity(INDEX_HTML.len());
-        for line in INDEX_HTML.lines().map(str::trim) {
-            let comment =
-                line.starts_with("//") || (line.starts_with("/*") && line.ends_with("*/"));
-            if !line.is_empty() && !comment {
-                page.push_str(line);
-                page.push('\n');
-            }
-        }
-        let gzipped = crate::archive::gzip_member(page.as_bytes());
-        (page, gzipped)
-    })
+    PAGE.get_or_init(|| build_page(INDEX_HTML))
+}
+
+/// The page of the other views, built once.
+fn pages_page() -> &'static (String, Vec<u8>) {
+    static PAGE: std::sync::OnceLock<(String, Vec<u8>)> = std::sync::OnceLock::new();
+    PAGE.get_or_init(|| build_page(PAGES_HTML))
 }
 
 /// Whether an `Accept-Encoding` value takes gzip (listed, and not with a zero quality).
@@ -174,10 +191,21 @@ fn accepts_gzip(value: &str) -> bool {
     })
 }
 
-/// The web UI, gzipped when the browser accepts it, with headers that keep a browser from framing
-/// it or sniffing other types.
+/// The web UI's main page.
 async fn index(request_headers: HeaderMap) -> Response {
-    let (page, gzipped) = index_page();
+    serve_page(index_page(), &request_headers)
+}
+
+/// The board, host, admin and compare views (the page reads its path). The data still comes from
+/// the API, so these pages need the same token as the main one, kept in the same browser storage.
+async fn pages(request_headers: HeaderMap) -> Response {
+    serve_page(pages_page(), &request_headers)
+}
+
+/// A page, gzipped when the browser accepts it, with headers that keep a browser from framing it or
+/// sniffing other types.
+fn serve_page(built: &'static (String, Vec<u8>), request_headers: &HeaderMap) -> Response {
+    let (page, gzipped) = built;
     let gzip = request_headers
         .get(header::ACCEPT_ENCODING)
         .and_then(|v| v.to_str().ok())
@@ -1662,33 +1690,40 @@ mod tests {
     #[test]
     fn web_ui_stays_within_its_size_budget() {
         const BUDGET: usize = 32 * 1024;
-        let served = index_page().1.len();
-        assert!(
-            served <= BUDGET,
-            "the web UI is served as {served} gzipped bytes, over its {BUDGET}-byte budget"
-        );
+        for (name, page) in [("index", index_page()), ("pages", pages_page())] {
+            let served = page.1.len();
+            assert!(
+                served <= BUDGET,
+                "{name}.html is served as {served} gzipped bytes, over its {BUDGET}-byte budget"
+            );
+        }
     }
 
     #[test]
-    fn the_served_page_drops_only_layout_and_comments() {
-        let (page, gzipped) = index_page();
-        assert!(page.len() < INDEX_HTML.len());
-        assert!(
-            page.lines()
-                .all(|l| !l.is_empty() && l == l.trim() && !l.starts_with("//"))
-        );
-        // Every line of code survives: the page is the source's non-comment lines, trimmed.
-        let kept = INDEX_HTML
-            .lines()
-            .map(str::trim)
-            .filter(|l| {
-                !l.is_empty() && !l.starts_with("//") && !(l.starts_with("/*") && l.ends_with("*/"))
-            })
-            .count();
-        assert_eq!(page.lines().count(), kept);
-        assert!(page.contains("<title>LogPit</title>") && page.contains("</script>"));
-        let unzipped = crate::inflate::gunzip(gzipped, 1 << 20).unwrap();
-        assert_eq!(unzipped, page.as_bytes());
+    fn the_served_pages_drop_only_layout_and_comments() {
+        for (source, (page, gzipped)) in [(INDEX_HTML, index_page()), (PAGES_HTML, pages_page())] {
+            let source = source.replace("/*@theme*/", THEME_CSS);
+            assert!(page.len() < source.len());
+            assert!(
+                page.lines()
+                    .all(|l| !l.is_empty() && l == l.trim() && !l.starts_with("//"))
+            );
+            // Every line of code survives: the page is the source's non-comment lines, trimmed.
+            let kept = source
+                .lines()
+                .map(str::trim)
+                .filter(|l| {
+                    !l.is_empty()
+                        && !l.starts_with("//")
+                        && !(l.starts_with("/*") && l.ends_with("*/"))
+                })
+                .count();
+            assert_eq!(page.lines().count(), kept);
+            // The theme went in: its tokens are on the served page.
+            assert!(page.contains("--ground:#fff;") && page.contains("</script>"));
+            let unzipped = crate::inflate::gunzip(gzipped, 1 << 20).unwrap();
+            assert_eq!(unzipped, page.as_bytes());
+        }
     }
 
     #[test]

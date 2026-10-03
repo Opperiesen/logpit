@@ -5,61 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LogPit</title>
 <style>
-  :root {
-    color-scheme: light dark;
-    --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    --ground:#fff; --band:#f2f2f2; --ink:#111; --muted:#5e5e5e; --rule:#d6d6d6; --field:#8a8a8a;
-    --shell:#2d327d; --shell-ink:#fff; --shell-muted:#c3c6ea; --shell-line:#8f94c8; --shell-field:#fff; --shell-field-ink:#111;
-    --accent:#2d327d; --focus:#2d327d; --band-hour:#111; --sel:#c9cbe8; --tint:#eceef8; --tint-strong:#d9dcf1;
-    --primary:#d30000; --primary-hover:#b00000;
-    --err:#d30000; --warn:#9a5300; --notice:#2d327d; --ok:#1b7a34; --new:#6b3fa0;
-    --c0:#4e79a7; --c1:#f28e2b; --c2:#59a14f; --c3:#b07aa1; --c4:#76b7b2; --c5:#d4a92a; --c6:#ff9da7; --c7:#9c755f; --c8:#7b5fb5; --c9:#86bc86; --other:#8a8a8a;
-    --chart-info:#868686; --chart-debug:#949494; --on-primary:#fff; --fresh:#fff1b8; --fresh-time:#111; --mark:#ffe58f;
-    --hdr:0px;
-  }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme=light]) {
-    color-scheme:dark;
-    --ground:#141a46; --band:#1b2257; --ink:#f3f4fa; --muted:#a7acd4; --rule:#2b3170; --field:#6f76b3;
-    --shell:#0b0f2e; --shell-muted:#a7acd4; --shell-line:#6f76b3; --shell-field:#141a46; --shell-field-ink:#f3f4fa;
-    --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
-    --primary:#c40000; --primary-hover:#a30000;
-    --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
-    --chart-info:#6f76b3; --chart-debug:#5f67a8; --fresh:#33303f; --fresh-time:#ffd23f; --mark:#5c4b00; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
-  } }
-  :root[data-theme=light] { color-scheme:light; }
-  :root[data-theme=dark] {
-    color-scheme:dark;
-    --ground:#141a46; --band:#1b2257; --ink:#f3f4fa; --muted:#a7acd4; --rule:#2b3170; --field:#6f76b3;
-    --shell:#0b0f2e; --shell-muted:#a7acd4; --shell-line:#6f76b3; --shell-field:#141a46; --shell-field-ink:#f3f4fa;
-    --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
-    --primary:#c40000; --primary-hover:#a30000;
-    --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
-    --chart-info:#6f76b3; --chart-debug:#5f67a8; --fresh:#33303f; --fresh-time:#ffd23f; --mark:#5c4b00; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
-  }
-
-  * { box-sizing:border-box; }
-  [hidden] { display:none !important; }
-  .skip { position:absolute; left:16px; top:-48px; z-index:30; padding:8px 12px; background:var(--ground); color:var(--ink); border:1px solid var(--field); font-weight:700; }
-  .skip:focus { top:8px; }
+/*@theme*/
   html { overflow-anchor:none; }
-  body { margin:0; background:var(--ground); color:var(--ink); font:14px/1.45 var(--sans); font-variant-numeric:tabular-nums; caret-color:var(--accent); scrollbar-color:var(--field) var(--ground); }
-  ::selection { background:var(--sel); color:inherit; }
-  :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
-  input, select, button { font:inherit; color:inherit; }
-  input, select { height:32px; padding:0 8px; border:1px solid var(--field); border-radius:2px; background:var(--ground); color:var(--ink); }
-  input::placeholder { color:var(--muted); opacity:1; }
-  input[type=checkbox] { width:16px; height:16px; margin:0; padding:0; accent-color:var(--primary); }
-  button { height:32px; padding:0 12px; border:1px solid var(--field); border-radius:2px; background:var(--ground); color:var(--ink); font-weight:600; cursor:pointer; }
-  button:hover { background:var(--band); }
-  button:disabled { opacity:.6; cursor:default; }
-  button.primary { background:var(--primary); border-color:var(--primary); color:var(--on-primary); }
-  button.primary:hover { background:var(--primary-hover); }
-  button.small { height:24px; padding:0 8px; font-size:12px; }
-  button.link { height:auto; padding:0; border:0; background:none; font:inherit; color:inherit; text-align:left; }
-  button.link:hover { background:none; color:var(--accent); }
-  [role=button] { cursor:pointer; }
-  [role=button]:hover { color:var(--accent); }
   @media (pointer:coarse) { input:not([type=checkbox]), select, button:not(.link) { min-height:44px; } button.small { min-height:36px; }
     .row1 label { min-height:44px; padding:0 4px; } input[type=checkbox] { width:22px; height:22px; } }
 
@@ -76,6 +23,9 @@
   #filtersToggle { display:none; }
   .row2 { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 16px; background:var(--band); color:var(--ink); border-bottom:1px solid var(--rule); }
   .row2 .sep { flex:1; }
+  .row2 .pages { display:flex; gap:14px; margin-right:8px; }
+  .row2 .pages a, .hp { color:var(--ink); font-weight:600; text-underline-offset:3px; }
+  .hp { margin-left:6px; font-size:11px; color:var(--muted); }
   .row2 .inline { display:none; align-items:center; gap:6px; }
   .row2.naming #viewForm, .row2.deleting #viewDel { display:inline-flex; }
   .row2.naming #saveView, .row2.naming #delView, .row2.deleting #saveView, .row2.deleting #delView { display:none; }
@@ -129,12 +79,12 @@
   .chips .all:hover { color:var(--accent); background:none; }
 
   /* Work areas: the rail (hosts, top values, alerts, patterns) beside the chart and the stream. */
-  .layout { display:grid; grid-template-columns:minmax(0, 1fr); }
+  .layout { display:grid; grid-template-columns:minmax(0, 1fr); grid-template-areas:"bar" "chart" "marks" "axis" "stream" "rail"; }
+  #chartbar { grid-area:bar; } #chart, #maint { grid-area:chart; } #marks { grid-area:marks; } #axis { grid-area:axis; } .stream { grid-area:stream; } #rail { grid-area:rail; }
   #rail { border-top:1px solid var(--rule); }
   @media (min-width:1000px) {
-    .layout { grid-template-columns:300px minmax(0, 1fr); grid-template-areas:"rail bar" "rail chart" "rail axis" "rail stream"; grid-template-rows:auto auto auto 1fr; }
-    #rail { grid-area:rail; position:sticky; top:var(--hdr); align-self:start; max-height:calc(100vh - var(--hdr)); overflow:auto; border-top:0; border-right:1px solid var(--rule); }
-    #chartbar { grid-area:bar; } #chart { grid-area:chart; } #axis { grid-area:axis; } .stream { grid-area:stream; }
+    .layout { grid-template-columns:300px minmax(0, 1fr); grid-template-areas:"rail bar" "rail chart" "rail marks" "rail axis" "rail stream"; grid-template-rows:auto auto auto auto 1fr; }
+    #rail { position:sticky; top:var(--hdr); align-self:start; max-height:calc(100vh - var(--hdr)); overflow:auto; border-top:0; border-right:1px solid var(--rule); }
     #unseen { left:calc(50% + 150px); }
   }
   @media (min-width:1280px) { .layout { grid-template-columns:340px minmax(0, 1fr); } #unseen { left:calc(50% + 170px); } }
@@ -202,6 +152,12 @@
   #legend i.s6 { color:var(--chart-info); } #legend i.s7 { color:var(--chart-debug); }
   .lg b { color:var(--ink); }
   #chart { display:block; width:calc(100% - 32px); height:72px; margin:0 16px; border-bottom:1px solid var(--ink); touch-action:pan-y; user-select:none; }
+  /* Maintenance windows shade the chart; alerts are ticks under it, each one a way into its moment. */
+  #maint { position:relative; height:72px; margin:0 16px; pointer-events:none; }
+  #maint span { position:absolute; top:0; bottom:0; min-width:2px; border-top:2px solid var(--warn); background:color-mix(in srgb, var(--warn) 16%, transparent); font-size:11px; font-weight:700; color:var(--warn); padding:1px 3px; overflow:hidden; white-space:nowrap; }
+  #marks { position:relative; height:14px; margin:2px 16px 0; }
+  #marks button { position:absolute; top:0; width:6px; height:12px; padding:0; border:0; border-radius:0; margin-left:-3px; background:var(--notice); }
+  #marks button.bad { background:var(--err); } #marks button.good { background:var(--ok); }
   #axis { position:relative; height:20px; margin:0 16px; font-size:11px; font-weight:700; overflow:hidden; }
   #axis button { position:absolute; top:2px; height:16px; padding:0 0 0 3px; border:0; border-left:1px solid var(--ink); border-radius:0; background:none; font:inherit; line-height:14px; white-space:nowrap; }
   #axis button:hover { color:var(--accent); background:none; }
@@ -254,6 +210,10 @@
 
   tr.ctx > td { padding:8px 16px 12px 32px !important; background:var(--tint); }
   .ctxhead { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; margin-bottom:6px; color:var(--muted); font:12.5px var(--sans); }
+  .ctxline.tl { grid-template-columns:auto 10em 4.5em 9em minmax(0, 1fr); }
+  .wf { position:relative; height:10px; align-self:center; border-left:1px solid var(--rule); border-right:1px solid var(--rule); background:linear-gradient(var(--rule), var(--rule)) center / 100% 1px no-repeat; }
+  .wf i { position:absolute; top:0; width:3px; height:10px; margin-left:-1px; background:currentColor; }
+  .wf i.s6, .wf i.s7 { color:var(--muted); }
   .ctxline { display:grid; grid-template-columns:auto 4.5em 9em minmax(0, 1fr); gap:0 10px; padding:1px 0; font:12px/1.45 var(--mono); }
   .ctxline > span:first-child, .ctxline .app { color:var(--muted); white-space:nowrap; }
   .ctxline .m { white-space:pre-wrap; word-break:break-word; }
@@ -265,6 +225,11 @@
   #empty { padding:32px 16px; color:var(--muted); font-size:14px; }
   #empty p { margin:0 0 10px; }
   #empty .ways { display:flex; flex-wrap:wrap; gap:8px; }
+  #empty.welcome { color:var(--ink); max-width:72ch; }
+  .welcome h2 { margin:0 0 6px; font-size:20px; }
+  .welcome h3 { margin:20px 0 2px; font-size:14px; }
+  .welcome p { margin:0 0 6px; color:var(--muted); }
+  .welcome pre { margin:0 0 6px; padding:8px 10px; background:var(--band); border:1px solid var(--rule); font:12.5px/1.5 var(--mono); white-space:pre-wrap; word-break:break-all; }
 
   @media (max-width:759px) {
     header { position:static; }
@@ -346,6 +311,7 @@
     <input id="f" type="search" placeholder="field:value" aria-label="Field filter" size="14" title="Filter on a structured field: act:blocked (exact), status>=500 (also &gt;, &lt;, &lt;=, numbers only), act!=block, src~^10\. (regular expression). The field must be present.">
     <input id="re" type="search" placeholder="Regex on message" aria-label="Regular expression on message" size="18" title="Keep messages matching a regular expression, e.g. timeout|refused or (?i)error [0-9]+. It scans the entries left by the other filters, so narrow the time range first.">
     <span class="sep"></span>
+    <nav class="pages" aria-label="Views"><a href="/board">Board</a><a href="/compare">Compare</a><a href="/admin">Admin</a></nav>
     <select id="views" aria-label="Saved views" title="Saved views, shared by everyone who uses this LogPit"><option value="">Views</option></select>
     <button id="saveView" type="button" title="Save the current search, time range and chart grouping under a name">Save view</button>
     <button id="delView" type="button" title="Delete the selected view" hidden>Delete</button>
@@ -374,12 +340,15 @@
   </label>
   <div id="legend" role="group" aria-label="Legend (arrow keys move along it)"></div>
   <button id="zoomOut" type="button" class="small" title="Double the zoomed window around its middle" hidden>Zoom out</button>
+  <button id="cli" type="button" class="small" title="Copy this search as a logpit search command">Copy as CLI</button>
   <span class="exp">Export
     <button id="expNdjson" type="button" class="small" title="Download the matching entries as NDJSON (up to 100,000)">NDJSON</button>
     <button id="expCsv" type="button" class="small" title="Download the matching entries as CSV (up to 100,000)">CSV</button>
   </span>
 </div>
 <svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" role="img" aria-label="Volume over time" hidden></svg>
+<div id="maint" aria-hidden="true"></div>
+<div id="marks" role="group" aria-label="Alerts in this window (arrow keys move, Enter zooms in)" hidden></div>
 <div id="axis" role="group" aria-label="Go to an hour" hidden></div>
 <dialog id="palette" aria-label="Commands">
   <input id="palIn" type="text" role="combobox" aria-expanded="true" aria-controls="palList" aria-autocomplete="list" placeholder="A command, a host, a view, a range…" autocomplete="off" spellcheck="false">
@@ -568,13 +537,18 @@ async function fillTrace(box, row) {
 
     const line = r => {
       const el = document.createElement('div');
-      el.className = 'ctxline' + (r.id === row.id ? ' cur' : '');
+      el.className = 'ctxline tl' + (r.id === row.id ? ' cur' : '');
       const t = document.createElement('span'); t.textContent = '+' + (r.ts - rows[0].ts) + ' ms';
       t.title = fmtTime(r.ts);
+      // Where the line falls between the first and the last entry of the trace.
+      const wf = document.createElement('span'); wf.className = 'wf';
+      const at = document.createElement('i'); at.className = 's' + r.severity;
+      at.style.left = (span ? 100 * (r.ts - rows[0].ts) / span : 0) + '%';
+      wf.append(at);
       const sev = document.createElement('span'); sev.className = 'sev s' + r.severity; sev.textContent = LEVELS[r.severity] || r.severity;
       const app = document.createElement('span'); app.className = 'app'; app.textContent = r.host + ' ' + r.app;
       const m = document.createElement('span'); m.className = 'm'; m.textContent = r.message;
-      el.append(t, sev, app, m);
+      el.append(t, wf, sev, app, m);
       return el;
     };
     box.replaceChildren(head, ...rows.map(line));
@@ -1077,6 +1051,7 @@ async function loadChart() {
     chart.replaceChildren(...bars, ...hits);
     chart.toggleAttribute('hidden', false);
     drawAxis(d);
+    drawMarks(d.buckets[0] ? d.buckets[0].ts : 0, d.buckets.length ? d.buckets[d.buckets.length - 1].ts + d.bucket_ms : 0);
 
     const items = keys.map((k, ki) => {
       const el = document.createElement('span');
@@ -1108,6 +1083,60 @@ async function loadChart() {
       (peak && peak.total ? ', peak of ' + peak.total.toLocaleString() + ' at ' + fmtTime(peak.ts) : ''));
     bar.hidden = false;
   } catch { hide(); }
+}
+
+// Alerts of the chart's window as ticks under it, and the maintenance windows that cover the searched host
+// (or all of them) hatched over it. Both are fetched again at most every 30 seconds while live; the
+// maintenance list needs the admin scope and is left out for good after a refusal.
+let marksCache = { key: '', at: 0, alerts: [], maint: [] }, maintAllowed = true;
+const ALERT_GOOD = ['host_recovered'];
+const globRe = p => new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+function maintSpans(list, since, until) {
+  const out = [], DOW = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'], DAY = 86400000;
+  const add = (a, b, w) => { a = Math.max(a, since); b = Math.min(b, until); if (a < b) out.push({ a, b, w }); };
+  for (const w of list) {
+    if (snap.host && !w.hosts.some(p => globRe(p).test(snap.host))) continue;
+    if (w.from) { add(w.from, w.until, w); continue; }
+    if (!w.between) continue;
+    const [s, e] = w.between.split('-').map(t => { const [hh, mm] = t.split(':').map(Number); return hh * 60 + mm; });
+    for (let d = Math.floor(since / DAY) * DAY - DAY; d < until; d += DAY) {
+      if (w.days && w.days.length && !w.days.includes(DOW[new Date(d).getUTCDay()])) continue;
+      add(d + s * 60000, d + (e > s ? e : e + 1440) * 60000, w);
+    }
+  }
+  return out;
+}
+async function drawMarks(since, until) {
+  if (!since || until <= since) { $('marks').hidden = true; $('maint').replaceChildren(); return; }
+  const key = snap.range === 'custom' ? since + '-' + until : snap.range + '|' + snap.host;
+  if (marksCache.key !== key || Date.now() - marksCache.at > 30000) {
+    const [alerts, maint] = await Promise.all([
+      fetch('/api/alerts?' + new URLSearchParams({ since: String(since), until: String(until), limit: '200' }), { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : []).catch(() => []),
+      maintAllowed ? fetch('/api/maintenance', { headers: authHeaders() }).then(r => { if (r.status === 403 || r.status === 401) maintAllowed = false; return r.ok ? r.json() : []; }).catch(() => []) : [],
+    ]);
+    marksCache = { key, at: Date.now(), alerts, maint };
+  }
+  const pos = t => (100 * (t - since) / (until - since)) + '%';
+  $('maint').replaceChildren(...maintSpans(marksCache.maint, since, until).map(({ a, b, w }) => {
+    const sp = document.createElement('span');
+    sp.style.left = pos(a); sp.style.width = (100 * (b - a) / (until - since)) + '%';
+    sp.textContent = 'maintenance' + (w.reason ? ': ' + w.reason : '');
+    return sp;
+  }));
+  const ticks = marksCache.alerts.filter(x => x.ts >= since && x.ts < until);
+  $('marks').replaceChildren(...ticks.map(x => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.tabIndex = 0;
+    b.className = ALERT_GOOD.includes(x.kind) ? 'good' : ALERT_BAD.includes(x.kind) ? 'bad' : '';
+    b.style.left = pos(x.ts);
+    b.title = fmtTime(x.ts) + ' · ' + x.kind.replace(/_/g, ' ') + (x.host ? ' · ' + x.host : '') + ' · ' + x.message + ' (click to zoom in)';
+    b.setAttribute('aria-label', b.title);
+    b.onclick = () => zoomTo(x.ts - 600000, x.ts + 600000);
+    return b;
+  }));
+  roving($('marks'));
+  $('marks').hidden = ticks.length === 0;
 }
 
 // Hour graduation under the chart, in the stream's time zone so it lines up with the hour bands.
@@ -1147,7 +1176,7 @@ function drawAxis(d) {
 function roving(box) {
   [...box.querySelectorAll('[tabindex]')].forEach((el, k) => { el.tabIndex = k ? -1 : 0; });
 }
-for (const box of [$('axis'), $('legend')]) box.addEventListener('keydown', e => {
+for (const box of [$('axis'), $('legend'), $('marks')]) box.addEventListener('keydown', e => {
   const items = [...box.querySelectorAll('[tabindex]')], i = items.indexOf(document.activeElement);
   const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: items.length - 1 }[e.key];
   if (i < 0 || j === undefined || j < 0 || j >= items.length) return;
@@ -1490,6 +1519,9 @@ function renderHosts() {
     const label = document.createElement('span');
     label.textContent = h.host;
     name.append(clickable(label, () => { $('host').value = h.host; load(); }, 'Filter on host ' + h.host));
+    const hp = document.createElement('a'); hp.className = 'hp'; hp.href = '/host/' + encodeURIComponent(h.host); hp.textContent = 'page';
+    hp.setAttribute('aria-label', 'Page of ' + h.host);
+    name.append(hp);
     if (h.silent) {
       const b = document.createElement('span');
       b.className = 'badge';
@@ -1762,7 +1794,9 @@ async function load() {
     if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
     const rows = await res.json();
     addRows(rows, false);
-    if (rows.length) $('empty').hidden = true; else renderEmpty();
+    if (rows.length) $('empty').hidden = true;
+    else if (!CHIP_FILTERS.some(([id]) => snap[id]) && snap.range !== 'custom') emptyOrWelcome();
+    else renderEmpty();
     pageParams = p.toString();
     nextCursor = res.headers.get('X-Next-Cursor');
     $('morebar').hidden = !nextCursor;
@@ -1843,7 +1877,40 @@ $('zoomOut').onclick = () => {
 };
 
 // No result: say so, and offer the two ways out, a wider time window and fewer filters.
+// Nothing at all in the database yet: show how to send logs here, with this server's address.
+async function emptyOrWelcome() {
+  try {
+    const res = await fetch('/api/logs?limit=1', { headers: authHeaders() });
+    if (!res.ok || (await res.json()).length) { renderEmpty(); return; }
+  } catch { renderEmpty(); return; }
+  const host = location.hostname, url = location.origin;
+  const block = (title, text, code) => {
+    const sec = document.createElement('section');
+    const h = document.createElement('h3'); h.textContent = title;
+    const p = document.createElement('p'); p.textContent = text;
+    const pre = document.createElement('pre'); pre.textContent = code;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'small'; b.textContent = 'copy';
+    b.onclick = async () => { b.textContent = await copyText(code) ? 'copied' : 'copy failed'; setTimeout(() => { b.textContent = 'copy'; }, 1500); };
+    sec.append(h, p, pre, b);
+    return sec;
+  };
+  const h2 = document.createElement('h2'); h2.textContent = 'No logs yet';
+  const intro = document.createElement('p'); intro.textContent = 'LogPit is running and waiting for its first entries. Send some with one of these, then search again.';
+  $('empty').className = 'welcome';
+  $('empty').replaceChildren(h2, intro,
+    block('Systemd journal (Proxmox, LXC, most Linux hosts)', 'With the shipper built into the logpit binary, and a write token in a file.',
+      'logpit ship --url ' + url + ' --journal --token-file /etc/logpit/ship-token'),
+    block('Syslog (routers, appliances, rsyslog)', 'In /etc/rsyslog.d/logpit.conf; 514 is the port mapped to the container\'s 5514 in the quick start, change it to yours.',
+      '*.* @@' + host + ':514'),
+    block('A first test line', 'Straight to the HTTP API with curl and a write token.',
+      'curl -H "Authorization: Bearer $TOKEN" --data-binary \'{"host":"test","message":"hello from curl"}\' ' + url + '/ingest'),
+    block('OpenTelemetry, Promtail, Alloy', 'Point the exporter or client at these endpoints (with a write token as a bearer token).',
+      'OTLP/HTTP: ' + url + '/v1/logs\nLoki push: ' + url + '/loki/api/v1/push'));
+  $('empty').hidden = false;
+}
+
 function renderEmpty() {
+  $('empty').className = '';
   const box = $('empty'), ways = [];
   const way = (text, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.onclick = () => { fn(); load(); }; ways.push(b); };
   if (snap.range === 'custom') way('Leave the zoomed window', () => { leaveZoom(); $('range').value = DEFAULT_RANGE; });
@@ -1922,6 +1989,23 @@ async function copyText(text) {
   return ok;
 }
 const CONTEXT_LINK_MS = 60000;
+// The last search as the equivalent `logpit search` command (single-quoted for a POSIX shell).
+function cliCommand() {
+  const sh = v => "'" + v.replace(/'/g, "'\\''") + "'";
+  const dur = ms => { const m = ms / 60000; return m % 1440 === 0 ? m / 1440 + 'd' : m % 60 === 0 ? m / 60 + 'h' : m + 'm'; };
+  const a = ['logpit', 'search'];
+  if (snap.q) a.push('-q', sh(snap.q));
+  for (const [k, opt] of [['host', '--host'], ['app', '--app'], ['tag', '--tag'], ['f', '-f'], ['re', '--regex']]) if (snap[k]) a.push(opt, sh(snap[k]));
+  if (snap.level) a.push('--level', LEVELS[Number(snap.level)]);
+  if (snap.range === 'custom') a.push('--since', new Date(snap.since).toISOString(), '--until', new Date(snap.until).toISOString());
+  else if (snap.range) a.push('--since', dur(Number(snap.range)));
+  return 'LOGPIT_URL=' + location.origin + ' ' + a.join(' ');
+}
+$('cli').onclick = async () => {
+  const ok = snap && await copyText(cliCommand());
+  $('cli').textContent = ok ? 'copied' : 'copy failed';
+  setTimeout(() => { $('cli').textContent = 'Copy as CLI'; }, 1500);
+};
 const acts = document.createElement('span');
 acts.className = 'acts';
 for (const [label, title, text] of [
@@ -1986,6 +2070,9 @@ function paletteItems() {
   add('Export', 'Download CSV', () => exportLogs('csv'));
   add('Open', 'Settings', () => { $('prefs').open = true; $('token').focus(); });
   add('Open', 'Search syntax', () => { $('help').open = true; $('help').querySelector('summary').focus(); });
+  for (const [label, href] of [['Departure board', '/board'], ['Compare two windows', '/compare'], ['Administration', '/admin']]) add('Page', label, () => { location.href = href; });
+  for (const h of (hostRows.length ? hostRows : palHosts).slice(0, 50)) add('Host page', h.host, () => { location.href = '/host/' + encodeURIComponent(h.host); });
+  add('Copy', 'This search as a CLI command', () => $('cli').click());
   return items;
 }
 function renderPalette() {
