@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.13.0 - 2026-10-03
+
 - HTTPS: `http.tls_cert` and `http.tls_key` (and optional `http.tls_client_ca` for mutual TLS) serve the
   web UI and API over TLS. Handshakes run concurrently with a timeout, `SIGHUP` reads the certificate files
   again, `logpit --healthcheck` follows the configuration, and failed handshakes are counted with the syslog
