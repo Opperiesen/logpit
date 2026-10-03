@@ -415,7 +415,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 Counts entries per time bucket, which is what the chart at the top of the web UI shows. The
 chart can be stacked by severity, host or app (*Stack by*); the legend gives the totals, and
-clicking a host or app in it filters the log table on it. With *Live* on, the chart is redrawn every 5 s (while the tab is visible). Clicking a bar zooms to that bucket's time window (shown as an extra entry in the time-range selector; pick another range to leave it, and *Live* is switched off).
+clicking a host or app in it filters the log table on it. With *Live* on, the chart is redrawn every 5 s (while the tab is visible). Clicking a bar zooms to that bucket's time window, and dragging across the chart zooms to the buckets under the selection (Escape cancels the drag); the window is shown as an extra entry in the time-range selector (pick another range to leave it, and *Live* is switched off).
 It takes the filters of `/api/logs` (`q`, `host`, `app`, `level`, `f`, `since`, `until`) plus:
 
 | Parameter | Meaning |

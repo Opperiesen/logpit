@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Web UI: dragging across the histogram zooms to the selected time range.
+
 ## 0.8.0 - 2026-10-03
 
 - OpenTelemetry: `POST /v1/logs` accepts OTLP/HTTP logs (protobuf or JSON, with or without gzip) from the

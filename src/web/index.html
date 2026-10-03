@@ -48,6 +48,8 @@
   #chart rect { fill:currentColor; }
   #chart .hit { fill:transparent; cursor:zoom-in; } #chart .hit:hover { fill:var(--accent); fill-opacity:.15; }
   #chart .hit.flat { cursor:default; }
+  #chart { touch-action:pan-y; user-select:none; }
+  #chart .sel { fill:var(--accent); fill-opacity:.3; stroke:var(--accent); stroke-width:1; vector-effect:non-scaling-stroke; pointer-events:none; }
   #top { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
   #top summary { cursor:pointer; padding:6px 0; color:var(--muted); }
   #top .topctl { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-bottom:6px; color:var(--muted); }
@@ -354,8 +356,52 @@ function colorFor(group, key, i) {
   return key === 'other' ? 'var(--other)' : 'var(--c' + (i % 10) + ')';
 }
 
+// Dragging across the histogram zooms to the buckets covered by the selection. `chartGeo` keeps the
+// buckets of the last render; `drag` is set while the pointer is down (refreshes are paused then).
+let chartGeo = null, drag = null, dragged = false;
+function dragRange(a, b) {
+  const n = chartGeo.buckets.length;
+  const rect = $('chart').getBoundingClientRect();
+  const idx = x => Math.min(n - 1, Math.max(0, Math.floor((x - rect.left) / rect.width * n)));
+  const i0 = idx(Math.min(a, b)), i1 = idx(Math.max(a, b));
+  return { i0, i1, since: chartGeo.buckets[i0].ts, until: chartGeo.buckets[i1].ts + chartGeo.bucket_ms - 1 };
+}
+function drawSelection(r) {
+  let el = $('chart').querySelector('.sel');
+  if (!r) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); el.setAttribute('class', 'sel'); el.setAttribute('y', 0); el.setAttribute('height', 100); $('chart').append(el); }
+  el.setAttribute('x', r.i0); el.setAttribute('width', r.i1 - r.i0 + 1);
+}
+(function () {
+  const chart = $('chart');
+  chart.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || !chartGeo || !chartGeo.buckets.length) return;
+    drag = { x: e.clientX }; dragged = false;
+  });
+  chart.addEventListener('pointermove', e => {
+    if (!drag) return;
+    // Capture only once it is a drag, so a plain click still reaches the bucket under it.
+    if (!dragged && Math.abs(e.clientX - drag.x) > 4) { dragged = true; chart.setPointerCapture(e.pointerId); }
+    if (dragged) drawSelection(dragRange(drag.x, e.clientX));
+  });
+  const end = e => {
+    if (!drag) return;
+    const from = drag.x;
+    drag = null;
+    drawSelection(null);
+    if (dragged && e.type === 'pointerup') {
+      const r = dragRange(from, e.clientX);
+      zoomTo(r.since, r.until);
+    }
+    setTimeout(() => { dragged = false; }, 0);
+  };
+  chart.addEventListener('pointerup', end);
+  chart.addEventListener('pointercancel', end);
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && drag) { drag = null; dragged = false; drawSelection(null); } });
+})();
+
 async function loadChart() {
-  if (!snap) return;
+  if (!snap || drag) return;
   const chart = $('chart'), bar = $('chartbar'), group = $('group').value;
   const p = chartParams();
   p.set('group_by', group);
@@ -395,14 +441,15 @@ async function loadChart() {
       hit.setAttribute('x', i); hit.setAttribute('width', 1);
       hit.setAttribute('y', 0); hit.setAttribute('height', 100);
       const zoomable = d.bucket_ms > MIN_ZOOM_MS;
-      if (zoomable) hit.onclick = () => zoomTo(b.ts, b.ts + d.bucket_ms - 1);
+      if (zoomable) hit.onclick = () => { if (!dragged) zoomTo(b.ts, b.ts + d.bucket_ms - 1); };
       else hit.classList.add('flat');
       const t = document.createElementNS(NS, 'title');
       t.textContent = new Date(b.ts).toLocaleString() + ' — ' + b.total +
-        (parts.length ? ' (' + parts.join(', ') + ')' : '') + (zoomable ? ' · click to zoom' : '');
+        (parts.length ? ' (' + parts.join(', ') + ')' : '') + (zoomable ? ' · click to zoom, drag to select a range' : ' · drag to select a range');
       hit.append(t);
       hits.push(hit);
     });
+    chartGeo = { bucket_ms: d.bucket_ms, buckets: d.buckets };
     chart.setAttribute('viewBox', '0 0 ' + Math.max(1, d.buckets.length) + ' 100');
     chart.replaceChildren(...bars, ...hits);
     chart.hidden = false;
