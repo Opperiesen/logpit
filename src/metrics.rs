@@ -24,6 +24,10 @@ pub struct Metrics {
     pub reload_failures: AtomicU64,
     /// Bytes of the database holding data, as last measured by the retention task.
     pub db_used_bytes: AtomicU64,
+    /// Entries written to the cold archive before being removed.
+    pub archived: AtomicU64,
+    /// Archive writes that failed (the entries were kept in the database).
+    pub archive_errors: AtomicU64,
 }
 
 impl Metrics {
@@ -78,6 +82,16 @@ impl Metrics {
                 "logpit_size_evicted_total",
                 "Entries evicted to stay under the database size limit",
                 &self.size_evicted,
+            ),
+            (
+                "logpit_archived_total",
+                "Entries written to the cold archive before removal",
+                &self.archived,
+            ),
+            (
+                "logpit_archive_errors_total",
+                "Cold archive writes that failed, which keep the entries in the database",
+                &self.archive_errors,
             ),
         ];
         for (name, help, counter) in rows {

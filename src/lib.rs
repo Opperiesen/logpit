@@ -2,6 +2,7 @@
 
 pub mod alerts;
 pub mod api;
+pub mod archive;
 pub mod audit;
 pub mod auth;
 pub mod cef;
@@ -27,6 +28,7 @@ pub mod patterns;
 pub mod proto;
 pub mod query;
 pub mod ratelimit;
+pub mod restore;
 pub mod rules;
 pub mod shipper;
 pub mod silence;

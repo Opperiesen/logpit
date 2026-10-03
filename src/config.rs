@@ -44,6 +44,9 @@ pub struct StorageConfig {
     pub queue_capacity: usize,
     /// Messages longer than this are truncated.
     pub max_message_bytes: usize,
+    /// When set, entries removed by retention or the size cap are first written to daily gzip
+    /// files in this directory (see the `archive` module).
+    pub archive_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -177,6 +180,7 @@ impl Default for StorageConfig {
             flush_interval_ms: 500,
             queue_capacity: 10_000,
             max_message_bytes: 16 * 1024,
+            archive_dir: None,
         }
     }
 }
@@ -256,6 +260,9 @@ impl Config {
     pub fn apply_env(&mut self, get: &dyn Fn(&str) -> Option<String>) -> anyhow::Result<()> {
         if let Some(v) = get("LOGPIT_STORAGE_PATH") {
             self.storage.path = PathBuf::from(v);
+        }
+        if let Some(v) = get("LOGPIT_ARCHIVE_DIR") {
+            self.storage.archive_dir = (!v.trim().is_empty()).then(|| PathBuf::from(v.trim()));
         }
         if let Some(v) = get("LOGPIT_RETENTION_DAYS") {
             self.storage.retention_days = v

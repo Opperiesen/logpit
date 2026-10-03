@@ -282,6 +282,64 @@ pub fn purge(conn: &Connection, cutoffs: &[Option<i64>; 8]) -> rusqlite::Result<
     Ok(removed)
 }
 
+/// Called with each chunk of entries about to be deleted; an error stops the deletion.
+pub type ArchiveHook<'a> = &'a dyn Fn(&[Row]) -> anyhow::Result<()>;
+
+/// Entries archived and deleted per step when archiving.
+const ARCHIVE_CHUNK: i64 = 5000;
+
+/// Like [`purge`], but hands the entries to `archive` first, a chunk at a time, deleting a chunk
+/// only after `archive` accepted it. Entries inserted meanwhile are left for the next run. A
+/// failing `archive` stops the purge and nothing more is deleted.
+pub fn purge_with(
+    conn: &Connection,
+    cutoffs: &[Option<i64>; 8],
+    archive: Option<ArchiveHook<'_>>,
+) -> anyhow::Result<usize> {
+    let Some(archive) = archive else {
+        return Ok(purge(conn, cutoffs)?);
+    };
+    let mut removed = 0;
+    let mut done = [false; 8];
+    for first in 0..8 {
+        let Some(cutoff) = cutoffs[first] else {
+            continue;
+        };
+        if done[first] {
+            continue;
+        }
+        let severities: Vec<String> = (first..8)
+            .filter(|&s| cutoffs[s] == Some(cutoff))
+            .inspect(|&s| done[s] = true)
+            .map(|s| s.to_string())
+            .collect();
+        let predicate = format!("ts < ?1 AND severity IN ({})", severities.join(","));
+        loop {
+            let rows = {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT id, ts, host, app, severity, message, fields FROM logs \
+                     WHERE {predicate} ORDER BY id LIMIT {ARCHIVE_CHUNK}"
+                ))?;
+                stmt.query_map(params![cutoff], map_row)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            let Some(last) = rows.last().map(|r| r.id) else {
+                break;
+            };
+            archive(&rows)?;
+            // The chunk is the first rows by id that match, so this is exactly that chunk.
+            removed += conn.execute(
+                &format!("DELETE FROM logs WHERE {predicate} AND id <= ?2"),
+                params![cutoff, last],
+            )?;
+            if (rows.len() as i64) < ARCHIVE_CHUNK {
+                break;
+            }
+        }
+    }
+    Ok(removed)
+}
+
 /// What to split each bucket's count by.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GroupBy {
@@ -772,7 +830,11 @@ const EVICT_MAX_STALLS: u32 = 5;
 /// 90% of that (so the limit is not hit again on the next entry). Returns the number of
 /// entries removed. Part of the full-text index is only reclaimed when SQLite merges its
 /// segments, so slightly more than the strict minimum may be removed.
-pub fn enforce_size_limit(conn: &Connection, max_bytes: u64) -> rusqlite::Result<usize> {
+pub fn enforce_size_limit(
+    conn: &Connection,
+    max_bytes: u64,
+    archive: Option<ArchiveHook<'_>>,
+) -> anyhow::Result<usize> {
     if used_bytes(conn)? <= max_bytes {
         return Ok(0);
     }
@@ -780,10 +842,34 @@ pub fn enforce_size_limit(conn: &Connection, max_bytes: u64) -> rusqlite::Result
     let (mut removed, mut stalls) = (0, 0);
     let mut used = used_bytes(conn)?;
     for _ in 0..EVICT_MAX_CHUNKS {
-        let n = conn.execute(
-            "DELETE FROM logs WHERE id IN (SELECT id FROM logs ORDER BY ts, id LIMIT ?1)",
-            params![EVICT_CHUNK],
-        )?;
+        let n = match archive {
+            None => conn.execute(
+                "DELETE FROM logs WHERE id IN (SELECT id FROM logs ORDER BY ts, id LIMIT ?1)",
+                params![EVICT_CHUNK],
+            )?,
+            // Archive the oldest chunk, then delete exactly those entries.
+            Some(hook) => {
+                let rows = {
+                    let mut stmt = conn.prepare(
+                        "SELECT id, ts, host, app, severity, message, fields FROM logs \
+                         ORDER BY ts, id LIMIT ?1",
+                    )?;
+                    stmt.query_map(params![EVICT_CHUNK], map_row)?
+                        .collect::<rusqlite::Result<Vec<_>>>()?
+                };
+                if rows.is_empty() {
+                    0
+                } else {
+                    hook(&rows)?;
+                    let ids =
+                        serde_json::to_string(&rows.iter().map(|r| r.id).collect::<Vec<_>>())?;
+                    conn.execute(
+                        "DELETE FROM logs WHERE id IN (SELECT value FROM json_each(?1))",
+                        params![ids],
+                    )?
+                }
+            }
+        };
         removed += n;
         let now = used_bytes(conn)?;
         stalls = if now < used { 0 } else { stalls + 1 };
@@ -2240,6 +2326,97 @@ mod tests {
     }
 
     #[test]
+    fn purge_archives_each_chunk_before_deleting_it() {
+        use std::cell::RefCell;
+        let mut conn = mem();
+        // 12 000 old entries (three chunks), a few of another severity, and fresh ones.
+        let mut batch: Vec<LogEntry> = (0..12_000)
+            .map(|i| entry(i, "h", 6, &format!("old {i}")))
+            .collect();
+        batch.extend((0..5).map(|i| entry(i, "h", 3, &format!("old error {i}"))));
+        batch.extend((0..7).map(|i| entry(1_000_000 + i, "h", 6, &format!("fresh {i}"))));
+        insert_batch(&mut conn, &batch).unwrap();
+        let archived = RefCell::new(Vec::<String>::new());
+        let hook = |rows: &[Row]| -> anyhow::Result<()> {
+            archived
+                .borrow_mut()
+                .extend(rows.iter().map(|r| r.message.clone()));
+            Ok(())
+        };
+        // Info is kept 500 ms back from now=1_000_500; errors forever.
+        let mut cutoffs = [None; 8];
+        cutoffs[6] = Some(500_000);
+        let removed = purge_with(&conn, &cutoffs, Some(&hook)).unwrap();
+        assert_eq!(removed, 12_000);
+        let archived = archived.into_inner();
+        assert_eq!(archived.len(), 12_000);
+        let unique: std::collections::HashSet<&String> = archived.iter().collect();
+        assert_eq!(unique.len(), 12_000, "every entry archived exactly once");
+        assert!(
+            archived
+                .iter()
+                .all(|m| m.starts_with("old ") && !m.contains("error"))
+        );
+        // What was not expired is untouched: the errors and the fresh entries.
+        let left = search(&conn, &q(100)).unwrap();
+        assert_eq!(left.len(), 12);
+
+        // Several severities sharing a cutoff go together; no hook behaves like `purge`.
+        let seen = RefCell::new(0);
+        let count = |rows: &[Row]| -> anyhow::Result<()> {
+            *seen.borrow_mut() += rows.len();
+            Ok(())
+        };
+        assert_eq!(
+            purge_with(&conn, &[Some(500_000); 8], Some(&count)).unwrap(),
+            5
+        );
+        assert_eq!(*seen.borrow(), 5);
+        assert_eq!(purge_with(&conn, &[Some(2_000_000); 8], None).unwrap(), 7);
+        assert!(search(&conn, &q(100)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_failing_archive_keeps_the_entries() {
+        let mut conn = mem();
+        let batch: Vec<LogEntry> = (0..10).map(|i| entry(i, "h", 6, "x")).collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let fail = |_: &[Row]| -> anyhow::Result<()> { anyhow::bail!("disk full") };
+        let err = purge_with(&conn, &[Some(100); 8], Some(&fail)).unwrap_err();
+        assert!(err.to_string().contains("disk full"));
+        assert_eq!(search(&conn, &q(100)).unwrap().len(), 10);
+    }
+
+    #[test]
+    fn size_cap_eviction_archives_what_it_removes() {
+        use std::cell::RefCell;
+        let mut conn = mem();
+        let filler = "x".repeat(1000);
+        let batch: Vec<LogEntry> = (0..4000)
+            .map(|i| entry(i, "h", 6, &format!("line {i} {filler}")))
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let before = used_bytes(&conn).unwrap();
+        let archived = RefCell::new(Vec::<i64>::new());
+        let hook = |rows: &[Row]| -> anyhow::Result<()> {
+            archived.borrow_mut().extend(rows.iter().map(|r| r.ts));
+            Ok(())
+        };
+        let removed = enforce_size_limit(&conn, before / 2, Some(&hook)).unwrap();
+        let archived = archived.into_inner();
+        assert!(removed > 0 && removed < 4000);
+        assert_eq!(archived.len(), removed);
+        // Oldest first, and exactly the entries that are gone.
+        assert_eq!(archived, (0..removed as i64).collect::<Vec<_>>());
+        assert_eq!(search(&conn, &q(5000)).unwrap().len(), 4000 - removed);
+        // A failing archive stops the eviction.
+        let fail = |_: &[Row]| -> anyhow::Result<()> { anyhow::bail!("nope") };
+        let left = search(&conn, &q(5000)).unwrap().len();
+        assert!(enforce_size_limit(&conn, 1, Some(&fail)).is_err());
+        assert_eq!(search(&conn, &q(5000)).unwrap().len(), left);
+    }
+
+    #[test]
     fn size_limit_evicts_oldest_entries_first() {
         let mut conn = mem();
         let filler = "x".repeat(1000);
@@ -2251,10 +2428,10 @@ mod tests {
         assert!(before > 4_000_000);
 
         // Under the limit: nothing happens.
-        assert_eq!(enforce_size_limit(&conn, before + 1).unwrap(), 0);
+        assert_eq!(enforce_size_limit(&conn, before + 1, None).unwrap(), 0);
 
         let limit = before / 2;
-        let removed = enforce_size_limit(&conn, limit).unwrap();
+        let removed = enforce_size_limit(&conn, limit, None).unwrap();
         assert!(removed > 0 && removed < 4000, "removed {removed}");
         assert!(used_bytes(&conn).unwrap() <= limit / 10 * 9);
 

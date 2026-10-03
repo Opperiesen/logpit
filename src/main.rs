@@ -23,7 +23,10 @@ const USAGE: &str =
 Configuration comes from the TOML file (--config, $LOGPIT_CONFIG or ./logpit.toml)
 and LOGPIT_* environment variables, which take precedence.
 --healthcheck probes the running instance's /healthz and exits 0 or 1.
---backup writes a consistent copy of the database to a new file (safe while LogPit runs).";
+--backup writes a consistent copy of the database to a new file (safe while LogPit runs).
+
+Other commands: `logpit ship` follows the journal and log files, `logpit restore` loads archive
+files into a server; both take --help.";
 
 struct Args {
     config: Option<PathBuf>,
@@ -80,6 +83,7 @@ async fn retention_loop(
     retention_days: [u32; 8],
     max_db_bytes: u64,
     metrics: Arc<Metrics>,
+    archiver: Option<Arc<logpit::archive::Archiver>>,
 ) {
     const TICK: Duration = Duration::from_secs(60);
     const TICKS_PER_PURGE: u64 = 60;
@@ -93,15 +97,32 @@ async fn retention_loop(
         let now = now_ms();
         let cutoffs = retention_days.map(|d| (d > 0).then(|| now - i64::from(d) * 86_400_000));
         let path = path.clone();
+        let (archiver, archive_metrics) = (archiver.clone(), metrics.clone());
         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(usize, usize, u64)> {
             let conn = store::open(&path)?;
+            // Entries are archived, a chunk at a time, before they are deleted; if the archive
+            // cannot be written they stay in the database.
+            let write = |rows: &[store::Row]| -> anyhow::Result<()> {
+                let archiver = archiver.as_ref().expect("only called while archiving");
+                match archiver.write(rows) {
+                    Ok(_) => {
+                        Metrics::inc(&archive_metrics.archived, rows.len() as u64);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        Metrics::inc(&archive_metrics.archive_errors, 1);
+                        Err(e.context("archiving entries before removal"))
+                    }
+                }
+            };
+            let hook: Option<store::ArchiveHook<'_>> = archiver.is_some().then_some(&write);
             let aged = if purge_by_age {
-                store::purge(&conn, &cutoffs)?
+                store::purge_with(&conn, &cutoffs, hook)?
             } else {
                 0
             };
             let evicted = if max_db_bytes > 0 {
-                store::enforce_size_limit(&conn, max_db_bytes)?
+                store::enforce_size_limit(&conn, max_db_bytes, hook)?
             } else {
                 0
             };
@@ -233,6 +254,29 @@ async fn main() -> anyhow::Result<()> {
             .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
             .init();
         return logpit::shipper::run(cfg).await;
+    }
+
+    // `logpit restore ...` loads archive files into a server.
+    if raw.first().map(String::as_str) == Some("restore") {
+        if raw[1..].iter().any(|a| a == "--help" || a == "-h") {
+            println!("{}", logpit::restore::USAGE);
+            return Ok(());
+        }
+        let cfg = logpit::restore::RestoreConfig::from_args(&raw[1..], &|k| std::env::var(k).ok())?;
+        let dry = cfg.dry_run;
+        let summary = logpit::restore::run(cfg).await?;
+        println!(
+            "{} {} entries from {} files{}",
+            if dry { "would restore" } else { "restored" },
+            summary.entries,
+            summary.files,
+            if summary.bad_lines > 0 {
+                format!(" ({} unreadable lines skipped)", summary.bad_lines)
+            } else {
+                String::new()
+            }
+        );
+        return Ok(());
     }
 
     let args = parse_args()?;
@@ -428,10 +472,27 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(unix))]
     drop((tracker, reload_metrics));
 
+    let archiver = cfg
+        .storage
+        .archive_dir
+        .as_deref()
+        .map(logpit::archive::Archiver::new)
+        .transpose()?
+        .map(Arc::new);
+    if let Some(dir) = &cfg.storage.archive_dir {
+        tracing::info!("cold archive: expired entries go to {}", dir.display());
+    }
     let retention = cfg.storage.retention_table()?;
     let max_db_bytes = cfg.storage.max_db_size_mb * 1_000_000;
     tasks.spawn(async move {
-        retention_loop(db_path, retention, max_db_bytes, retention_metrics).await;
+        retention_loop(
+            db_path,
+            retention,
+            max_db_bytes,
+            retention_metrics,
+            archiver,
+        )
+        .await;
         Ok(())
     });
 

@@ -36,6 +36,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Forwarding**: `[[forward]]` sends a filtered copy of the entries to another LogPit, a collector or a SIEM,
   over HTTP (NDJSON) or syslog (RFC 5424, UDP or TCP).
+- **Cold archive**: entries leaving through retention or the size cap are first written to daily gzip files,
+  readable with `zcat` and reloadable with `logpit restore`.
 - **Deduplication**: runs of identical messages are stored once, with a summary entry for the repeats.
 - **Observability**: Prometheus metrics at `/metrics`, health at `/healthz`, and counters derived from the
   logs themselves (`[[metrics]]`).
@@ -93,6 +95,7 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_RETENTION_DAYS` | `14` | `0` disables purging |
 | `LOGPIT_RATE_LIMIT_PER_HOST`, `_BURST`, `_GLOBAL` | `0` (off) | Rate limits, see [Rate limiting](#rate-limiting) |
 | `LOGPIT_PARSE_STRUCTURED` | `true` | Extract JSON and `key=value` data from messages into fields |
+| `LOGPIT_ARCHIVE_DIR` | | Directory for the [cold archive](#cold-archive): entries are written there before retention or the size cap removes them |
 | `LOGPIT_MAX_DB_SIZE_MB` | `0` | Soft cap on the database size; the oldest entries are evicted beyond it. `0` = off (see below) |
 | `LOGPIT_RETENTION_BY_SEVERITY` | | Per-severity retention, e.g. `debug=2,info=7,err=90` (see below) |
 | `LOGPIT_SILENCE_AFTER_SECS` | `0` | Alert when any host is silent this long; `0` disables |
@@ -384,6 +387,62 @@ extra. To give space back to the filesystem, stop LogPit and run `sqlite3 logpit
 Because part of the search index is reclaimed lazily, a purge can remove a bit more than the
 strict minimum. `/metrics` exposes `logpit_db_used_bytes` and `logpit_size_evicted_total`; evictions
 are also logged as warnings, which usually means the cap is too low for your log volume.
+
+## Cold archive
+
+With `storage.archive_dir` (or `LOGPIT_ARCHIVE_DIR`) set, retention and the size cap no longer just
+delete: entries are first appended to one gzip file per UTC day, so the database stays small while
+nothing that expires is lost.
+
+```toml
+[storage]
+retention_days = 14
+archive_dir = "/var/lib/logpit/archive"   # created at startup; LogPit refuses to start if it is not writable
+```
+
+```
+/var/lib/logpit/archive/2026/09/logpit-2026-09-30.ndjson.gz
+```
+
+- **Format.** Each file is a series of gzip members (one per batch written, at most 8 MiB of text each)
+  of NDJSON in the [`/ingest` format](#sending-logs): `ts`, `host`, `app`, `severity`, `message` and
+  `fields`. Standard tools read it as one stream: `gunzip -c logpit-2026-09-30.ndjson.gz | grep timeout`
+  (on macOS use `gunzip -c`, `zcat` wants `.Z`), and `gzip -t` checks it. Entries land in the file of the
+  UTC day of their own timestamp, so a day's file grows over several purges.
+- **Safety.** Entries are deleted in chunks of 5000 only after their chunk was written and synced. If
+  the archive cannot be written (disk full, permissions), nothing more is deleted, the error is logged,
+  `logpit_archive_errors_total` goes up and the database keeps growing until you fix it: archiving is
+  never skipped silently. A crash between writing and deleting can archive some entries twice, and a
+  reload does not change the archive directory (restart for that).
+- **What is archived.** Everything that retention (every hour, per severity) or the size cap removes.
+  `logpit_archived_total` counts them. [Audit events](#named-tokens-restrictions-and-audit) and saved
+  views are not archived. Enabling it on an existing database archives what is already past
+  retention at the first purge.
+- **Disk.** Log text compresses well, but nothing prunes the archive: delete or move old
+  files yourself (they are independent, so `find … -mtime +365 -delete` or a copy to object storage
+  is fine). Keep it out of `backup` of the database if it is backed up elsewhere.
+
+### Restoring
+
+`logpit restore` reads archive files (or any NDJSON in `/ingest` format) and sends them to a server:
+
+```sh
+logpit restore --url http://scratch:8080 --token-file /etc/logpit/write-token /var/lib/logpit/archive
+logpit restore --url http://scratch:8080 --token-file tok --from 2026-09-01 --to 2026-09-30 archive/2026/09
+logpit restore --dry-run archive        # count what would be sent
+```
+
+Directories are searched recursively, `--from` and `--to` select files by the UTC day in their name
+(a file named explicitly is always read), `--batch-lines` sets the request size (default 1000), and
+the token comes from `--token-file`, `LOGPIT_RESTORE_TOKEN` or `LOGPIT_RESTORE_TOKEN_FILE`, never the
+command line. Entries keep their original timestamps, severities and fields; unreadable lines are
+counted and skipped, a refused token or a server that stays down stops the run with a message, and
+server errors are retried three times.
+
+Restore into a **scratch instance** (retention off, or a throw-away database) rather than the live
+one: the server applies its usual pipeline, so its rate limits, rules and alerts see old entries as new
+ones, and its own retention would purge them again within the hour and archive them a second time.
+`logpit --backup` is the tool for copying the database itself.
 
 ## Searching
 

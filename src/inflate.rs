@@ -23,7 +23,7 @@ impl std::fmt::Display for Error {
 }
 
 /// CRC-32 (IEEE), as gzip uses.
-fn crc32(data: &[u8]) -> u32 {
+pub fn crc32(data: &[u8]) -> u32 {
     let mut crc = !0u32;
     for &byte in data {
         crc ^= u32::from(byte);

@@ -192,7 +192,7 @@ impl ShipConfig {
     }
 }
 
-fn read_token(path: &Path) -> anyhow::Result<String> {
+pub(crate) fn read_token(path: &Path) -> anyhow::Result<String> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("cannot read the token file {}", path.display()))?;
     let token = text.trim_end_matches(['\r', '\n']).to_string();
