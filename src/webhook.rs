@@ -180,6 +180,58 @@ fn connector_with(roots: RootCertStore) -> TlsConnector {
     TlsConnector::from(Arc::new(config))
 }
 
+/// A connection to a server, plain or TLS.
+pub enum Conn {
+    Plain(TcpStream),
+    Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
+}
+
+impl AsyncRead for Conn {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Conn::Plain(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            Conn::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for Conn {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Conn::Plain(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            Conn::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Conn::Plain(s) => std::pin::Pin::new(s).poll_flush(cx),
+            Conn::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Conn::Plain(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            Conn::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_shutdown(cx),
+        }
+    }
+}
+
 /// Where and how alerts are sent: an `http://` or `https://` URL, a body format and optional
 /// extra headers (an `Authorization` token, for instance).
 #[derive(Clone)]
@@ -297,6 +349,39 @@ impl Webhook {
                     head.lines().next().unwrap_or("")
                 )
             })
+    }
+
+    /// Opens a connection to the server (negotiating TLS for `https`), for callers that speak
+    /// HTTP themselves.
+    pub(crate) async fn connect(&self) -> anyhow::Result<Conn> {
+        let tcp = timeout(self.timeout, TcpStream::connect(&self.connect_addr)).await??;
+        match &self.tls_name {
+            None => Ok(Conn::Plain(tcp)),
+            Some(name) => {
+                let server_name = ServerName::try_from(name.clone())
+                    .with_context(|| format!("{name:?} is not a valid server name"))?;
+                let tls = timeout(self.timeout, self.connector.connect(server_name, tcp)).await??;
+                Ok(Conn::Tls(Box::new(tls)))
+            }
+        }
+    }
+
+    /// `host[:port]` as written in the URL, for the `Host` header.
+    pub(crate) fn authority(&self) -> &str {
+        &self.authority
+    }
+
+    /// The path of the URL (`/` when it had none).
+    pub(crate) fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub(crate) fn extra_headers(&self) -> &[(String, String)] {
+        &self.headers
+    }
+
+    pub(crate) fn io_timeout(&self) -> Duration {
+        self.timeout
     }
 
     /// Connects (and negotiates TLS for `https`), sends `request` and returns the status code.

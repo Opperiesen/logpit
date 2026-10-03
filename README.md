@@ -37,6 +37,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
   apps for reading, and an audit trail of refused requests and reads.
 - **New-pattern alerts**: get notified when a message pattern never seen before appears, or a known one
   suddenly surges.
+- **Command line**: `logpit search` and `logpit tail` query a server from the terminal, with the same filters
+  as the API, and text, JSON or NDJSON output.
 - **Volume alerts**: get notified when a host sends far more or far fewer logs than it usually does.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Forwarding**: `[[forward]]` sends a filtered copy of the entries to another LogPit, a collector or a SIEM,
@@ -767,6 +769,44 @@ deleting need the `read` scope, so the people who view the logs also manage the 
 can only ingest cannot. Views are stored in the database file (a table created on first use that does
 not change the schema version, so an older LogPit can still open the file) and are part of
 `logpit --backup`.
+
+## Command line: search and tail
+
+The `logpit` binary can also query a running server, which saves writing `curl` and a `jq` filter for
+the usual questions:
+
+```sh
+export LOGPIT_URL=http://logpit-host:8080 LOGPIT_TOKEN_FILE=~/.config/logpit/read-token
+
+logpit search -q "disk error" --level warn --since 2h             # oldest first, like a log file
+logpit search --tag prod -f 'status>=500' --regex 'timeout|refused' -n 500 --fields
+logpit search --host web1 --since 2026-10-03T08:00:00Z --until 2026-10-03T09:00:00Z --format ndjson | jq .message
+logpit tail --tag prod --level err                                 # last 10, then follow; Ctrl-C to stop
+```
+
+| Option | Meaning |
+|---|---|
+| `--url`, `--token-file` | The server (or `LOGPIT_URL`) and a read token (or `LOGPIT_TOKEN`, `LOGPIT_TOKEN_FILE`); never on the command line |
+| `-q`, `--host`, `--app`, `--level`, `-f`, `--regex`, `--tag` | The [search filters](#searching): `-f` and `--tag` can be repeated; `--level` takes `err`, `warn`… or 0-7 and means that severity and worse |
+| `--since`, `--until` | `search` only: a duration before now (`15m`, `2h`, `1d`, `1h30m`), an RFC 3339 time, or Unix seconds or milliseconds |
+| `-n`, `--limit` | Entries to print: `search` 100 by default (up to 1 000 000, fetched 1000 at a time), `tail` 10 |
+| `--format` | `text` (default), `json` (one array, `search` only) or `ndjson` |
+| `--fields` | Text output: add the structured fields after the message |
+| `--newest-first` | `search` only: newest entries first instead of oldest first |
+
+- **Text output** is one line per entry: UTC time, host, app (`-` when empty), severity name, message;
+  continuation lines of a multi-line message are indented. JSON and NDJSON are the API's own entries
+  (`id`, `ts` in Unix ms, `host`, `app`, `severity`, `message`, `fields`).
+- **`tail`** subscribes to the live stream first and then prints the last entries, so nothing is
+  missed between the two (an entry can appear twice at that moment). It reconnects with a growing delay
+  when the connection drops, tells you on stderr if the server skipped entries because they came too
+  fast, and gives up at once on a refused token. It follows the [live tail](#live-tail) semantics,
+  where free text matches words loosely and regular expressions and field comparisons work as in
+  search.
+- **Errors** go to stderr with a non-zero exit status (`401`: give a read token); a closed pipe such
+  as `logpit search | head` ends quietly. The same read restrictions and tags as in the API apply.
+- It talks plain HTTP/1.1 or HTTPS with the built-in certificate authorities; there is no option to
+  trust a private CA, so for that use a reverse proxy with a public certificate or the `curl` examples.
 
 ## Live tail
 

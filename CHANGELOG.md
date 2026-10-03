@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Command line: `logpit search` prints the entries matching the usual filters (text, host, app, level,
+  field comparisons, regex, tag, time range) oldest first, paging through up to a million of them, and
+  `logpit tail` prints the last few and follows new ones, with text, JSON or NDJSON output, a token from a
+  file or the environment, and reconnection. Both are in the same binary as the server.
+
 - Volume alerts (`[volume]`, off by default): a webhook notification when a host sends several times
   more, or a fraction of, its usual number of entries per window (zero included), against a moving
   baseline seeded from the stored history. Cooldown per host, a minimum baseline for small hosts,

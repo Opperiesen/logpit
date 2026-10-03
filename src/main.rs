@@ -26,7 +26,7 @@ and LOGPIT_* environment variables, which take precedence.
 --backup writes a consistent copy of the database to a new file (safe while LogPit runs).
 
 Other commands: `logpit ship` follows the journal and log files, `logpit restore` loads archive
-files into a server; both take --help.";
+files into a server, `logpit search` and `logpit tail` query a server; all take --help.";
 
 struct Args {
     config: Option<PathBuf>,
@@ -254,6 +254,34 @@ async fn main() -> anyhow::Result<()> {
             .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
             .init();
         return logpit::shipper::run(cfg).await;
+    }
+
+    // `logpit search ...` and `logpit tail ...` query a running server from the terminal.
+    if matches!(raw.first().map(String::as_str), Some("search" | "tail")) {
+        if raw[1..].iter().any(|a| a == "--help" || a == "-h") {
+            println!("{}", logpit::cli::SEARCH_USAGE);
+            return Ok(());
+        }
+        let cli = logpit::cli::Cli::from_args(&raw[1..], &|k| std::env::var(k).ok(), now_ms())?;
+        let mut out = std::io::stdout().lock();
+        let result = if raw[0] == "search" {
+            logpit::cli::search(&cli, &mut out).await.map(|_| ())
+        } else {
+            tokio::select! {
+                r = logpit::cli::tail(&cli, &mut out, None) => r,
+                _ = tokio::signal::ctrl_c() => Ok(()),
+            }
+        };
+        // A closed pipe (`logpit search | head`) is not an error worth a message.
+        return match result {
+            Err(e)
+                if e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe) =>
+            {
+                Ok(())
+            }
+            other => other,
+        };
     }
 
     // `logpit restore ...` loads archive files into a server.
