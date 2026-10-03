@@ -63,7 +63,7 @@ podman run -d --name logpit --restart always \
   -p 514:5514/udp -p 514:5514/tcp -p 8080:8080 \
   -e LOGPIT_HTTP_TOKEN="$TOKEN" \
   -v logpit-data:/data \
-  ghcr.io/opperiesen/logpit:0.13.0
+  ghcr.io/opperiesen/logpit:0.14.0
 echo "$TOKEN"
 ```
 

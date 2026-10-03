@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.14.0 - 2026-10-03
+
 - OTLP over gRPC: `LogsService/Export` is served on the HTTP port (HTTP/2, `h2c` without TLS and ALPN `h2`
   with HTTPS), with the write token as `authorization` metadata, gzip message compression and the same
   mapping as OTLP/HTTP. Adds the `h2` crate through axum's `http2` feature.
