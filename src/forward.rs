@@ -821,6 +821,11 @@ mod tests {
         wait_for("first", || stat(&f, "sent_total") == 1).await;
         f.offer(&entry(2, "h", "app", 4, "second"));
         wait_for("second", || stat(&f, "sent_total") == 2).await;
+        // The counter moves once the bytes are written; the server may not have read them yet.
+        wait_for("the server to read both messages", || {
+            String::from_utf8_lossy(&received.lock().unwrap()).contains("second")
+        })
+        .await;
         let data = String::from_utf8(received.lock().unwrap().clone()).unwrap();
         let mut rest = data.as_str();
         let mut messages = Vec::new();
