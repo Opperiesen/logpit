@@ -80,6 +80,23 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/api/fields", get(fields))
         .route("/api/patterns", get(patterns))
         .route("/api/export", get(export))
+        .route(
+            "/loki/api/v1/query_range",
+            get(crate::lokiapi::query_range).post(crate::lokiapi::query_range),
+        )
+        .route(
+            "/loki/api/v1/query",
+            get(crate::lokiapi::query_instant).post(crate::lokiapi::query_instant),
+        )
+        .route("/loki/api/v1/labels", get(crate::lokiapi::labels))
+        .route(
+            "/loki/api/v1/label/{name}/values",
+            get(crate::lokiapi::label_values),
+        )
+        .route(
+            "/loki/api/v1/series",
+            get(crate::lokiapi::series_list).post(crate::lokiapi::series_list),
+        )
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Read),
             require_scope,

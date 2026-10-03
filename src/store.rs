@@ -341,6 +341,47 @@ pub fn stats(
     rows.collect()
 }
 
+/// Counts of the entries matching `q` per bucket and per tuple of group values, for metric
+/// queries: bucket `i` covers `(origin_ms + i * bucket_ms, origin_ms + (i + 1) * bucket_ms]`, and
+/// `q` must keep only entries after `origin_ms`. Empty buckets are not returned.
+pub fn series(
+    conn: &Connection,
+    q: &Query,
+    origin_ms: i64,
+    bucket_ms: i64,
+    groups: &[GroupBy],
+) -> rusqlite::Result<Vec<(i64, Vec<String>, u64)>> {
+    let exprs = groups
+        .iter()
+        .map(group_sql)
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let select: String = exprs
+        .iter()
+        .enumerate()
+        .map(|(i, e)| format!(", {e} AS g{i}"))
+        .collect();
+    let by: String = (0..exprs.len()).map(|i| format!(", g{i}")).collect();
+    let filter = Filter::new(q)?;
+    // Both numbers are i64 formatted by us, never user text.
+    let sql = format!(
+        "SELECT (l.ts - {origin_ms} - 1) / {bucket_ms} AS b{select}, COUNT(*) \
+         FROM logs l{} GROUP BY b{by} ORDER BY b",
+        filter.sql()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let n = exprs.len();
+    let rows = stmt.query_map(
+        params_from_iter(filter.args.iter().map(|a| a.as_ref())),
+        |r| {
+            let labels = (0..n)
+                .map(|i| r.get::<_, String>(i + 1))
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok((r.get(0)?, labels, r.get::<_, i64>(n + 1)? as u64))
+        },
+    )?;
+    rows.collect()
+}
+
 #[derive(Debug, Serialize, PartialEq)]
 pub struct HostSummary {
     pub host: String,
@@ -769,6 +810,12 @@ pub struct Query {
     pub compare: Vec<crate::filters::FieldFilter>,
     /// The message must match this regular expression.
     pub message_re: Option<regex::Regex>,
+    /// Conditions on the message text (LogQL line filters) and on the host and app columns beyond
+    /// exact equality; all must hold.
+    pub line_filters: Vec<crate::filters::LineFilter>,
+    pub column_filters: Vec<crate::filters::ColumnFilter>,
+    /// Keep only entries whose severity is in this set (`None`: any).
+    pub severities: Option<Vec<u8>>,
     /// Cursor for paging: keep only entries older than `(ts, id)`, as in search order.
     pub before: Option<(i64, i64)>,
     /// What the caller may read, on top of the filters above (unrestricted by default).
@@ -803,6 +850,18 @@ impl Query {
             .fields
             .iter()
             .all(|(k, v)| e.fields.get(k).is_some_and(|x| x == v))
+        {
+            return false;
+        }
+        if !self.line_filters.iter().all(|f| f.matches(&e.message))
+            || !self
+                .column_filters
+                .iter()
+                .all(|f| f.matches(&e.host, &e.app))
+            || self
+                .severities
+                .as_ref()
+                .is_some_and(|set| !set.contains(&e.severity))
         {
             return false;
         }
@@ -970,6 +1029,45 @@ impl Filter {
         let (dynamic, args) = access_conditions(&q.access, None);
         f.dynamic = dynamic;
         f.args.extend(args);
+        for lf in &q.line_filters {
+            use crate::filters::LineOp;
+            f.dynamic.push(
+                match lf.op {
+                    LineOp::Contains => "instr(l.message, ?) > 0",
+                    LineOp::NotContains => "instr(l.message, ?) = 0",
+                    LineOp::Re => "l.message REGEXP ?",
+                    LineOp::NotRe => "NOT (l.message REGEXP ?)",
+                }
+                .to_string(),
+            );
+            f.args.push(Box::new(lf.value.clone()));
+        }
+        for cf in &q.column_filters {
+            use crate::filters::{Column, ColumnMatch};
+            let col = match cf.column {
+                Column::Host => "l.host",
+                Column::App => "l.app",
+            };
+            let (cond, arg) = match &cf.matcher {
+                ColumnMatch::Eq(v) => (format!("{col} = ?"), v.clone()),
+                ColumnMatch::Ne(v) => (format!("{col} != ?"), v.clone()),
+                ColumnMatch::Re(re) => (format!("{col} REGEXP ?"), re.as_str().to_string()),
+                ColumnMatch::NotRe(re) => {
+                    (format!("NOT ({col} REGEXP ?)"), re.as_str().to_string())
+                }
+            };
+            f.dynamic.push(cond);
+            f.args.push(Box::new(arg));
+        }
+        if let Some(set) = &q.severities {
+            // Severities are small integers, so they are written into the statement.
+            f.dynamic.push(if set.is_empty() {
+                "0".to_string()
+            } else {
+                let list: Vec<String> = set.iter().map(u8::to_string).collect();
+                format!("l.severity IN ({})", list.join(","))
+            });
+        }
         Ok(f)
     }
 
@@ -994,12 +1092,21 @@ impl Filter {
 }
 
 pub fn search(conn: &Connection, q: &Query) -> rusqlite::Result<Vec<Row>> {
+    search_ordered(conn, q, false)
+}
+
+/// Like [`search`], oldest first when `ascending`.
+pub fn search_ordered(conn: &Connection, q: &Query, ascending: bool) -> rusqlite::Result<Vec<Row>> {
     let mut filter = Filter::new(q)?;
     let mut sql = String::from(
         "SELECT l.id, l.ts, l.host, l.app, l.severity, l.message, l.fields FROM logs l",
     );
     sql.push_str(&filter.sql());
-    sql.push_str(" ORDER BY l.ts DESC, l.id DESC LIMIT ?");
+    sql.push_str(if ascending {
+        " ORDER BY l.ts ASC, l.id ASC LIMIT ?"
+    } else {
+        " ORDER BY l.ts DESC, l.id DESC LIMIT ?"
+    });
     filter.args.push(Box::new(q.limit as i64));
     let args = filter.args;
 
@@ -1892,6 +1999,106 @@ mod tests {
         // Counting and grouping follow the same filters.
         let top = top_values(&conn, &with(&["status>=500"], None), &GroupBy::Host, 10).unwrap();
         assert_eq!((top.matching, top.distinct), (2, 2));
+    }
+
+    #[test]
+    fn line_filters_column_filters_and_severity_sets() {
+        use crate::filters::{
+            Column, ColumnFilter, ColumnMatch, LineFilter, LineOp, compile_regex,
+        };
+        let mut conn = mem();
+        let rows = [
+            ("web1", "nginx", 3, "upstream timed out (110)"),
+            ("web2", "nginx", 6, "GET /index 200"),
+            ("db1", "pg", 4, "slow query: 3.1s"),
+            ("db1", "pg", 6, "checkpoint complete"),
+            ("", "", 7, "Debug (lib) tick"),
+        ];
+        let batch: Vec<LogEntry> = rows
+            .iter()
+            .enumerate()
+            .map(|(i, (h, a, sev, m))| {
+                let mut e = entry(i as i64 + 1, h, *sev, m);
+                e.app = a.to_string();
+                e
+            })
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let check = |query: Query, expect: &[i64]| {
+            let mut ts: Vec<i64> = search(&conn, &query)
+                .unwrap()
+                .iter()
+                .map(|r| r.ts)
+                .collect();
+            ts.sort();
+            assert_eq!(ts, expect);
+            let live: Vec<i64> = batch
+                .iter()
+                .filter(|e| query.matches(e))
+                .map(|e| e.ts)
+                .collect();
+            assert_eq!(live, expect, "live tail disagrees");
+        };
+        let lines = |filters: &[(LineOp, &str)]| Query {
+            line_filters: filters
+                .iter()
+                .map(|(o, v)| LineFilter::new(*o, v).unwrap())
+                .collect(),
+            ..q(100)
+        };
+        check(lines(&[(LineOp::Contains, "timed out")]), &[1]);
+        check(lines(&[(LineOp::Contains, "(lib)")]), &[5]);
+        check(lines(&[(LineOp::Contains, "debug")]), &[]);
+        check(lines(&[(LineOp::NotContains, "GET")]), &[1, 3, 4, 5]);
+        check(lines(&[(LineOp::Re, r"\d+\.\ds$")]), &[3]);
+        check(lines(&[(LineOp::NotRe, "^(GET|slow)")]), &[1, 4, 5]);
+        check(
+            lines(&[(LineOp::Contains, "e"), (LineOp::NotContains, "query")]),
+            &[1, 2, 4, 5],
+        );
+
+        let cols = |filters: Vec<ColumnFilter>| Query {
+            column_filters: filters,
+            ..q(100)
+        };
+        let re = |s: &str| compile_regex(s).unwrap();
+        let f = |column, matcher| ColumnFilter { column, matcher };
+        check(
+            cols(vec![f(Column::Host, ColumnMatch::Eq("db1".into()))]),
+            &[3, 4],
+        );
+        check(
+            cols(vec![f(Column::Host, ColumnMatch::Ne("db1".into()))]),
+            &[1, 2, 5],
+        );
+        check(
+            cols(vec![f(Column::App, ColumnMatch::Re(re("^(nginx|pg)$")))]),
+            &[1, 2, 3, 4],
+        );
+        check(
+            cols(vec![f(Column::Host, ColumnMatch::NotRe(re("^web")))]),
+            &[3, 4, 5],
+        );
+        check(
+            cols(vec![
+                f(Column::App, ColumnMatch::Eq("pg".into())),
+                f(Column::Host, ColumnMatch::NotRe(re("^web"))),
+            ]),
+            &[3, 4],
+        );
+        let sev = |set: Option<Vec<u8>>| Query {
+            severities: set,
+            ..q(100)
+        };
+        check(sev(Some(vec![3, 4])), &[1, 3]);
+        check(sev(Some(vec![6])), &[2, 4]);
+        check(sev(Some(vec![])), &[]);
+        check(sev(None), &[1, 2, 3, 4, 5]);
+        // Combined with the access limits and the structured filters.
+        let mut limited = lines(&[(LineOp::NotContains, "GET")]);
+        limited.access = access(&["web1", "db1"], &[]);
+        limited.severities = Some(vec![3, 6]);
+        check(limited, &[1, 4]);
     }
 
     #[test]

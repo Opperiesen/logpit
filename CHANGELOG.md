@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Loki query API for Grafana: `query_range`, `query`, `labels`, `label/<name>/values` and `series` under
+  `/loki/api/v1/`, answering a LogQL subset (stream selectors, line filters, `| json`/`| logfmt`, label
+  filters, `count_over_time` and `rate` with `sum by`). Streams are labelled `host`, `app` and `level`,
+  other labels are structured fields; the `read` scope and read restrictions apply.
+
 - New-pattern alerts (`[new_patterns]`, off by default): a webhook notification when a message template
   never seen before appears, and optionally when a known template surges to several times its usual
   count per window. Learns the templates of stored entries at startup and stays quiet for `learn_secs`,

@@ -135,6 +135,85 @@ impl FieldFilter {
     }
 }
 
+/// How a message line filter compares: LogQL's `|=`, `!=`, `|~` and `!~`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineOp {
+    Contains,
+    NotContains,
+    Re,
+    NotRe,
+}
+
+/// A condition on the message text: a substring (case-sensitive) or an unanchored regex.
+#[derive(Debug, Clone)]
+pub struct LineFilter {
+    pub op: LineOp,
+    /// The text, or the regular expression source.
+    pub value: String,
+    pub regex: Option<Regex>,
+}
+
+impl LineFilter {
+    pub fn new(op: LineOp, value: &str) -> Result<Self, String> {
+        let regex = match op {
+            LineOp::Re | LineOp::NotRe => Some(compile_regex(value)?),
+            _ => None,
+        };
+        Ok(Self {
+            op,
+            value: value.to_string(),
+            regex,
+        })
+    }
+
+    pub fn matches(&self, message: &str) -> bool {
+        match (self.op, &self.regex) {
+            (LineOp::Contains, _) => message.contains(&self.value),
+            (LineOp::NotContains, _) => !message.contains(&self.value),
+            (LineOp::Re, Some(re)) => re.is_match(message),
+            (LineOp::NotRe, Some(re)) => !re.is_match(message),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Column {
+    Host,
+    App,
+}
+
+/// A condition on the host or app column that the plain `host=`/`app=` filters cannot express.
+#[derive(Debug, Clone)]
+pub enum ColumnMatch {
+    Eq(String),
+    Ne(String),
+    /// Matches the whole value (the regex is anchored by whoever built it).
+    Re(Regex),
+    NotRe(Regex),
+}
+
+#[derive(Debug, Clone)]
+pub struct ColumnFilter {
+    pub column: Column,
+    pub matcher: ColumnMatch,
+}
+
+impl ColumnFilter {
+    pub fn matches(&self, host: &str, app: &str) -> bool {
+        let v = match self.column {
+            Column::Host => host,
+            Column::App => app,
+        };
+        match &self.matcher {
+            ColumnMatch::Eq(x) => v == x,
+            ColumnMatch::Ne(x) => v != x,
+            ColumnMatch::Re(re) => re.is_match(v),
+            ColumnMatch::NotRe(re) => !re.is_match(v),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +309,31 @@ mod tests {
         assert!(!cmp("name!=web").matches(&f));
         assert!(cmp("name~^we").matches(&f));
         assert!(!cmp("name~^db").matches(&f));
+    }
+
+    #[test]
+    fn line_and_column_filters() {
+        let f = |op, v: &str| LineFilter::new(op, v).unwrap();
+        assert!(f(LineOp::Contains, "Error").matches("an Error here"));
+        assert!(
+            !f(LineOp::Contains, "error").matches("an Error here"),
+            "case-sensitive"
+        );
+        assert!(f(LineOp::NotContains, "debug").matches("fine"));
+        assert!(f(LineOp::Re, "t(im|o)e").matches("a timeout"));
+        assert!(!f(LineOp::NotRe, "t(im|o)e").matches("a timeout"));
+        assert!(f(LineOp::NotRe, "xyz").matches("a timeout"));
+        assert!(LineFilter::new(LineOp::Re, "(").is_err());
+        assert!(
+            LineFilter::new(LineOp::Contains, "(").is_ok(),
+            "text, not a pattern"
+        );
+        let col = |column, matcher| ColumnFilter { column, matcher };
+        let re = |s: &str| compile_regex(s).unwrap();
+        assert!(col(Column::Host, ColumnMatch::Eq("a".into())).matches("a", "x"));
+        assert!(col(Column::App, ColumnMatch::Ne("x".into())).matches("a", "y"));
+        assert!(col(Column::App, ColumnMatch::Re(re("^(web|db)$"))).matches("h", "db"));
+        assert!(!col(Column::App, ColumnMatch::Re(re("^(web|db)$"))).matches("h", "dbx"));
+        assert!(col(Column::Host, ColumnMatch::NotRe(re("^a$"))).matches("b", ""));
     }
 }

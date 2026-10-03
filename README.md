@@ -25,6 +25,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Container-native**: multi-arch image (amd64, arm64), non-root, runs read-only
   with all capabilities dropped, configured through environment variables,
   built-in healthcheck, token via secret file.
+- **Grafana**: the Loki query API (`/loki/api/v1/query_range`, `labels`…), so Grafana's Loki data source can
+  browse and chart LogPit with a LogQL subset.
 - **Message patterns**: `GET /api/patterns` folds messages that differ only by numbers or ids into one
   template with counts and trend, to see what is noisy or growing.
 - **Access control**: named tokens with `read`, `write` and `admin` scopes, optional limits to some hosts or
@@ -671,6 +673,54 @@ the `q`, `host`, `app`, `level` and `f` filters of `/api/logs`; `since`, `until`
 are ignored. Unlike search, `q` here is matched in memory (same syntax, but words match as case-insensitive
 substrings of the message and field values). Only entries ingested after the connection opens are sent. A slow client
 gets a `lagged` event with the number of skipped entries; at most 32 clients may tail at once.
+
+## Grafana and the Loki query API
+
+LogPit answers the read side of Loki's HTTP API, so Grafana's **Loki data source** can explore and chart
+it. In Grafana: *Connections → Data sources → Loki*, URL `http://logpit-host:8080`, and for the token
+either *Basic auth* (any user name, a **read token as the password**) or a custom header
+`Authorization: Bearer <token>`. *Save & test* works (it sends `vector(1)+vector(1)`).
+
+| Endpoint | Answers |
+|---|---|
+| `GET\|POST /loki/api/v1/query_range` | log streams for a log query, a matrix for a metric query |
+| `GET\|POST /loki/api/v1/query` | a vector for a metric query, the last hour's newest lines for a log query |
+| `GET /loki/api/v1/labels`, `…/label/<name>/values` | label names and values (take `start`, `end` and an optional `query` selector) |
+| `GET\|POST /loki/api/v1/series` | label sets of the streams matching `match[]` selectors |
+
+They need the `read` scope, follow [read restrictions](#named-tokens-restrictions-and-audit), and take
+`start` and `end` as Unix seconds, ms, µs or ns or RFC 3339, `limit` (default 100, at most 5000),
+`direction` and `step` (seconds or `1m`) as Loki does; POST bodies may be form-encoded.
+
+**Labels.** Every stream is `host`, `app` (when set) and `level` (`critical`, `error`, `warning`, `info`,
+`debug`; severities notice and info share `info`). The aliases `hostname`; `service_name`, `service`,
+`job`; and `severity`, `detected_level`, `log_level` are understood in queries. Any other label name is a
+[structured field](#structured-fields), so `{status="500"}` or `sum by (src) (…)` work on CEF, JSON and
+`key=value` fields, and `labels` lists the fields found in the window. A label that is absent never
+matches `!=` or `!~` on a field (unlike Loki).
+
+**LogQL subset.**
+
+- Selectors with `=`, `!=`, `=~`, `!~` (regexes match the whole value, as in Loki).
+- Line filters `|=`, `!=`, `|~`, `!~` (substring, case-sensitive; regular expressions, unanchored).
+- `| json` and `| logfmt` (accepted: LogPit extracted those fields at ingestion) and label filters
+  `| status >= 500`, `| env="prod"`, `| code =~ "5.."` (numbers compare with `>`, `>=`, `<`, `<=`).
+- `count_over_time(<log query> [5m])` and `rate(…)`, alone (one series per stream) or inside `sum` /
+  `sum by (a, b)`; durations such as `30s`, `5m`, `1h30m`, `2d`. A step shows the entries of the window
+  *ending* at it, and points without entries are left out, as Loki does.
+- `vector(1)+vector(1)` and similar, for Grafana's connection test.
+
+Anything else (`line_format`, `unwrap`, `topk`, `avg_over_time`, aggregations other than `sum`,
+`without`, binary operations on log queries…) is refused with `400` and a message naming it. Not
+provided: the tail WebSocket, `index/stats`, `index/volume`, `detected_fields` and `patterns` (Grafana's
+*Logs Drilldown* needs those), and OTLP-style structured metadata in responses.
+
+**Limits.** A metric result has at most 11 000 points per series and 1000 series (group by fewer labels).
+Line filters and regular expressions scan the entries the selector leaves, since they cannot use the
+full-text index; keep the time range tight on large databases. Timestamps have millisecond precision
+(`ts` in a stream value is the entry's milliseconds followed by zeros), and the native
+[search API](#searching) remains the way to page through everything. This is tested against requests
+shaped like Grafana's, not against a Grafana instance.
 
 ## Silence alerts
 
