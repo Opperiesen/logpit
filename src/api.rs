@@ -28,6 +28,11 @@ const DEFAULT_LIMIT: usize = 100;
 const MAX_TAIL_SUBSCRIBERS: usize = 32;
 const DEFAULT_TOP_VALUES: usize = 10;
 const MAX_TOP_VALUES: usize = 100;
+const DEFAULT_PATTERNS: usize = 25;
+const MAX_PATTERNS: usize = 200;
+/// Entries analysed by `/api/patterns` (the newest matches) and how much of each message is read.
+const PATTERN_SCAN: usize = 20_000;
+const PATTERN_MESSAGE_CHARS: usize = 400;
 const MAX_FIELD_NAMES: usize = 200;
 const DEFAULT_CONTEXT_LINES: usize = 5;
 const MAX_CONTEXT_LINES: usize = 100;
@@ -68,6 +73,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/api/views", get(list_views).post(save_view))
         .route("/api/views/{id}", axum::routing::delete(delete_view))
         .route("/api/fields", get(fields))
+        .route("/api/patterns", get(patterns))
         .route("/api/export", get(export))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Read),
@@ -928,6 +934,65 @@ async fn fields(
     }
 }
 
+/// `limit` (default 25, at most 200) on top of the search filters.
+fn parse_patterns(params: Vec<(String, String)>) -> Result<(Query, usize), String> {
+    let mut limit = DEFAULT_PATTERNS;
+    let mut rest = Vec::new();
+    for (k, v) in params {
+        match (k.as_str(), v.as_str()) {
+            ("limit", "") => {}
+            ("limit", v) => {
+                limit = v
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or("invalid limit")?
+                    .min(MAX_PATTERNS);
+            }
+            _ => rest.push((k, v)),
+        }
+    }
+    Ok((parse_search(rest)?, limit))
+}
+
+/// Groups the newest matching entries (at most [`PATTERN_SCAN`]) into message patterns, most
+/// frequent first, with the count in each half of the time window to show what is growing.
+async fn patterns(
+    State(state): State<AppState>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let (query, limit) = match parse_patterns(params) {
+        Ok(r) => r,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let path = state.db_path.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = store::open(&path)?;
+        let (samples, truncated) =
+            store::recent_samples(&conn, &query, PATTERN_SCAN, PATTERN_MESSAGE_CHARS)?;
+        let until = query.until_ms.unwrap_or_else(now_ms);
+        anyhow::Ok(crate::patterns::analyse(
+            &samples,
+            truncated,
+            query.since_ms,
+            until,
+            limit,
+        ))
+    })
+    .await;
+    match result {
+        Ok(Ok(p)) => Json(p).into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("patterns failed: {e:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "patterns failed").into_response()
+        }
+        Err(e) => {
+            tracing::error!("patterns task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "patterns failed").into_response()
+        }
+    }
+}
+
 /// `lines` (default 5, at most 100) and `scope` (`host`, the default, or `all`).
 fn parse_context(params: &[(String, String)]) -> Result<(usize, bool), String> {
     let (mut lines, mut same_host) = (DEFAULT_CONTEXT_LINES, true);
@@ -1341,6 +1406,29 @@ mod tests {
         ] {
             assert!(validate_view(name, query).is_err(), "{why}");
         }
+    }
+
+    #[test]
+    fn patterns_params_parse_and_validate() {
+        let p = |v: &[(&str, &str)]| {
+            v.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let (q, l) = parse_patterns(p(&[("host", "fw")])).unwrap();
+        assert_eq!((q.host.as_deref(), l), (Some("fw"), DEFAULT_PATTERNS));
+        assert_eq!(parse_patterns(p(&[("limit", "5")])).unwrap().1, 5);
+        assert_eq!(
+            parse_patterns(p(&[("limit", "")])).unwrap().1,
+            DEFAULT_PATTERNS
+        );
+        assert_eq!(
+            parse_patterns(p(&[("limit", "9999")])).unwrap().1,
+            MAX_PATTERNS
+        );
+        assert!(parse_patterns(p(&[("limit", "0")])).is_err());
+        assert!(parse_patterns(p(&[("limit", "x")])).is_err());
+        assert!(parse_patterns(p(&[("since", "x")])).is_err());
     }
 
     #[test]

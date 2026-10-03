@@ -16,6 +16,7 @@ pub mod loki;
 pub mod metrics;
 pub mod model;
 pub mod otlp;
+pub mod patterns;
 pub mod proto;
 pub mod query;
 pub mod ratelimit;

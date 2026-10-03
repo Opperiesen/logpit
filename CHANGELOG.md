@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Message patterns: `GET /api/patterns` groups the matching entries by message template (numbers and ids
+  masked), with counts, hosts, the most severe level, an example and the count in each half of the window
+  as a trend, plus a *Message patterns* panel in the web UI.
 - Web UI: dragging across the histogram zooms to the selected time range.
 
 ## 0.8.0 - 2026-10-03

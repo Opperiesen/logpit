@@ -25,6 +25,8 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 - **Container-native**: multi-arch image (amd64, arm64), non-root, runs read-only
   with all capabilities dropped, configured through environment variables,
   built-in healthcheck, token via secret file.
+- **Message patterns**: `GET /api/patterns` folds messages that differ only by numbers or ids into one
+  template with counts and trend, to see what is noisy or growing.
 - **Silence alerts**: get notified (webhook + Prometheus gauge) when a host stops sending logs.
 - **Observability**: Prometheus metrics at `/metrics`, health at `/healthz`.
 
@@ -511,6 +513,43 @@ In the web UI the *Top values* panel, below *Hosts*, does the same for the curre
 field, and each value gets a bar and its share; clicking a value filters on it (a host, an app, a
 severity of error, warning or info, or `field:value`). The filter on the field being listed is
 ignored for that list, so its alternatives stay visible after you click one.
+
+### Message patterns
+
+`GET /api/patterns` groups the matching entries by message template: the first line of a message
+with every token that contains a digit (and the value of a `key=value` pair that has one) replaced
+by `<*>`, so `user 4312 logged in from 10.0.0.7` and `user 77 logged in from 10.0.0.9` count together
+as `user <*> logged in from <*>`. It answers *what is my noisiest message?* and *what just started
+happening?* without knowing the message formats in advance.
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8080/api/patterns?host=web1&level=4&since=1700000000000&limit=10'
+# {"scanned":1200,"truncated":false,"since":…,"until":…,"distinct":4,"other":0,"patterns":[
+#   {"pattern":"disk <*> at <*> full","search":"disk full","count":39,"previous":0,"recent":39,
+#    "hosts":3,"severity":"err","first_ts":…,"last_ts":…,
+#    "example":{"id":1199,"ts":…,"host":"h1","message":"disk /dev/sda1 at 93% full"}}, …]}
+```
+
+It takes the filters of `/api/logs` and `limit` (default 25, at most 200); most frequent first. Per
+pattern: `count`, `hosts` (distinct, counted up to 100), the most severe `severity` seen, the first and
+last timestamps, the newest entry as `example`, and `search`, the plain words of the pattern, which
+finds its entries with `q=` (an approximation: other messages may share those words).
+
+- **Trend.** The window is `since` (or the oldest entry) to `until` (or now); `previous` counts the
+  entries of its first half and `recent` those of its second half. A pattern with `previous` 0 and a
+  `recent` above 0 appeared in the second half. If more entries match than were analysed, the window
+  starts at the oldest entry analysed, and `truncated` is true.
+- **Cost.** Only the newest 20 000 matching entries are read, each cut to its first 400 characters,
+  and at most 5000 templates are tracked (entries of any further template count in `other`), so the
+  cost does not grow with the database. Narrow the filters or the range to analyse older entries.
+- **Limits of the template.** Only numbers are masked: words that vary (user names, host names without
+  digits, UUIDs made of letters only) keep messages in separate patterns, and a very long message is
+  cut after 48 words. Messages whose first line is empty share the pattern `""`.
+
+The web UI has a collapsible *Message patterns* panel below *Top values*: counts, a trend arrow
+(`▲ new`, `▲ +60%`, `▼ -40%`, or `≈` when it barely moved) and the template; hovering shows an example
+and clicking searches for the pattern's words. It follows the current filters and needs the `read` scope.
 
 ### Saved views
 

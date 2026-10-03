@@ -59,6 +59,15 @@
   .toprow .v:hover { color:var(--accent); }
   .toprow .bar { height:10px; background:color-mix(in srgb, var(--accent) 55%, transparent); border-radius:2px; min-width:1px; }
   .toprow .n { text-align:right; color:var(--muted); } .toprow .n b { color:var(--fg); font-weight:600; }
+  #patterns { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
+  #patterns summary { cursor:pointer; padding:6px 0; color:var(--muted); }
+  .patrow { display:grid; grid-template-columns:5.5em 6.5em minmax(10em, 1fr) 15em; gap:0 10px; align-items:baseline; padding:2px 0; }
+  .patrow .n { text-align:right; font-weight:600; }
+  .patrow .p { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .patrow .p.link { cursor:pointer; } .patrow .p.link:hover { color:var(--accent); }
+  .patrow .m { color:var(--muted); text-align:right; white-space:nowrap; }
+  .patrow .t { white-space:nowrap; } .t.up { color:#cf222e; } .t.down { color:#1a7f37; } .t.flat { color:var(--muted); }
+  #patList:empty::after { content:'No entries in the current results.'; color:var(--muted); }
   #topList:empty::after { content:'No values for this field in the current results.'; color:var(--muted); }
   #hosts { border-bottom:1px solid var(--line); padding:0 16px; font-size:12px; }
   #hosts summary { cursor:pointer; padding:6px 0; color:var(--muted); }
@@ -126,6 +135,11 @@
   <summary>Top values <span id="topMeta"></span></summary>
   <div class="topctl"><label>Field <select id="topField"></select></label><span id="topNote"></span></div>
   <div id="topList"></div>
+</details>
+<details id="patterns">
+  <summary>Message patterns <span id="patMeta"></span></summary>
+  <div id="patNote" style="color:var(--muted); margin-bottom:4px;"></div>
+  <div id="patList"></div>
 </details>
 <table><tbody id="rows"></tbody></table>
 <div id="morebar" hidden><button id="more" type="button">Load more</button></div>
@@ -258,7 +272,7 @@ function stopTail() {
 async function refreshChart() {
   if (document.hidden || chartBusy) return;
   chartBusy = true;
-  try { await Promise.all([loadChart(), loadHosts(), loadTop()]); } finally { chartBusy = false; }
+  try { await Promise.all([loadChart(), loadHosts(), loadTop(), loadPatterns()]); } finally { chartBusy = false; }
 }
 
 function handleEvent(raw) {
@@ -603,6 +617,62 @@ async function loadTop() {
   } catch {}
 }
 
+// Message patterns of the current results: messages that differ only by numbers are counted together.
+// The trend compares the second half of the window with the first one.
+let patReq = 0;
+try { $('patterns').open = localStorage.getItem('logpit-patterns-open') === '1'; } catch {}
+$('patterns').addEventListener('toggle', () => {
+  try { localStorage.setItem('logpit-patterns-open', $('patterns').open ? '1' : '0'); } catch {}
+  loadPatterns();
+});
+function trendOf(prev, recent) {
+  if (prev === 0) return recent > 0 ? { cls: 'up', text: '▲ new' } : { cls: 'flat', text: '' };
+  const pct = Math.round(100 * (recent - prev) / prev);
+  if (Math.abs(recent - prev) < 3 || Math.abs(pct) < 25) return { cls: 'flat', text: '≈ ' + (pct > 0 ? '+' : '') + pct + '%' };
+  return pct > 0 ? { cls: 'up', text: '▲ +' + pct + '%' } : { cls: 'down', text: '▼ ' + pct + '%' };
+}
+async function loadPatterns() {
+  if (!snap || !$('patterns').open) return;
+  const req = ++patReq;
+  try {
+    const p = chartParams();
+    p.set('limit', '25');
+    const res = await fetch('/api/patterns?' + p, { headers: authHeaders() });
+    if (!res.ok || req !== patReq) return;
+    const d = await res.json();
+    $('patMeta').textContent = '(' + d.distinct.toLocaleString() + ')';
+    $('patNote').textContent = d.scanned.toLocaleString() + ' entries analysed' + (d.truncated ? ' (the newest ones only)' : '') +
+      ' · trend: ' + new Date(d.since + (d.until - d.since) / 2).toLocaleTimeString() + ' → ' + new Date(d.until).toLocaleTimeString() +
+      ' against the half before';
+    const rows = d.patterns.map(x => {
+      const row = document.createElement('div');
+      row.className = 'patrow';
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = x.count.toLocaleString();
+      const tr = trendOf(x.previous, x.recent);
+      const t = document.createElement('span'); t.className = 't ' + tr.cls; t.textContent = tr.text;
+      const pat = document.createElement('span');
+      pat.className = 'p' + (x.search ? ' link' : '');
+      pat.textContent = x.pattern || '(empty)';
+      pat.title = x.example.message.slice(0, 300) + (x.search ? '\n\nClick to search: ' + x.search : '');
+      if (x.search) pat.onclick = () => { $('q').value = x.search; load(); };
+      const m = document.createElement('span'); m.className = 'm';
+      m.textContent = x.severity + ' · ' + x.hosts + (x.hosts >= 100 ? '+' : '') + ' host' + (x.hosts === 1 ? '' : 's') + ' · ' + ago(x.last_ts);
+      row.append(n, t, pat, m);
+      return row;
+    });
+    if (d.other > 0) {
+      const row = document.createElement('div'); row.className = 'patrow';
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = d.other.toLocaleString();
+      const t = document.createElement('span');
+      const pat = document.createElement('span'); pat.className = 'p'; pat.style.color = 'var(--muted)';
+      pat.textContent = 'other (' + (d.distinct - d.patterns.length).toLocaleString() + ' patterns)';
+      row.append(n, t, pat);
+      rows.push(row);
+    }
+    $('patList').replaceChildren(...rows);
+  } catch {}
+}
+
 // Per-host summary of the current filters (all hosts, even when one is selected).
 function ago(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -878,6 +948,7 @@ async function load() {
     loadChart();
     loadHosts();
     loadTop();
+    loadPatterns();
     loadViews();
     if ($('live').checked) startTail();
   } catch (e) { $('status').textContent = String(e.message || e); }

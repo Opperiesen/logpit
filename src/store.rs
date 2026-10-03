@@ -468,6 +468,47 @@ pub fn top_values(
     })
 }
 
+/// The newest `limit` entries matching `q` (newest first) with their message cut to
+/// `max_chars`, for pattern analysis: no fields are read. The flag tells whether more matched.
+pub fn recent_samples(
+    conn: &Connection,
+    q: &Query,
+    limit: usize,
+    max_chars: usize,
+) -> rusqlite::Result<(Vec<crate::patterns::Sample>, bool)> {
+    let mut filter = Filter::new(q)?;
+    let sql = format!(
+        "SELECT l.id, l.ts, l.host, l.severity, substr(l.message, 1, ?) FROM logs l{} \
+         ORDER BY l.ts DESC, l.id DESC LIMIT ?",
+        filter.sql()
+    );
+    // The message length is the first placeholder of the statement, ahead of the filter's.
+    filter
+        .args
+        .insert(0, Box::new(i64::try_from(max_chars).unwrap_or(i64::MAX)));
+    filter
+        .args
+        .push(Box::new(i64::try_from(limit + 1).unwrap_or(i64::MAX)));
+    let mut stmt = conn.prepare(&sql)?;
+    let mut samples = stmt
+        .query_map(
+            params_from_iter(filter.args.iter().map(|a| a.as_ref())),
+            |r| {
+                Ok(crate::patterns::Sample {
+                    id: r.get(0)?,
+                    ts: r.get(1)?,
+                    host: r.get(2)?,
+                    severity: r.get(3)?,
+                    message: r.get(4)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let truncated = samples.len() > limit;
+    samples.truncate(limit);
+    Ok((samples, truncated))
+}
+
 /// The structured field names present in the entries matching `q`, with how many entries carry
 /// each, most common first.
 pub fn field_names(
@@ -1452,6 +1493,41 @@ mod tests {
         assert!(bare.before.is_empty() && bare.after.is_empty());
 
         assert!(context(&conn, 999_999, 5, true).unwrap().is_none());
+    }
+
+    #[test]
+    fn recent_samples_are_newest_first_filtered_and_cut() {
+        let mut conn = mem();
+        let batch: Vec<LogEntry> = (0..5)
+            .map(|i| {
+                entry(
+                    i,
+                    if i % 2 == 0 { "a" } else { "b" },
+                    6,
+                    &format!("job {i} finished with a long tail of words"),
+                )
+            })
+            .collect();
+        insert_batch(&mut conn, &batch).unwrap();
+        let (s, more) = recent_samples(&conn, &q(0), 3, 8).unwrap();
+        assert!(more);
+        assert_eq!(s.iter().map(|x| x.ts).collect::<Vec<_>>(), [4, 3, 2]);
+        assert_eq!(s[0].message, "job 4 fi");
+        assert_eq!(s[0].host, "a");
+        let only_b = Query {
+            host: Some("b".into()),
+            ..q(0)
+        };
+        let (s, more) = recent_samples(&conn, &only_b, 3, 100).unwrap();
+        assert!(!more);
+        assert_eq!(s.iter().map(|x| x.ts).collect::<Vec<_>>(), [3, 1]);
+        let text = Query {
+            text: Some("finished".into()),
+            since_ms: Some(2),
+            ..q(0)
+        };
+        let (s, _) = recent_samples(&conn, &text, 10, 100).unwrap();
+        assert_eq!(s.len(), 3);
     }
 
     #[test]
