@@ -344,6 +344,10 @@ There are no cards. Containers are bands and sheets:
 - **Keys:** `kbd` labels in the Settings popover use bold 11px monospace in a 1px field-grey frame, 2px corners.
 - **Current line:** J/K or a click marks the current stream line with the tint ground; a line focused without a time button gets the 2px focus outline inset.
 
+### Hour Scale and New-Lines Pill
+- **Hour scale:** the graduation under the chart is a row of borderless buttons (bold 11px tabular, a 1px ink tick on the left); hover turns them accent. A click scrolls the stream to that hour's band or zooms to it.
+- **New-lines pill:** while reading below the top in Live mode, a fixed pill under the pinned band, in the header navy with header ink ("8 new lines above"); notice-coloured on hover. It appears and disappears in one step.
+
 ### Navigation
 There is no navigation in the site sense; the header band is the control strip. Wordmark left, search taking the remaining width, filters inline, status pushed right in lavender. Rail sections act as the secondary navigation, each opened or closed with a hard-turning chevron.
 

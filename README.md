@@ -807,6 +807,12 @@ The filters of the last search (search words, host, app, tag, field, regex, leve
 window) show as chips under the header; a chip's cross removes that filter and searches again, and
 *Clear all* removes them all.
 
+The hour scale under the chart is clickable: an hour (or a day, over long windows) scrolls the list to
+its band without searching again, or zooms to it when those lines are not loaded yet.
+
+In Live mode, scrolling down to read keeps what you read in place while new lines arrive above; a
+*new lines above* pill counts them and brings you back to the top.
+
 ## Web UI links
 
 The address bar always reflects the last search, so a link reproduces the same view and the
@@ -863,7 +869,8 @@ filters of `/api/logs`, `limit` (default 100) for the number of hosts, and `sort
 `sort=last_ts&order=asc` lists the quietest hosts even when there are more hosts than `limit`.
 It needs the `read` scope. The web UI shows it in the collapsible *Hosts* panel (in the left rail on wide screens): it follows the
 current filters and time range, lists every host even when one is selected, refreshes with the
-chart in Live mode, and clicking a host filters the log table on it. Click a column header to sort by it (again to reverse; Enter or Space works with the
+chart in Live mode, and clicking a host filters the log table on it. It is sorted by errors by default, with
+the hosts that went silent listed first under that order. Click a column header to sort by it (again to reverse; Enter or Space works with the
 keyboard); the choice is remembered, and the server does the sorting, so the 200 hosts shown
 are the first 200 in that order.
 

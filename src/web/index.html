@@ -42,6 +42,7 @@
   [hidden] { display:none !important; }
   .skip { position:absolute; left:16px; top:-48px; z-index:30; padding:8px 12px; background:var(--ground); color:var(--ink); border:1px solid var(--field); font-weight:700; }
   .skip:focus { top:8px; }
+  html { overflow-anchor:none; }
   body { margin:0; background:var(--ground); color:var(--ink); font:14px/1.45 var(--sans); font-variant-numeric:tabular-nums; caret-color:var(--accent); scrollbar-color:var(--field) var(--ground); }
   ::selection { background:var(--sel); color:inherit; }
   :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
@@ -101,6 +102,7 @@
     .layout { grid-template-columns:340px minmax(0, 1fr); grid-template-areas:"rail bar" "rail chart" "rail axis" "rail stream"; grid-template-rows:auto auto auto 1fr; }
     #rail { grid-area:rail; position:sticky; top:var(--hdr); align-self:start; max-height:calc(100vh - var(--hdr)); overflow:auto; border-bottom:0; border-right:1px solid var(--rule); }
     #chartbar { grid-area:bar; } #chart { grid-area:chart; } #axis { grid-area:axis; } .stream { grid-area:stream; }
+    #unseen { left:calc(50% + 170px); }
   }
   #rail details { border-bottom:1px solid var(--rule); font-size:12.5px; }
   #rail details:last-child { border-bottom:0; }
@@ -164,8 +166,11 @@
   #legend i.s6 { color:var(--chart-info); } #legend i.s7 { color:var(--chart-debug); }
   .lg b { color:var(--ink); }
   #chart { display:block; width:calc(100% - 32px); height:72px; margin:0 16px; border-bottom:1px solid var(--ink); touch-action:pan-y; user-select:none; }
-  #axis { position:relative; height:18px; margin:0 16px; font-size:11px; font-weight:700; overflow:hidden; }
-  #axis span { position:absolute; top:2px; padding-left:3px; border-left:1px solid var(--ink); line-height:14px; white-space:nowrap; }
+  #axis { position:relative; height:20px; margin:0 16px; font-size:11px; font-weight:700; overflow:hidden; }
+  #axis button { position:absolute; top:2px; height:16px; padding:0 0 0 3px; border:0; border-left:1px solid var(--ink); border-radius:0; background:none; font:inherit; line-height:14px; white-space:nowrap; }
+  #axis button:hover { color:var(--accent); background:none; }
+  #axis button:focus-visible { outline-offset:0; }
+  #stream tr.band { scroll-margin-top:var(--hdr); }
   #chart rect { fill:currentColor; }
   #chart .s6 { color:var(--chart-info); } #chart .s7 { color:var(--chart-debug); }
   #chart .hit { fill:transparent; cursor:zoom-in; } #chart .hit:hover { fill:var(--accent); fill-opacity:.18; }
@@ -213,6 +218,8 @@
   .ctxline.cur { background:var(--tint-strong); font-weight:700; }
 
   #morebar { text-align:center; padding:16px; }
+  #unseen { position:fixed; z-index:15; top:calc(var(--hdr) + 52px); left:50%; transform:translateX(-50%); background:var(--shell); color:var(--shell-ink); border-color:var(--shell); }
+  #unseen:hover { background:var(--notice); border-color:var(--notice); color:var(--ground); }
   #empty { padding:32px 16px; color:var(--muted); font-size:14px; }
 
   @media (max-width:759px) {
@@ -293,7 +300,7 @@
   </span>
 </div>
 <svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" role="img" aria-label="Volume over time" hidden></svg>
-<div id="axis" aria-hidden="true" hidden></div>
+<div id="axis" role="group" aria-label="Go to an hour" hidden></div>
 <aside id="rail" aria-label="Hosts and analysis">
 <details id="hosts">
   <summary><h2>Hosts <span id="hostsCount"></span></h2></summary>
@@ -324,6 +331,7 @@
 </details>
 </aside>
 <main class="stream">
+<button id="unseen" type="button" hidden></button>
 <table id="stream" tabindex="-1" aria-label="Log entries"><tbody id="rows"></tbody></table>
 <div id="morebar" hidden><button id="more" type="button">Load more</button></div>
 <div id="empty" hidden></div>
@@ -534,11 +542,16 @@ function hourOf(ms) {
   const key = utc ? d.toISOString().slice(0, 13) : d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() + '-' + h;
   return { d, utc, h, key };
 }
+// Start of the hour (or of the day) holding ms, in the stream's time zone.
+function hourStart(ms, day) {
+  const { d, utc, h } = hourOf(ms), hh = day ? 0 : h;
+  return utc ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hh) : new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh).getTime();
+}
 function bandEl(ms) {
   const { d, utc, h, key } = hourOf(ms);
   const tr = document.createElement('tr');
   tr.className = 'band';
-  Object.assign(tr, { _key: key, _n: 0, _e: 0, _w: 0 });
+  Object.assign(tr, { _key: key, _ts: hourStart(ms), _n: 0, _e: 0, _w: 0 });
   const th = document.createElement('th');
   th.colSpan = 5; th.scope = 'colgroup';
   const hh = document.createElement('span'); hh.className = 'h'; hh.textContent = String(h).padStart(2, '0') + ':00';
@@ -631,6 +644,8 @@ function stopTail() {
   clearTimeout(liveTimer);
   liveTimer = 0;
   liveQueue = [];
+  unseen = 0;
+  if ($('unseen')) showUnseen();
   clearInterval(chartTimer);
   chartTimer = null;
 }
@@ -658,10 +673,34 @@ function handleEvent(raw) {
 let liveQueue = [], liveTimer = 0;
 const LIVE_BATCH_MS = 100;
 const FRESH_MS = 3000; // how long a line that arrived live stays highlighted
+// While the reader is further down, new lines must not move what they are reading: the first visible
+// line is measured before the insert and the page scrolled back by its shift (the browser's own scroll
+// anchoring is off, as Safari has none), and a pill counts what arrived above.
+function readingDown() { return $('rows').getBoundingClientRect().top < headerBottom() - 1; }
+function headerBottom() { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr')) || 0; }
+function firstVisibleRow() {
+  const kids = $('rows').children, edge = headerBottom() + 40;
+  let lo = 0, hi = kids.length - 1, hit = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (kids[mid].getBoundingClientRect().bottom > edge) { hit = kids[mid]; hi = mid - 1; } else lo = mid + 1;
+  }
+  return hit;
+}
+let unseen = 0;
+function showUnseen() {
+  $('unseen').hidden = unseen === 0;
+  $('unseen').textContent = unseen.toLocaleString() + (unseen === 1 ? ' new line above' : ' new lines above');
+}
+$('unseen').onclick = () => { $('rows').closest('table').scrollIntoView({ block: 'start' }); window.scrollBy(0, -headerBottom()); };
+window.addEventListener('scroll', () => { if (unseen && !readingDown()) { unseen = 0; showUnseen(); } }, { passive: true });
+
 function flushLive() {
   liveTimer = 0;
   const body = $('rows'), batch = liveQueue;
   liveQueue = [];
+  const anchor = readingDown() ? firstVisibleRow() : null;
+  const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
   const fresh = [];
   for (const r of batch) {
     let band = firstBand;
@@ -691,6 +730,11 @@ function flushLive() {
   while (last && !last._band) last = last.previousElementSibling;
   lastBand = last ? last._band : null;
   if (!lastBand) firstBand = null;
+  if (anchor && anchor.isConnected) {
+    window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop);
+    unseen += batch.length;
+    showUnseen();
+  }
   $('empty').hidden = true;
   $('status').textContent = 'live · ' + entries + ' entries';
 }
@@ -916,13 +960,27 @@ function drawAxis(d) {
   const step = (days ? [1, 2, 7] : [1, 2, 3, 6, 12, 24]).find(s => list.length / s <= room) || 14;
   list = days ? list.filter((m, k) => k % step === 0) : list.filter(m => m.h % step === 0);
   $('axis').replaceChildren(...list.map(m => {
-    const s = document.createElement('span');
+    const s = document.createElement('button');
+    s.type = 'button';
     s.style.left = (100 * m.i / n) + '%';
     s.textContent = days ? m.t.toLocaleDateString([], { weekday: 'short', day: 'numeric', ...(m.utc ? { timeZone: 'UTC' } : {}) })
       : String(m.h).padStart(2, '0') + ':00';
+    const start = hourStart(d.buckets[m.i].ts, days), span = days ? 86400000 : 3600000;
+    s.title = 'Go to ' + s.textContent + ' in the list (zooms in when it is not loaded)';
+    s.onclick = () => jumpTo(start, span);
     return s;
   }));
   $('axis').hidden = false;
+}
+
+// Scroll the stream to the newest band of [start, start + span) without searching again; when that time
+// is not in the loaded lines, zoom to it instead.
+function jumpTo(start, span) {
+  const band = [...$('rows').querySelectorAll('tr.band')].find(b => b._ts >= start && b._ts < start + span);
+  if (!band) { zoomTo(start, start + span - 1); return; }
+  band.scrollIntoView({ block: 'start' });
+  const first = band.nextElementSibling;
+  if (first && first._r) focusRow(first);
 }
 
 // Download the entries of the last search (its filters and time window) through /api/export.
@@ -1163,7 +1221,7 @@ function ago(ms) {
 // Column sorting is done by the server (`sort`/`order`), so the 200-host cap applies after
 // sorting. Text sorts ascending first, numbers and dates descending first; clicking again reverses.
 let hostRows = [];
-let hostSort = { key: 'count', dir: -1 };
+let hostSort = { key: 'errors', dir: -1 }; // in an incident the question is who is failing
 try {
   const [k, d] = (localStorage.getItem('logpit-hosts-sort') || '').split(':');
   if (['host', 'count', 'errors', 'warnings', 'last_ts'].includes(k) && (d === '1' || d === '-1')) hostSort = { key: k, dir: Number(d) };
@@ -1240,7 +1298,8 @@ async function loadHosts() {
     if (!res.ok) return;
     const rows = await res.json();
     if (req !== hostsReq) return; // a newer request (e.g. another sort click) superseded this one
-    hostRows = rows;
+    // Under the default order, hosts that went silent come first: no logs at all is the loudest signal.
+    hostRows = hostSort.key === 'errors' && hostSort.dir === -1 ? [...rows.filter(h => h.silent), ...rows.filter(h => !h.silent)] : rows;
     renderHosts();
   } catch {}
 }

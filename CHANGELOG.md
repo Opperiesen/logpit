@@ -6,6 +6,10 @@
   close), the active filters of the last search as removable chips under the header, and the access
   token moved into a *Settings* panel (formerly *Display*) that opens on its own when a token is needed.
 
+- Web UI: the Hosts panel sorts by errors by default, silent hosts first; the hour scale under the chart
+  scrolls the list to an hour (or zooms to it when it is not loaded); in Live mode, reading further down
+  keeps its place while lines arrive, with a *new lines above* pill.
+
 - Web UI redesign: the log stream is set like a railway timetable, grouped under hour bands that state the
   hour once with their entry, error and warning counts and stay pinned while scrolling; each line leads with
   its minutes and seconds. Light theme in timetable paper, dark theme in departure-board navy, system fonts
