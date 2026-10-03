@@ -68,6 +68,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/loki/api/v1/push", post(loki_push))
         .route("/gelf", post(gelf_ingest))
         .route("/v1/logs", post(otlp_logs))
+        .route(crate::grpc::LOGS_EXPORT_PATH, post(otlp_grpc))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Write),
             require_scope,
@@ -467,6 +468,11 @@ fn decompress_request(
 /// OpenTelemetry logs over HTTP (OTLP): protobuf or JSON, optionally gzip-compressed, which is what
 /// the OpenTelemetry Collector and the SDK exporters send. Resource and log attributes become the
 /// host, app, level and fields. Answers 200 with an empty export response.
+/// OTLP over gRPC (`LogsService/Export`), which needs HTTP/2.
+async fn otlp_grpc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    crate::grpc::export_logs(state.sink.clone(), headers, body).await
+}
+
 async fn otlp_logs(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
     let body = match decompress_request(&headers, body, false) {
         Ok(b) => b,

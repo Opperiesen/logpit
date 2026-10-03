@@ -608,3 +608,247 @@ async fn extreme_numbers_are_never_a_server_error() {
         assert!(r.status < 500, "{path}: {} {}", r.status, r.body);
     }
 }
+
+// ---- OTLP over gRPC -------------------------------------------------------------------------
+
+fn varint(mut v: u64, out: &mut Vec<u8>) {
+    loop {
+        let b = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(b);
+            return;
+        }
+        out.push(b | 0x80);
+    }
+}
+
+fn pb(field: u32, payload: &[u8], out: &mut Vec<u8>) {
+    varint(u64::from(field << 3 | 2), out);
+    varint(payload.len() as u64, out);
+    out.extend_from_slice(payload);
+}
+
+fn string_attr(key: &str, value: &str) -> Vec<u8> {
+    let mut any = Vec::new();
+    pb(1, value.as_bytes(), &mut any);
+    let mut kv = Vec::new();
+    pb(1, key.as_bytes(), &mut kv);
+    pb(2, &any, &mut kv);
+    kv
+}
+
+/// An `ExportLogsServiceRequest` with one record from `host`, written independently of the decoder.
+fn export_request(host: &str, message: &str) -> Vec<u8> {
+    let mut body = Vec::new();
+    pb(1, message.as_bytes(), &mut body);
+    let mut record = Vec::new();
+    varint(2 << 3, &mut record); // severity_number
+    varint(17, &mut record); // ERROR
+    pb(5, &body, &mut record);
+    let mut scope_logs = Vec::new();
+    pb(2, &record, &mut scope_logs);
+    let mut resource = Vec::new();
+    pb(1, &string_attr("host.name", host), &mut resource);
+    pb(1, &string_attr("service.name", "checkout"), &mut resource);
+    let mut resource_logs = Vec::new();
+    pb(1, &resource, &mut resource_logs);
+    pb(2, &scope_logs, &mut resource_logs);
+    let mut request = Vec::new();
+    pb(1, &resource_logs, &mut request);
+    request
+}
+
+fn grpc_frame(message: &[u8]) -> Vec<u8> {
+    let mut out = vec![0];
+    out.extend_from_slice(&(message.len() as u32).to_be_bytes());
+    out.extend_from_slice(message);
+    out
+}
+
+struct GrpcReply {
+    http: u16,
+    headers: http::HeaderMap,
+    body: Vec<u8>,
+    trailers: Option<http::HeaderMap>,
+}
+
+impl GrpcReply {
+    /// `grpc-status` from the trailers, or from the headers of a trailers-only answer.
+    fn status(&self) -> Option<String> {
+        let from = |h: &http::HeaderMap| {
+            h.get("grpc-status")
+                .map(|v| v.to_str().unwrap().to_string())
+        };
+        self.trailers
+            .as_ref()
+            .and_then(from)
+            .or_else(|| from(&self.headers))
+    }
+}
+
+/// One unary gRPC call over cleartext HTTP/2.
+async fn grpc(
+    addr: SocketAddr,
+    content_type: &str,
+    auth: Option<&str>,
+    extra: &[(&str, &str)],
+    body: Vec<u8>,
+) -> GrpcReply {
+    let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let (mut client, connection) = h2::client::handshake(tcp).await.unwrap();
+    tokio::spawn(connection);
+    let mut req = http::Request::builder()
+        .method("POST")
+        .uri(format!("http://{addr}{}", logpit::grpc::LOGS_EXPORT_PATH))
+        .header("content-type", content_type)
+        .header("te", "trailers");
+    if let Some(a) = auth {
+        req = req.header("authorization", a);
+    }
+    for (k, v) in extra {
+        req = req.header(*k, *v);
+    }
+    let (response, mut stream) = client.send_request(req.body(()).unwrap(), false).unwrap();
+    stream.send_data(bytes::Bytes::from(body), true).unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(10), response)
+        .await
+        .expect("no response")
+        .unwrap();
+    let (parts, mut recv) = response.into_parts();
+    let mut data = Vec::new();
+    while let Some(chunk) = recv.data().await {
+        let chunk = chunk.unwrap();
+        let _ = recv.flow_control().release_capacity(chunk.len());
+        data.extend_from_slice(&chunk);
+    }
+    GrpcReply {
+        http: parts.status.as_u16(),
+        headers: parts.headers,
+        body: data,
+        trailers: recv.trailers().await.unwrap(),
+    }
+}
+
+#[tokio::test]
+async fn otlp_logs_arrive_over_grpc_with_a_status_in_the_trailers() {
+    let s = start(TOKENS).await;
+    let write = bearer(WRITER);
+    let r = grpc(
+        s.addr,
+        "application/grpc",
+        Some(&write),
+        &[],
+        grpc_frame(&export_request("node-7", "disk full over grpc")),
+    )
+    .await;
+    assert_eq!(r.http, 200);
+    assert_eq!(r.headers.get("content-type").unwrap(), "application/grpc");
+    assert_eq!(
+        r.status().as_deref(),
+        Some("0"),
+        "{:?} {:?}",
+        r.headers,
+        r.trailers
+    );
+    assert!(r.trailers.is_some(), "the status travels as a trailer");
+    // One empty response message.
+    assert_eq!(r.body, [0, 0, 0, 0, 0]);
+    let logs = wait_for(s.addr, "/api/logs?q=disk", 1).await;
+    assert_eq!(logs[0]["host"], "node-7");
+    assert_eq!(logs[0]["app"], "checkout");
+    assert_eq!(logs[0]["severity"], 3);
+    // The `+proto` flavour and a gzip-compressed message are accepted as well.
+    let gz = logpit::archive::gzip_member(&export_request("node-8", "second over grpc"));
+    let mut framed = vec![1];
+    framed.extend_from_slice(&(gz.len() as u32).to_be_bytes());
+    framed.extend_from_slice(&gz);
+    let r = grpc(
+        s.addr,
+        "application/grpc+proto",
+        Some(&write),
+        &[("grpc-encoding", "gzip")],
+        framed,
+    )
+    .await;
+    assert_eq!(r.status().as_deref(), Some("0"));
+    wait_for(s.addr, "/api/logs?q=second", 1).await;
+}
+
+#[tokio::test]
+async fn grpc_calls_are_authenticated_and_malformed_ones_say_why() {
+    let s = start(TOKENS).await;
+    let good = grpc_frame(&export_request("h", "never stored"));
+    // No token, and a token that may only read: refused before the call, with HTTP statuses that
+    // gRPC clients map to UNAUTHENTICATED and PERMISSION_DENIED.
+    assert_eq!(
+        grpc(s.addr, "application/grpc", None, &[], good.clone())
+            .await
+            .http,
+        401
+    );
+    assert_eq!(
+        grpc(
+            s.addr,
+            "application/grpc",
+            Some(&bearer(READER)),
+            &[],
+            good.clone()
+        )
+        .await
+        .http,
+        403
+    );
+    let write = bearer(WRITER);
+    // Not gRPC at all.
+    assert_eq!(
+        grpc(s.addr, "application/json", Some(&write), &[], good.clone())
+            .await
+            .http,
+        415
+    );
+    // gRPC with something wrong inside: HTTP 200 and the reason in `grpc-status`.
+    let bad = grpc(
+        s.addr,
+        "application/grpc",
+        Some(&write),
+        &[],
+        vec![0, 0, 0, 0, 9, 1],
+    )
+    .await;
+    assert_eq!((bad.http, bad.status().as_deref()), (200, Some("3")));
+    assert!(bad.headers.get("grpc-message").is_some());
+    let garbage = grpc(
+        s.addr,
+        "application/grpc",
+        Some(&write),
+        &[],
+        grpc_frame(&[0xff, 0xff, 0xff]),
+    )
+    .await;
+    assert_eq!(garbage.status().as_deref(), Some("3"));
+    let unsupported = grpc(
+        s.addr,
+        "application/grpc",
+        Some(&write),
+        &[("grpc-encoding", "snappy")],
+        {
+            let mut f = vec![1, 0, 0, 0, 1, 0];
+            f.truncate(6);
+            f
+        },
+    )
+    .await;
+    assert_eq!(unsupported.status().as_deref(), Some("12"));
+    // Nothing of that was stored, and the rejections are counted.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        get(s.addr, "/api/logs", ADMIN)
+            .await
+            .json()
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}

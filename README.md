@@ -7,7 +7,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 
 ## Features
 
-- **Ingestion**: OpenTelemetry (OTLP/HTTP), the Loki push API (Promtail, Alloy…), GELF, syslog over UDP, TCP and TLS (RFC 5424 and RFC 3164, newline or octet-counted
+- **Ingestion**: OpenTelemetry (OTLP over HTTP and gRPC), the Loki push API (Promtail, Alloy…), GELF, syslog over UDP, TCP and TLS (RFC 5424 and RFC 3164, newline or octet-counted
   framing, optional client certificates), and HTTP
   (`POST /ingest`) accepting NDJSON or a JSON array, including raw
   `journalctl -o json` output.
@@ -297,7 +297,7 @@ are not supported**: they are refused (logged once, counted in `logpit_rejected_
 message in one datagram. The UDP and TCP listeners are unauthenticated like syslog; keep them on a
 trusted network, or use `POST /gelf` with a token.
 
-**OpenTelemetry (OTLP/HTTP)**: `POST /v1/logs` accepts the protobuf (`application/x-protobuf`) and
+**OpenTelemetry (OTLP/HTTP and gRPC)**: `POST /v1/logs` accepts the protobuf (`application/x-protobuf`) and
 JSON encodings, with or without gzip, with the write token as a bearer token. In the OpenTelemetry
 Collector:
 
@@ -319,8 +319,43 @@ filterable fields, with dots kept in the names (`f=http.status_code:500`). The s
 `severityNumber` (trace and debug 7, info 6, warn 4, error 3, fatal 2) or, without it, from the
 severity text. The body is the message (a structured body is shown as JSON), and JSON or
 `key=value` in a text body is extracted too. The time is `timeUnixNano`, else
-`observedTimeUnixNano`, else the arrival time. Answers `200` with an empty export response. OTLP over
-gRPC (port 4317) is not supported: use the HTTP exporter.
+`observedTimeUnixNano`, else the arrival time. Answers `200` with an empty export response.
+
+**OTLP over gRPC** is accepted on the same port, for the SDKs and Collector exporters that only speak
+gRPC (the default of most of them). It is HTTP/2, so there is no extra listener: point the exporter at the
+HTTP port.
+
+```yaml
+exporters:
+  otlp/logpit:
+    endpoint: logpit-host:8080
+    tls: { insecure: true }                  # not needed with HTTPS (see below)
+    headers: { authorization: "Bearer <write token>" }
+    compression: gzip                        # optional
+service:
+  pipelines:
+    logs: { receivers: [otlp], exporters: [otlp/logpit] }
+```
+
+```sh
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://logpit-host:8080 OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_LOGS_HEADERS="authorization=Bearer <write token>"
+```
+
+- **What is served.** `opentelemetry.proto.collector.logs.v1.LogsService/Export` (unary), with the same
+  mapping and write-token rules as OTLP/HTTP; the token goes in the `authorization` metadata. The
+  `application/grpc` and `application/grpc+proto` content types are accepted, with `gzip` message
+  compression (other encodings answer `UNIMPLEMENTED`). Metrics and traces are not served.
+- **Statuses.** A missing or wrong token is refused before the call with HTTP `401` or `403`, which gRPC
+  clients report as `UNAUTHENTICATED` or `PERMISSION_DENIED`. A message that cannot be read answers
+  `INVALID_ARGUMENT` with a reason, a message over 32 MiB `RESOURCE_EXHAUSTED`. On success the response is
+  an empty `ExportLogsServiceResponse` and `grpc-status: 0` in the trailers.
+- **TLS.** With [HTTPS](#https) the same port negotiates HTTP/2 through ALPN, so gRPC over TLS works
+  with an ordinary certificate (and `tls_client_ca` for mutual TLS). Without TLS the port speaks HTTP/2
+  with prior knowledge (`h2c`), which is what an `insecure` gRPC channel does, next to HTTP/1.1.
+- **Limits.** Only unary `Export` calls: no streaming, no gRPC reflection or health service, and one
+  message per call (clients batch). Entries pass through the usual pipeline, so rate limits, rules and
+  alerts apply. Verified against a `grpcio` client; not against every SDK.
 
 ### Syslog over TLS
 

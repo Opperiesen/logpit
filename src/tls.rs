@@ -67,9 +67,11 @@ pub fn build_acceptor(
         }
         None => builder.with_no_client_auth(),
     };
-    let config = builder
+    let mut config = builder
         .with_single_cert(certs, key)
         .context("the certificate and private key do not match or are unusable")?;
+    // The HTTPS listener speaks HTTP/2 too (gRPC needs it); other users ignore the negotiation.
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     Ok(TlsAcceptor::from(Arc::new(config)))
 }
 
@@ -514,6 +516,41 @@ mod https_tests {
                 .map_or(String::new(), |(_, b)| b.to_string()),
             cert,
         ))
+    }
+
+    #[tokio::test]
+    async fn http2_is_negotiated_over_tls_for_clients_that_ask_for_it() {
+        let p = pki("https-h2");
+        let s = start(&p, false).await;
+        let mut roots = RootCertStore::empty();
+        for cert in CertificateDer::pem_slice_iter(p.ca_pem.as_bytes()) {
+            roots.add(cert.unwrap()).unwrap();
+        }
+        let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        config.alpn_protocols = vec![b"h2".to_vec()];
+        let tcp = TcpStream::connect(("127.0.0.1", s.port)).await.unwrap();
+        let tls = TlsConnector::from(Arc::new(config))
+            .connect(ServerName::try_from("localhost").unwrap(), tcp)
+            .await
+            .unwrap();
+        assert_eq!(tls.get_ref().1.alpn_protocol(), Some(&b"h2"[..]));
+        let (mut client, connection) = h2::client::handshake(tls).await.unwrap();
+        tokio::spawn(connection);
+        let req = axum::http::Request::builder()
+            .uri("https://localhost/peer")
+            .body(())
+            .unwrap();
+        let (response, _) = client.send_request(req, true).unwrap();
+        let response = response.await.unwrap();
+        assert_eq!(response.status(), 200);
+        let mut body = response.into_body();
+        let chunk = body.data().await.unwrap().unwrap();
+        assert_eq!(&chunk[..], b"127.0.0.1");
+        let _ = std::fs::remove_dir_all(&p.dir);
     }
 
     #[tokio::test]

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- OTLP over gRPC: `LogsService/Export` is served on the HTTP port (HTTP/2, `h2c` without TLS and ALPN `h2`
+  with HTTPS), with the write token as `authorization` metadata, gzip message compression and the same
+  mapping as OTLP/HTTP. Adds the `h2` crate through axum's `http2` feature.
+
 - E-mail notifications (`[email]`): the alerts LogPit raises can be sent over SMTP (STARTTLS, implicit TLS
   or plain, `AUTH PLAIN`/`LOGIN`) to a list of recipients, filtered by kind and limited per hour, beside
   the webhook. The alert history shows the e-mail outcome and `/metrics` counts sent, failed and

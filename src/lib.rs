@@ -16,6 +16,7 @@ pub mod filters;
 pub mod forward;
 pub mod framing;
 pub mod gelf;
+pub mod grpc;
 pub mod health;
 pub mod httpget;
 pub mod inflate;
