@@ -22,6 +22,7 @@ colors:
   chart-info-grey: "#868686"
   chart-debug-grey: "#949494"
   live-highlight: "#fff1b8"
+  palette-backdrop: "rgb(0 0 0 / .3)"
   board-navy: "#141a46"
   board-band: "#1b2257"
   board-shell: "#0b0f2e"
@@ -353,6 +354,13 @@ There are no cards. Containers are bands and sheets:
 - **Line actions:** one toolbar of three small buttons with a muted edge, so they keep 3:1 on the tinted current line (*copy*, *JSON*, *link*) moved to the hovered or current line, top-right of its message cell; hidden on other lines. Feedback is the label itself ("copied", "copy failed") for 1.5s, switched in one step.
 - **Empty state:** muted sentence, then the ways out as standard buttons (wider range, leave the zoom, remove or clear filters).
 - **Inline confirmations:** saving a view swaps *Save view* and *Delete* for a name field with a red *Save* and a *Cancel*; deleting swaps them for the question in semibold ink with a red *Delete* and a *Cancel*. No browser dialogs.
+
+### Highlights, Marks and Command Palette
+- **Search highlight:** matched words and regex matches in messages use `<mark>`: bold, on a deeper timetable yellow (`#ffe58f` light, `#5c4b00` dark), ink kept.
+- **Last-visit mark:** a full-width row with a 2px accent rule beneath and bold 12px accent text, between the lines that came since the previous visit and the older ones.
+- **Unread alerts:** the alarm-red badge after the Alerts title ("3 new"); the browser tab title takes the same count, plus error lines that arrived live while hidden.
+- **Custom range:** a ground-coloured popover under the range selector with two local date-time fields, a red *Apply*, a *Cancel* and an inline error in alarm red.
+- **Command palette:** a native modal `dialog`, 560px wide, 1px field-grey border, flat (a 30% black backdrop is its only depth); a borderless 44px input over a list whose rows show the group in muted 12px beside the label; the selected row takes the strong tint. Arrow keys move, Enter runs, Escape closes.
 
 ### Navigation
 There is no navigation in the site sense; the header band is the control strip. Wordmark left, search taking the remaining width, filters inline, status pushed right in lavender. Rail sections act as the secondary navigation, each opened or closed with a hard-turning chevron.

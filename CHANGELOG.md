@@ -21,6 +21,12 @@
   the list for the keyboard; the hour scale is one tab stop walked with the arrow keys. A test keeps the
   page under 32 KiB compressed.
 
+- Web UI: search words and regex matches are highlighted in messages; a severity in the chart legend
+  sets the minimum level; a structured field value can be excluded (Alt-click, or − in *Top values*);
+  unread alerts are counted on the Alerts title and in the tab title, with error lines that arrive while
+  the tab is hidden; the list marks where the previous visit stopped; a *Custom…* time range with two
+  date-times and a *Zoom out* button; a command palette on Ctrl+K / Cmd+K.
+
 - Web UI redesign: the log stream is set like a railway timetable, grouped under hour bands that state the
   hour once with their entry, error and warning counts and stay pinned while scrolling; each line leads with
   its minutes and seconds. Light theme in timetable paper, dark theme in departure-board navy, system fonts

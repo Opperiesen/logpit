@@ -15,7 +15,7 @@
     --primary:#d30000; --primary-hover:#b00000;
     --err:#d30000; --warn:#9a5300; --notice:#2d327d; --ok:#1b7a34; --new:#6b3fa0;
     --c0:#4e79a7; --c1:#f28e2b; --c2:#59a14f; --c3:#b07aa1; --c4:#76b7b2; --c5:#d4a92a; --c6:#ff9da7; --c7:#9c755f; --c8:#7b5fb5; --c9:#86bc86; --other:#8a8a8a;
-    --chart-info:#868686; --chart-debug:#949494; --on-primary:#fff; --fresh:#fff1b8; --fresh-time:#111;
+    --chart-info:#868686; --chart-debug:#949494; --on-primary:#fff; --fresh:#fff1b8; --fresh-time:#111; --mark:#ffe58f;
     --hdr:0px;
   }
   @media (prefers-color-scheme: dark) { :root:not([data-theme=light]) {
@@ -25,7 +25,7 @@
     --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
     --primary:#c40000; --primary-hover:#a30000;
     --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
-    --chart-info:#6f76b3; --chart-debug:#5f67a8; --fresh:#33303f; --fresh-time:#ffd23f; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
+    --chart-info:#6f76b3; --chart-debug:#5f67a8; --fresh:#33303f; --fresh-time:#ffd23f; --mark:#5c4b00; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
   } }
   :root[data-theme=light] { color-scheme:light; }
   :root[data-theme=dark] {
@@ -35,7 +35,7 @@
     --accent:#ffd23f; --focus:#ffd23f; --band-hour:#ffd23f; --sel:#3a438f; --tint:#1f275f; --tint-strong:#2c3680;
     --primary:#c40000; --primary-hover:#a30000;
     --err:#ff6b6b; --warn:#ffb54d; --notice:#9cb0ff; --ok:#5fd38a; --new:#c7a6ff;
-    --chart-info:#6f76b3; --chart-debug:#5f67a8; --fresh:#33303f; --fresh-time:#ffd23f; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
+    --chart-info:#6f76b3; --chart-debug:#5f67a8; --fresh:#33303f; --fresh-time:#ffd23f; --mark:#5c4b00; --c0:#8fb3e0; --c1:#ffa64d; --c2:#7fcf6f; --c3:#d6a3c9; --c4:#9ad9d3; --c5:#f5d76e; --c6:#ffb3bb; --c7:#c9a084; --c8:#c59fd9; --c9:#a8d8a8; --other:#a7acd4;
   }
 
   * { box-sizing:border-box; }
@@ -81,7 +81,22 @@
   .row2.naming #saveView, .row2.naming #delView, .row2.deleting #saveView, .row2.deleting #delView { display:none; }
   #viewDelText { color:var(--ink); font-weight:600; }
   .prefs { position:relative; }
-  .help { position:relative; }
+  .help, .rangewrap { position:relative; }
+  .pick { position:absolute; left:0; top:calc(100% + 4px); z-index:20; display:grid; grid-template-columns:auto auto; gap:8px 10px; align-items:center; padding:12px; background:var(--ground); color:var(--ink); border:1px solid var(--field); border-radius:2px; font-weight:400; }
+  .pick .acts2 { grid-column:1 / -1; display:flex; gap:6px; align-items:center; }
+  .pick .err { color:var(--err); font-size:12px; }
+  .row1 .pick input { background:var(--ground); color:var(--ink); border-color:var(--field); }
+  .row1 .pick button:not(.primary) { background:var(--ground); color:var(--ink); border-color:var(--field); }
+  .row1 .pick :focus-visible { outline-color:var(--focus); }
+  dialog#palette { width:min(560px, calc(100vw - 32px)); margin-top:12vh; padding:0; background:var(--ground); color:var(--ink); border:1px solid var(--field); border-radius:2px; }
+  dialog#palette::backdrop { background:rgb(0 0 0 / .3); }
+  #palIn { width:100%; height:44px; border:0; border-bottom:1px solid var(--rule); border-radius:0; font-size:14px; padding:0 14px; }
+  #palIn:focus-visible { outline:none; }
+  #palList { list-style:none; margin:0; padding:4px 0; max-height:50vh; overflow:auto; }
+  #palList li { display:flex; gap:10px; padding:6px 14px; cursor:pointer; }
+  #palList li span { width:5.5em; flex:none; color:var(--muted); font-size:12px; line-height:21px; }
+  #palList li[aria-selected=true] { background:var(--tint-strong); }
+  #palList:empty::after { content:'Nothing matches.'; display:block; padding:6px 14px; color:var(--muted); }
   .help summary { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border:1px solid var(--shell-line); border-radius:2px; color:var(--shell-ink); font-weight:700; cursor:pointer; list-style:none; user-select:none; }
   .help summary::-webkit-details-marker { display:none; }
   .help[open] summary { background:var(--shell-field); color:var(--shell-field-ink); }
@@ -131,6 +146,7 @@
   #rail details[open] > summary::before { transform:rotate(45deg); }
   #rail summary h2 { display:inline; margin:0; font:inherit; }
   #rail summary span { color:var(--muted); font-weight:400; }
+  #rail summary .badge { color:var(--ground); font-weight:700; }
   #rail .body { padding:0 16px 12px; }
   .note { color:var(--muted); margin-bottom:6px; }
 
@@ -151,7 +167,8 @@
   .topctl { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-bottom:8px; color:var(--muted); }
   .topctl label { display:flex; align-items:center; gap:6px; }
   .topctl select { height:28px; }
-  .toprow { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:2px 10px; align-items:baseline; padding:3px 0; }
+  .toprow { display:grid; grid-template-columns:minmax(0, 1fr) auto auto; gap:2px 10px; align-items:baseline; padding:3px 0; }
+  .toprow .x { height:20px; padding:0 6px; font-size:12px; }
   .toprow .v { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); }
   .toprow .bar { grid-column:1 / -1; grid-row:2; height:4px; background:var(--notice); min-width:1px; }
   .toprow .n { text-align:right; color:var(--muted); } .toprow .n b { color:var(--ink); }
@@ -217,6 +234,8 @@
   #stream tr.entry:focus { outline:2px solid var(--focus); outline-offset:-2px; }
   /* A line that just arrived live is lit, then put out, both in one step (no fade). */
   #stream tr.fresh, #stream tr.fresh > td { background:var(--fresh); }
+  mark { background:var(--mark); color:inherit; font-weight:700; }
+  #stream tr.since > td { padding:3px 16px; border-bottom:2px solid var(--accent); color:var(--accent); font:700 12px var(--sans); }
   #stream tr.fresh:not(.e) td.ts { color:var(--fresh-time); }
   #stream tr.band th { position:sticky; top:var(--hdr); z-index:1; padding:8px 10px 6px 16px; background:var(--band); border-bottom:1px solid var(--ink); text-align:left; font-weight:400; }
   .band .h { font-size:20px; font-weight:700; line-height:1; margin-right:10px; color:var(--band-hour); }
@@ -300,13 +319,21 @@
       <option value="4">Warning and above</option>
       <option value="6">Info and above</option>
     </select>
+    <span class="rangewrap">
     <select id="range" title="Time range" aria-label="Time range">
       <option value="900000">Last 15 min</option>
       <option value="3600000" selected>Last hour</option>
       <option value="86400000">Last 24 h</option>
       <option value="604800000">Last 7 days</option>
       <option value="">All time</option>
+      <option value="pick">Custom…</option>
     </select>
+    <div class="pick" id="rangePick" role="group" aria-label="Custom time range" hidden>
+      <span>From</span><input id="pickFrom" type="datetime-local" step="1" aria-label="From (local time)">
+      <span>To</span><input id="pickTo" type="datetime-local" step="1" aria-label="To (local time)">
+      <div class="acts2"><button id="pickApply" type="button" class="primary small">Apply</button><button id="pickCancel" type="button" class="small">Cancel</button><span class="err" id="pickErr"></span></div>
+    </div>
+    </span>
     <label title="Stream new entries as they arrive"><input id="live" type="checkbox"> Live</label>
     <button id="go" class="primary">Search</button>
     <button id="filtersToggle" type="button" aria-expanded="false" aria-controls="filters">Filters<span id="filterCount"></span></button>
@@ -334,7 +361,7 @@
         <label>Long messages <select id="prefWrap"><option value="wrap">Wrap</option><option value="nowrap">One line</option></select></label>
         <div class="cols" title="Columns of the table"><label><input type="checkbox" data-col="ts"> Time</label><label><input type="checkbox" data-col="sev"> Level</label><label><input type="checkbox" data-col="host"> Host</label><label><input type="checkbox" data-col="app"> App</label><label><input type="checkbox" data-col="fields"> Fields</label></div>
         <button id="prefReset" type="button" class="small">Reset display</button>
-        <p class="keys">Keys: <kbd>/</kbd> search · <kbd>L</kbd> live · <kbd>J</kbd> <kbd>K</kbd> next and previous line · <kbd>Enter</kbd> context · <kbd>Esc</kbd> close</p>
+        <p class="keys">Keys: <kbd>/</kbd> search · <kbd>L</kbd> live · <kbd>J</kbd> <kbd>K</kbd> next and previous line · <kbd>Enter</kbd> context · <kbd>Esc</kbd> close · <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> commands · Alt-click a field to exclude it</p>
       </div>
     </details>
   </div>
@@ -346,6 +373,7 @@
     <select id="group"><option value="severity">severity</option><option value="host">host</option><option value="app">app</option></select>
   </label>
   <div id="legend"></div>
+  <button id="zoomOut" type="button" class="small" title="Double the zoomed window around its middle" hidden>Zoom out</button>
   <span class="exp">Export
     <button id="expNdjson" type="button" class="small" title="Download the matching entries as NDJSON (up to 100,000)">NDJSON</button>
     <button id="expCsv" type="button" class="small" title="Download the matching entries as CSV (up to 100,000)">CSV</button>
@@ -353,6 +381,10 @@
 </div>
 <svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" role="img" aria-label="Volume over time" hidden></svg>
 <div id="axis" role="group" aria-label="Go to an hour" hidden></div>
+<dialog id="palette" aria-label="Commands">
+  <input id="palIn" type="text" role="combobox" aria-expanded="true" aria-controls="palList" aria-autocomplete="list" placeholder="A command, a host, a view, a range…" autocomplete="off" spellcheck="false">
+  <ul id="palList" role="listbox" aria-label="Commands"></ul>
+</dialog>
 <main class="stream">
 <button id="unseen" type="button" hidden></button>
 <table id="stream" tabindex="-1" aria-label="Log entries"><tbody id="rows"></tbody></table>
@@ -384,7 +416,7 @@
   </div>
 </details>
 <details id="alerts">
-  <summary><h2>Alerts <span id="alertsMeta"></span></h2></summary>
+  <summary><h2>Alerts <span id="alertsMeta"></span></h2> <span id="alertsNew" class="badge" hidden></span></summary>
   <div class="body"><div id="alertList"></div></div>
 </details>
 </aside>
@@ -408,7 +440,8 @@ function clickable(el, fn, title) {
 
 // Message cell: the message plus its structured fields (click a field to filter on it).
 function msgCell(r, tr) {
-  const c = td('msg', r.message);
+  const c = td('msg', '');
+  c.append(marked(r.message));
   const keys = Object.keys(r.fields || {}).filter(k => !k.startsWith('cef_') && k !== 'msg');
   if (keys.length) {
     const box = document.createElement('div');
@@ -418,7 +451,11 @@ function msgCell(r, tr) {
       const b = document.createElement('b');
       b.textContent = k + '=';
       s.append(b, document.createTextNode(r.fields[k]));
-      clickable(s, () => { $('f').value = k + ':' + r.fields[k]; load(); }, 'Filter on ' + k + ':' + r.fields[k]);
+      // Click keeps this value, Alt-click (or Alt+Enter) leaves it out.
+      const pick = alt => { $('f').value = k + (alt ? '!=' : ':') + r.fields[k]; load(); };
+      clickable(s, () => pick(false), 'Filter on ' + k + ':' + r.fields[k] + ' (Alt-click to exclude it)');
+      s.onclick = e => pick(e.altKey);
+      s.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(e.altKey); } };
       box.append(s);
       // A trace id also opens the whole trace, across hosts, under the line.
       if (k === 'trace_id' && tr) {
@@ -585,6 +622,7 @@ for (const c of document.querySelectorAll('#prefs [data-col]')) {
 $('prefReset').onclick = () => { const t = prefs.time; prefs = { ...PREF_DEFAULTS }; savePrefs(); applyPrefs(); syncPrefControls(); if (t !== 'local') load(); };
 document.addEventListener('click', e => {
   for (const id of ['prefs', 'help']) if (!$(id).contains(e.target)) $(id).open = false;
+  if (!$('rangePick').hidden && !e.target.closest('.rangewrap')) $('rangePick').hidden = true;
 });
 // A syntax example fills its field and searches.
 for (const b of document.querySelectorAll('#helpPanel [data-into]')) b.onclick = () => { $(b.dataset.into).value = b.textContent; $('help').open = false; load(); };
@@ -662,12 +700,32 @@ function rowEl(r) {
 
 // Entries shown, and the first and last hour bands, so pages and live lines join the right band.
 let entries = 0, firstBand = null, lastBand = null;
+// The newest line shown in an earlier visit is remembered; the next visit marks where it was, so the
+// lines above the mark are the ones that came since.
+let lastVisit = 0, newestSeen = 0;
+try { lastVisit = Number(localStorage.getItem('logpit-last-visit')) || 0; } catch {}
+const saveVisit = () => { if (newestSeen) try { localStorage.setItem('logpit-last-visit', String(Math.max(newestSeen, lastVisit))); } catch {} };
+window.addEventListener('pagehide', saveVisit);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveVisit(); });
+function sinceEl() {
+  const tr = document.createElement('tr'), cell = document.createElement('td');
+  tr.className = 'since'; cell.colSpan = 5;
+  cell.textContent = 'Your last visit reached ' + fmtTime(lastVisit) + ' · the lines above came since';
+  tr.append(cell);
+  return tr;
+}
+
 function addRows(rows, append) {
   const frag = document.createDocumentFragment();
   if (!append) { entries = 0; firstBand = lastBand = null; }
   let band = lastBand;
   const touched = new Set();
+  const first = $('rows').querySelector('tr.entry');
+  let newer = append && !!first && first._r.ts > lastVisit, placed = append && !!$('rows').querySelector('tr.since');
   for (const r of rows) {
+    newestSeen = Math.max(newestSeen, r.ts);
+    if (lastVisit && r.ts > lastVisit) newer = true;
+    else if (lastVisit && newer && !placed) { frag.append(sinceEl()); placed = true; }
     const key = hourOf(r.ts).key;
     if (!band || band._key !== key) { band = bandEl(r.ts); frag.append(band); firstBand = firstBand || band; }
     const tr = rowEl(r);
@@ -710,7 +768,7 @@ function stopTail() {
 async function refreshChart() {
   if (document.hidden || chartBusy) return;
   chartBusy = true;
-  try { await Promise.all([loadChart(), loadHosts(), loadTop(), loadPatterns(), loadAlerts()]); } finally { chartBusy = false; }
+  try { await Promise.all([loadChart(), loadHosts(), loadTop(), loadPatterns(), loadAlerts(), checkAlerts()]); } finally { chartBusy = false; }
 }
 
 function handleEvent(raw) {
@@ -771,6 +829,8 @@ function flushLive() {
     band.after(tr);
     countInBand(band, r, 1);
     entries++;
+    newestSeen = Math.max(newestSeen, r.ts);
+    if (document.hidden && r.severity <= 3) hiddenErrors++;
     tr.classList.add('fresh');
     fresh.push(tr);
   }
@@ -791,6 +851,7 @@ function flushLive() {
     unseen += batch.length;
     showUnseen();
   }
+  updateTitle();
   $('empty').hidden = true;
   $('status').textContent = 'live · ' + entries + ' entries';
 }
@@ -830,6 +891,49 @@ async function startTail() {
 // edited without searching. The time window slides with the clock (used by live refresh).
 let snap = null;
 const SNAP_KEYS = ['q', 'host', 'app', 'level', 'f', 're', 'tag'];
+// Highlights: the search words (not excluded ones; prefix* as a prefix) and the message regex, as <mark>.
+let markRes = [];
+function buildMarks() {
+  markRes = [];
+  const esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const words = [];
+  let not = false;
+  for (const m of (snap.q || '').matchAll(/(-?)"([^"]+)"(\*?)|(\S+)/g)) {
+    const tok = m[4];
+    if (tok === 'NOT') { not = true; continue; }
+    if (tok === 'OR') continue;
+    const skip = not || m[1] === '-' || (tok && tok.startsWith('-'));
+    not = false;
+    if (skip) continue;
+    const text = m[2] !== undefined ? m[2] : tok.replace(/\*+$/, '');
+    const prefix = m[2] !== undefined ? m[3] === '*' : tok.endsWith('*');
+    if (text) words.push(esc(text) + (prefix ? '[\\p{L}\\p{N}_]*' : '(?![\\p{L}\\p{N}_])'));
+  }
+  if (words.length) markRes.push(new RegExp('(?<![\\p{L}\\p{N}_])(?:' + words.join('|') + ')', 'giu'));
+  if (snap.re) {
+    const ci = snap.re.startsWith('(?i)');
+    try { markRes.push(new RegExp(ci ? snap.re.slice(4) : snap.re, ci ? 'gi' : 'g')); } catch {} // a pattern JS cannot read is left unmarked
+  }
+}
+function marked(text) {
+  const ranges = [];
+  for (const re of markRes) for (const m of text.matchAll(re)) if (m[0]) ranges.push([m.index, m.index + m[0].length]);
+  if (!ranges.length) return text;
+  ranges.sort((a, b) => a[0] - b[0]);
+  const frag = document.createDocumentFragment();
+  let at = 0;
+  for (const [a, b] of ranges) {
+    if (b <= at) continue;
+    const from = Math.max(a, at);
+    frag.append(text.slice(at, from));
+    const mk = document.createElement('mark'); mk.textContent = text.slice(from, b);
+    frag.append(mk);
+    at = b;
+  }
+  frag.append(text.slice(at));
+  return frag;
+}
+
 function takeSnapshot() {
   snap = { range: $('range').value };
   if (snap.range === 'custom' && zoomWindow) Object.assign(snap, zoomWindow);
@@ -984,6 +1088,12 @@ async function loadChart() {
       const n = document.createElement('b');
       n.textContent = totals[k].toLocaleString();
       el.append(sw, name, n);
+      if (group === 'severity' && k) {
+        // A severity in the legend sets the minimum level the selector offers that includes it.
+        const lv = LEVELS.indexOf(k), opt = lv <= 3 ? '3' : lv === 4 ? '4' : lv <= 6 ? '6' : '';
+        el.dataset.key = k;
+        clickable(el, () => { $('level').value = opt; load(); }, 'Show ' + $('level').querySelector('option[value="' + opt + '"]').textContent.toLowerCase());
+      }
       if ((group === 'host' || group === 'app') && k && k !== 'other') {
         el.dataset.key = k;
         clickable(el, () => { $(group).value = k; load(); }, 'Filter on ' + group + ' ' + k);
@@ -1163,7 +1273,15 @@ async function loadTop() {
       n.className = 'n';
       const b = document.createElement('b'); b.textContent = v.count.toLocaleString();
       n.append(b, document.createTextNode(' · ' + (100 * v.count / Math.max(1, d.with_field)).toFixed(1) + '%'));
-      row.append(val, bar, n);
+      row.append(val, n);
+      if (!TOP_BUILTIN.includes(wanted)) {
+        const x = document.createElement('button');
+        x.type = 'button'; x.className = 'x small'; x.textContent = '−';
+        x.title = 'Exclude ' + wanted + ' = ' + v.value; x.setAttribute('aria-label', x.title);
+        x.onclick = () => { $('f').value = wanted + '!=' + v.value; load(); };
+        row.append(x);
+      }
+      row.append(bar);
       return row;
     }));
     if (d.other > 0) {
@@ -1186,6 +1304,41 @@ $('alerts').addEventListener('toggle', () => {
   try { localStorage.setItem('logpit-alerts-open', $('alerts').open ? '1' : '0'); } catch {}
   loadAlerts();
 });
+// Alerts newer than the last ones seen in the panel are counted on its title and in the tab title; the
+// first visit counts nothing. Error lines that arrive live while the tab is hidden join the tab count.
+let alertsSeen = 0, unreadAlerts = 0, hiddenErrors = 0;
+try { alertsSeen = Number(localStorage.getItem('logpit-alerts-seen')) || 0; } catch {}
+function updateTitle() { const n = unreadAlerts + hiddenErrors; document.title = (n ? '(' + n + ') ' : '') + 'LogPit'; }
+function showAlertBadge(n) {
+  unreadAlerts = n;
+  $('alertsNew').hidden = !n;
+  $('alertsNew').textContent = n + (n >= 100 ? '+' : '') + ' new';
+  updateTitle();
+}
+function markAlertsSeen(ts) {
+  alertsSeen = Math.max(alertsSeen, ts);
+  try { localStorage.setItem('logpit-alerts-seen', String(alertsSeen)); } catch {}
+  showAlertBadge(0);
+}
+async function checkAlerts() {
+  try {
+    const res = await fetch('/api/alerts?limit=100' + (alertsSeen ? '&since=' + (alertsSeen + 1) : ''), { headers: authHeaders() });
+    if (!res.ok) return;
+    const list = await res.json();
+    const newest = list.length ? Math.max(...list.map(a => a.ts)) : 0;
+    if (!alertsSeen) markAlertsSeen(newest || Date.now());
+    else if ($('alerts').open && !document.hidden) { if (newest) markAlertsSeen(newest); }
+    else showAlertBadge(list.length);
+  } catch {}
+}
+setInterval(() => { if (!document.hidden && snap) checkAlerts(); }, 60000);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  hiddenErrors = 0;
+  updateTitle();
+  if (snap) checkAlerts();
+});
+
 const ALERT_BAD = ['host_silent', 'log_alert', 'volume_surge', 'volume_drop', 'pattern_surge', 'new_pattern'];
 async function loadAlerts() {
   if (!$('alerts').open) return;
@@ -1194,6 +1347,7 @@ async function loadAlerts() {
     const res = await fetch('/api/alerts?limit=50', { headers: authHeaders() });
     if (!res.ok || req !== alertReq) return;
     const list = await res.json();
+    if (list.length) markAlertsSeen(Math.max(...list.map(a => a.ts)));
     $('alertsMeta').textContent = list.length ? '(' + list.length + (list.length === 50 ? '+' : '') + ')' : '';
     $('alertList').replaceChildren(...list.map(a => {
       const row = document.createElement('div');
@@ -1569,6 +1723,8 @@ async function load() {
   syncUrl();
   markFilters();
   renderChips();
+  buildMarks();
+  $('zoomOut').hidden = snap.range !== 'custom';
   const p = new URLSearchParams({ limit: String(PAGE_SIZE) });
   for (const k of SNAP_KEYS) if ($(k).value.trim()) p.set(k, $(k).value.trim());
   applyWindow(p, snap);
@@ -1610,6 +1766,7 @@ async function load() {
     loadTop();
     loadPatterns();
     loadAlerts();
+    checkAlerts();
     loadViews();
     if ($('live').checked) startTail();
   } catch (e) { $('status').textContent = String(e.message || e); }
@@ -1642,7 +1799,39 @@ async function loadTagOptions() {
     $('tag').hidden = names.length === 0 && !current;
   } catch {}
 }
-$('range').onchange = () => { if ($('range').value !== 'custom') leaveZoom(); load(); };
+$('range').onchange = () => {
+  if ($('range').value === 'pick') { $('range').value = snap ? snap.range : DEFAULT_RANGE; openRangePick(); return; }
+  if ($('range').value !== 'custom') leaveZoom();
+  load();
+};
+
+// Custom range: two local date-times, applied as a zoomed window (prefilled with the current window).
+const toLocalInput = ms => new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+function openRangePick() {
+  const now = Date.now();
+  const w = snap && snap.range === 'custom' ? snap : { since: now - (Number(snap && snap.range) || 3600000), until: now };
+  $('pickFrom').value = toLocalInput(w.since); $('pickTo').value = toLocalInput(w.until);
+  $('pickErr').textContent = '';
+  $('rangePick').hidden = false;
+  $('pickFrom').focus();
+}
+const closeRangePick = () => { $('rangePick').hidden = true; $('range').focus(); };
+$('pickCancel').onclick = closeRangePick;
+$('rangePick').addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.preventDefault(); closeRangePick(); }
+  else if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); $('pickApply').click(); }
+});
+$('pickApply').onclick = () => {
+  const since = new Date($('pickFrom').value).getTime(), until = new Date($('pickTo').value).getTime();
+  if (!(since < until)) { $('pickErr').textContent = 'From must be before To.'; return; }
+  $('rangePick').hidden = true;
+  zoomTo(since, until);
+};
+// Zoom out doubles the zoomed window around its middle, never past now.
+$('zoomOut').onclick = () => {
+  const span = snap.until - snap.since, mid = snap.since + span / 2;
+  zoomTo(Math.round(mid - span), Math.min(Date.now(), Math.round(mid + span)));
+};
 
 // No result: say so, and offer the two ways out, a wider time window and fewer filters.
 function renderEmpty() {
@@ -1650,7 +1839,7 @@ function renderEmpty() {
   const way = (text, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.onclick = () => { fn(); load(); }; ways.push(b); };
   if (snap.range === 'custom') way('Leave the zoomed window', () => { leaveZoom(); $('range').value = DEFAULT_RANGE; });
   else {
-    const opts = [...$('range').options].filter(o => o.value !== 'custom');
+    const opts = [...$('range').options].filter(o => o.value !== 'custom' && o.value !== 'pick');
     const wider = opts[opts.findIndex(o => o.value === snap.range) + 1];
     if (snap.range && wider) way('Search ' + wider.textContent.toLowerCase(), () => { $('range').value = wider.value; });
   }
@@ -1769,6 +1958,74 @@ function moveRow(dir) {
   if (tr) focusRow(tr);
 }
 $('rows').addEventListener('focusin', e => { const tr = e.target.closest('tr.entry'); if (tr) markRow(tr); });
+// Command palette (Ctrl+K or Cmd+K): views, hosts, ranges, levels and settings in one keyboard search.
+let palHosts = [], palShown = [], palAt = 0;
+function setPref(id, v) { $(id).value = v; $(id).onchange(); }
+function paletteItems() {
+  const items = [], add = (group, label, run) => items.push({ group, label, run });
+  for (const v of savedViews) add('View', v.name, () => { history.pushState(null, '', v.query ? '?' + v.query : location.pathname); applyUrl(); load(); });
+  for (const h of hostRows.length ? hostRows : palHosts) add('Host', h.host, () => { $('host').value = h.host; load(); });
+  for (const o of $('range').options) if (o.value !== 'custom' && o.value !== 'pick') add('Range', o.textContent, () => { $('range').value = o.value; $('range').onchange(); });
+  add('Range', 'Custom range…', openRangePick);
+  for (const o of $('level').options) add('Level', o.textContent, () => { $('level').value = o.value; load(); });
+  add('Live', $('live').checked ? 'Stop the live tail' : 'Start the live tail', () => $('live').click());
+  for (const [v, t] of [['auto', 'Follow the system'], ['light', 'Light'], ['dark', 'Dark']]) add('Theme', t, () => setPref('prefTheme', v));
+  add('Density', prefs.density === 'compact' ? 'Comfortable' : 'Compact', () => setPref('prefDensity', prefs.density === 'compact' ? 'normal' : 'compact'));
+  add('Messages', prefs.wrap === 'wrap' ? 'One line' : 'Wrap', () => setPref('prefWrap', prefs.wrap === 'wrap' ? 'nowrap' : 'wrap'));
+  if ($('chips').querySelector('.all, .chip')) add('Filters', 'Clear all filters', () => { CHIP_FILTERS.forEach(([id]) => { $(id).value = ''; }); load(); });
+  add('Export', 'Download NDJSON', () => exportLogs('ndjson'));
+  add('Export', 'Download CSV', () => exportLogs('csv'));
+  add('Open', 'Settings', () => { $('prefs').open = true; $('token').focus(); });
+  add('Open', 'Search syntax', () => { $('help').open = true; $('help').querySelector('summary').focus(); });
+  return items;
+}
+function renderPalette() {
+  const words = $('palIn').value.toLowerCase().split(/\s+/).filter(Boolean);
+  palShown = paletteItems().filter(it => words.every(w => (it.group + ' ' + it.label).toLowerCase().includes(w))).slice(0, 12);
+  palAt = Math.min(palAt, Math.max(0, palShown.length - 1));
+  $('palList').replaceChildren(...palShown.map((it, i) => {
+    const li = document.createElement('li');
+    li.id = 'pal-' + i; li.setAttribute('role', 'option'); li.setAttribute('aria-selected', String(i === palAt));
+    const g = document.createElement('span'); g.textContent = it.group;
+    li.append(g, it.label);
+    li.onmousedown = e => { e.preventDefault(); runPalette(i); };
+    return li;
+  }));
+  $('palIn').setAttribute('aria-activedescendant', palShown.length ? 'pal-' + palAt : '');
+  const sel = $('palList').children[palAt];
+  if (sel) sel.scrollIntoView({ block: 'nearest' });
+}
+function runPalette(i) {
+  const it = palShown[i];
+  $('palette').close();
+  if (it) it.run();
+}
+async function openPalette() {
+  if ($('palette').open) return;
+  $('palIn').value = ''; palAt = 0;
+  renderPalette();
+  $('palette').showModal();
+  if (!hostRows.length && !palHosts.length && snap) {
+    try {
+      const p = chartParams(); p.delete('host'); p.set('limit', '200'); p.set('sort', 'host'); p.set('order', 'asc');
+      const res = await fetch('/api/hosts?' + p, { headers: authHeaders() });
+      if (res.ok) { palHosts = await res.json(); if ($('palette').open) renderPalette(); }
+    } catch {}
+  }
+}
+$('palIn').addEventListener('input', () => { palAt = 0; renderPalette(); });
+$('palIn').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (palShown.length) palAt = (palAt + (e.key === 'ArrowDown' ? 1 : -1) + palShown.length) % palShown.length;
+    renderPalette();
+  } else if (e.key === 'Enter') { e.preventDefault(); runPalette(palAt); }
+});
+$('palette').addEventListener('click', e => { if (e.target === $('palette')) $('palette').close(); }); // a click on the backdrop
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+});
+
 document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
   const typing = e.target.matches('input, select, textarea, [contenteditable]');

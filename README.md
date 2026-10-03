@@ -803,6 +803,7 @@ Outside a text field, the web UI answers to a few keys (also listed under *Setti
 | `Enter` | open the context of the current line (on a line with a trace link, Tab reaches it) |
 | `Esc` | close *Settings*, leave a field, or close the panel under the current line |
 | `←` / `→`, `Home` / `End` | move along the hour scale under the chart (one tab stop) |
+| `Ctrl`+`K` / `⌘`+`K` | command palette: saved views, hosts, ranges, levels, live, theme, density, export, settings |
 
 The filters of the last search (search words, host, app, tag, field, regex, level and a zoomed time
 window) show as chips under the header; a chip's cross removes that filter and searches again, and
@@ -818,7 +819,20 @@ The **?** button next to the search box lists the search, field-filter and regex
 clicking an example searches with it. Hovering a line (or moving to it with `J`/`K`) shows *copy* (the
 message), *JSON* (the whole entry) and *link* (a link to the minute around the line on its host, never
 including the token); copying also works when LogPit is served over plain HTTP. A search that finds
-nothing offers a wider time range and to remove the filters. Relative ages in the side panels ("3m ago")
+nothing offers a wider time range and to remove the filters.
+
+The words of the search (not the excluded ones) and the regex matches are highlighted in the messages.
+In the chart legend, a severity sets the minimum level. A structured field can be left out instead of
+kept: Alt-click it under a message, or use the − button beside a value in *Top values* (this writes
+`field!=value` in the field filter; host and app cannot be excluded this way).
+
+The time range selector has a *Custom…* entry with two local date-times, and a zoomed window gets a
+*Zoom out* button that doubles it around its middle.
+
+Alerts that arrived since the panel was last open are counted on its title (*3 new*), and the browser
+tab shows that count, plus the error lines that arrived live while the tab was in the background, as
+`(3) LogPit`. The newest line of the previous visit is remembered in the browser, and the next visit
+marks it in the list: the lines above the mark came since. Relative ages in the side panels ("3m ago")
 refresh every 30 seconds.
 
 ## Web UI links
