@@ -107,7 +107,7 @@ let token = '';
 try { token = localStorage.getItem('logpit-token') || ''; } catch {}
 const path = location.pathname.split('/').filter(Boolean);
 const view = path[0] || 'board';
-// The board is a departure board: dark unless light was chosen; the other views follow the settings.
+// The board is made for a wall screen: dark unless light was chosen; the other views follow the settings.
 const theme = view === 'board' ? (prefs.theme === 'light' ? 'light' : 'dark') : prefs.theme;
 if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
 for (const a of document.querySelectorAll('header nav a')) if (a.getAttribute('href') === '/' + view) a.setAttribute('aria-current', 'page');
@@ -226,8 +226,8 @@ function roll(el, to, from) {
   return el;
 }
 
-// ---------- Departure board ----------
-const STATES = { cancelled: ['Cancelled', 0], disrupted: ['Disrupted', 1], delayed: ['Delayed', 2], ontime: ['On time', 3] };
+// ---------- Board ----------
+const STATES = { cancelled: ['Silent', 0], disrupted: ['Failing', 1], delayed: ['Degraded', 2], ontime: ['Healthy', 3] };
 async function board() {
   const win = Number(new URLSearchParams(location.search).get('minutes')) || 15;
   const clock = h('span', 'clock');

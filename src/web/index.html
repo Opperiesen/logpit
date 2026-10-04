@@ -2369,7 +2369,7 @@ function paletteItems() {
   add('Export', 'Download CSV', () => exportLogs('csv'));
   add('Open', 'Settings', () => { $('prefs').open = true; $('token').focus(); });
   add('Open', 'Search syntax', () => { $('help').open = true; $('help').querySelector('summary').focus(); });
-  for (const [label, href] of [['Departure board', '/board'], ['Compare two windows', '/compare'], ['Administration', '/admin']]) add('Page', label, () => { location.href = href; });
+  for (const [label, href] of [['Board of the hosts', '/board'], ['Compare two windows', '/compare'], ['Administration', '/admin']]) add('Page', label, () => { location.href = href; });
   for (const h of (hostRows.length ? hostRows : palHosts).slice(0, 50)) add('Host page', h.host, () => { location.href = '/host/' + encodeURIComponent(h.host); });
   add('Copy', 'This search as a CLI command', () => $('cli').click());
   return items;

@@ -856,9 +856,9 @@ refresh every 30 seconds.
 Besides the search page, the web UI has four views (links in the filter row, and in the command palette).
 They use the same token as the main page, kept in the same browser, and the same theme.
 
-- **`/board`**: a departure board of the hosts, made for a screen left on the wall. Each host is a row
-  with its state over the last 15 minutes (`?minutes=60` for another window): *Cancelled* (silent),
-  *Disrupted* (errors, with the latest error), *Delayed* (warnings, with the latest warning) or *On time*,
+- **`/board`**: a board of the hosts, made for a screen left on the wall. Each host is a row with its
+  state over the last 15 minutes (`?minutes=60` for another window): *Silent*, *Failing* (errors, with the
+  latest error), *Degraded* (warnings, with the latest warning) or *Healthy*,
   its recent form (five slices of the window, red or amber only when one stands out), its last log and its
   counts, worst first; a dot pulses while the host is talking. It refreshes every 30 seconds and is dark unless the light
   theme is chosen under Settings.

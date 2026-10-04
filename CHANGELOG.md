@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Web UI board: the states read *Silent*, *Failing*, *Degraded* and *Healthy* (formerly *Cancelled*,
+  *Disrupted*, *Delayed* and *On time*), and the command palette names it *Board of the hosts*.
+
 ## 0.17.0 - 2026-10-05
 
 - Web UI redesign of the search page, a live match centre for the homelab: a command bar with a Live
