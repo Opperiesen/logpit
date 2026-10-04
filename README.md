@@ -401,6 +401,19 @@ In the Collector, add a `traces` pipeline to the same exporter
 - **Kept as long as the logs.** Spans are purged with the longest retention of the logs, so a trace never
   outlives its lines, and with them when the size cap removes the oldest entries. Ingestion rules (drop,
   mask) do not apply to spans.
+- **Read back** with the `read` scope. `GET /api/traces` lists the latest traces, newest first: each with
+  its root span's name and service (the span without a parent, else the earliest), its start (Unix ms),
+  its duration from first start to last end (µs), its span and error counts, and its services and hosts.
+  It takes `since` and `until` (Unix ms; the last hour by default), `service`, `host` and `name` (a word of
+  a span's name, any case), which any span of the trace must match, `min_duration_ms`, `errors=true` and
+  `limit` (50, at most 500). `GET /api/traces/<id>` gives every span of a trace by start time (`404` when
+  none is stored); the log lines of the trace are `GET /api/logs?trace=<id>`. A token limited to some
+  hosts or apps only lists the traces made entirely of what it may read, and gets only those spans.
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/traces?service=shop&min_duration_ms=500&errors=true'
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/traces/0af7651916cd43dd8448eb211c80319c
+```
 - **TLS.** With [HTTPS](#https) the same port negotiates HTTP/2 through ALPN, so gRPC over TLS works
   with an ordinary certificate (and `tls_client_ca` for mutual TLS). Without TLS the port speaks HTTP/2
   with prior knowledge (`h2c`), which is what an `insecure` gRPC channel does, next to HTTP/1.1.

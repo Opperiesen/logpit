@@ -1257,4 +1257,48 @@ async fn otlp_traces_are_stored_over_http_and_grpc() {
     assert_eq!(span_count(&s), 3);
     let metrics = call(s.addr, "GET", "/metrics", None, b"").await.body;
     assert!(metrics.contains("logpit_spans_stored_total 3"), "{metrics}");
+
+    // Read back: the list names the root and counts the spans; the detail holds the tree.
+    let window = "since=0&until=9999999999999";
+    let list = get(
+        s.addr,
+        &format!("/api/traces?{window}&service=shop"),
+        READER,
+    )
+    .await;
+    assert_eq!(list.status, 200, "{}", list.body);
+    let list = list.json();
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["root_name"], "GET /");
+    assert_eq!(
+        (list[0]["spans"].as_u64(), list[0]["duration_us"].as_u64()),
+        (Some(2), Some(20_000))
+    );
+    let detail = get(
+        s.addr,
+        "/api/traces/0AF7651916CD43DD8448EB211C80319C",
+        READER,
+    )
+    .await;
+    assert_eq!(detail.status, 200, "ids are read in any case");
+    let spans = detail.json();
+    assert_eq!(spans[1]["parent_id"], "b7ad6b7169203331");
+    assert_eq!(get(s.addr, "/api/traces/ffff", READER).await.status, 404);
+    assert_eq!(get(s.addr, "/api/traces?limit=0", READER).await.status, 400);
+    // A token limited to web* hosts sees none of these spans (their host is unknown).
+    let limited = get(s.addr, &format!("/api/traces?{window}"), WEB_ONLY)
+        .await
+        .json();
+    assert!(limited.as_array().unwrap().is_empty(), "{limited}");
+    assert_eq!(
+        get(
+            s.addr,
+            "/api/traces/0af7651916cd43dd8448eb211c80319c",
+            WEB_ONLY
+        )
+        .await
+        .status,
+        404
+    );
+    assert_eq!(get(s.addr, "/api/traces", WRITER).await.status, 403);
 }

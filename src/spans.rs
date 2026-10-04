@@ -3,7 +3,7 @@
 //! timing, its status, its service and host (read from the resource like the logs'), its
 //! attributes and its events, all bounded. A span without a usable trace or span id is skipped.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::model::truncate_utf8;
@@ -33,7 +33,7 @@ pub const STATUS_UNSET: u8 = 0;
 pub const STATUS_OK: u8 = 1;
 pub const STATUS_ERROR: u8 = 2;
 
-#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct SpanEvent {
     /// Microseconds since the epoch.
     pub ts_us: i64,

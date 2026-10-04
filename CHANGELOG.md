@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `GET /api/traces` lists the latest traces (root span, start, duration, span and error counts, services
+  and hosts), filtered by window, service, host, a word of a span's name, minimum duration and errors;
+  `GET /api/traces/<id>` gives a trace's spans. Tokens limited to some hosts or apps see only what they
+  may read.
+
 - OpenTelemetry traces: `POST /v1/traces` (protobuf or JSON) and gRPC `TraceService/Export` store spans
   (ids and parent, name, kind, timing, status, service, host, attributes and events, bounded), once each
   even when sent again, purged with the logs' retention; `logpit_spans_stored_total` and

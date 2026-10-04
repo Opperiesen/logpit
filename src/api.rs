@@ -93,6 +93,8 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/api/patterns", get(patterns))
         .route("/api/tags", get(tag_list))
         .route("/api/alerts", get(alert_history))
+        .route("/api/traces", get(trace_list))
+        .route("/api/traces/{id}", get(trace_detail))
         .route("/api/export", get(export))
         .route(
             "/loki/api/v1/query_range",
@@ -1506,6 +1508,116 @@ async fn alert_rule_delete(
     }
 }
 
+/// Most traces one list returns.
+const MAX_TRACES: usize = 500;
+
+/// `GET /api/traces`: the latest traces (newest first) whose spans started in `since..until` (Unix ms;
+/// the last hour by default), with optional `service`, `host` and `name` (a word of a span's name)
+/// that any of their spans must match, `min_duration_ms`, `errors=true` and `limit` (50, at most 500).
+fn parse_traces(params: &[(String, String)], now: i64) -> Result<store::TraceQuery, String> {
+    let mut q = store::TraceQuery {
+        since_ms: now - 3_600_000,
+        until_ms: now,
+        limit: 50,
+        ..Default::default()
+    };
+    for (k, v) in params {
+        let num = || v.parse::<i64>().map_err(|_| format!("invalid {k}"));
+        match k.as_str() {
+            "since" => q.since_ms = num()?,
+            "until" => q.until_ms = num()?,
+            "service" => q.service = v.clone(),
+            "host" => q.host = v.clone(),
+            "name" => q.name = v.clone(),
+            "min_duration_ms" => {
+                let ms: f64 = v
+                    .parse()
+                    .map_err(|_| "invalid min_duration_ms".to_string())?;
+                if !ms.is_finite() || ms < 0.0 {
+                    return Err("invalid min_duration_ms".into());
+                }
+                q.min_duration_us = (ms * 1000.0) as i64;
+            }
+            "errors" => q.errors_only = matches!(v.as_str(), "true" | "1"),
+            "limit" => {
+                q.limit = v
+                    .parse()
+                    .ok()
+                    .filter(|n| (1..=MAX_TRACES).contains(n))
+                    .ok_or(format!("limit must be between 1 and {MAX_TRACES}"))?;
+            }
+            _ => {}
+        }
+    }
+    if q.since_ms > q.until_ms {
+        return Err("since must not be after until".into());
+    }
+    Ok(q)
+}
+
+async fn trace_list(
+    State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
+    QueryParams(params): QueryParams<Vec<(String, String)>>,
+) -> Response {
+    let q = match parse_traces(&params, now_ms()) {
+        Ok(q) => q,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    match with_db(&state.db_path, "listing the traces", move |conn| {
+        store::list_traces(conn, &q).map_err(anyhow::Error::from)
+    })
+    .await
+    {
+        // A token limited to some hosts or apps sees only the traces made entirely of what it may read.
+        Ok(mut traces) => {
+            if !who.access.unrestricted() {
+                // A span with no service (or host) is checked as an empty name, never skipped.
+                let or_empty = |v: &[String]| -> Vec<String> {
+                    if v.is_empty() {
+                        vec![String::new()]
+                    } else {
+                        v.to_vec()
+                    }
+                };
+                traces.retain(|t| {
+                    let services = or_empty(&t.services);
+                    or_empty(&t.hosts)
+                        .iter()
+                        .all(|h| services.iter().all(|s| who.access.allows(h, s)))
+                });
+            }
+            Json(traces).into_response()
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
+/// `GET /api/traces/<id>`: every span of the trace by start time (the spans of hosts or apps a limited
+/// token may not read are left out); `404` when none is stored.
+async fn trace_detail(
+    State(state): State<AppState>,
+    Extension(who): Extension<Identity>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    let id = id.to_ascii_lowercase();
+    match with_db(&state.db_path, "reading the trace", move |conn| {
+        store::trace_spans(conn, &id).map_err(anyhow::Error::from)
+    })
+    .await
+    {
+        Ok(mut spans) => {
+            spans.retain(|s| who.access.allows(&s.host, &s.service));
+            if spans.is_empty() {
+                (StatusCode::NOT_FOUND, "no such trace").into_response()
+            } else {
+                Json(spans).into_response()
+            }
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
 /// What the database holds (admin scope): its size, entries, their span and the last day's arrivals,
 /// with `retention_days` and `max_db_size_mb`, so the page can tell where the size is heading.
 async fn storage_info(State(state): State<AppState>) -> Response {
@@ -2031,6 +2143,51 @@ mod tests {
         assert_eq!(e.fields.len(), 3);
         assert_eq!(e.fields["n"], "5");
         assert_eq!(e.fields["ok"], "true");
+    }
+
+    #[test]
+    fn traces_params_parse_and_validate() {
+        let p = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let q = parse_traces(&p(&[]), 10_000_000).unwrap();
+        assert_eq!(
+            (q.since_ms, q.until_ms, q.limit),
+            (6_400_000, 10_000_000, 50),
+            "the last hour"
+        );
+        let q = parse_traces(
+            &p(&[
+                ("min_duration_ms", "2.5"),
+                ("errors", "true"),
+                ("service", "shop"),
+                ("limit", "500"),
+            ]),
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                q.min_duration_us,
+                q.errors_only,
+                q.service.as_str(),
+                q.limit
+            ),
+            (2500, true, "shop", 500)
+        );
+        for bad in [
+            &[("limit", "501")][..],
+            &[("limit", "0")],
+            &[("min_duration_ms", "-1")],
+            &[("min_duration_ms", "NaN")],
+            &[("since", "x")],
+            &[("since", "5"), ("until", "4")],
+        ] {
+            assert!(parse_traces(&p(bad), 0).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

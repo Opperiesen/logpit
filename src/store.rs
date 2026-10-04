@@ -1217,6 +1217,120 @@ pub fn insert_spans(
     Ok(added)
 }
 
+/// What a list of traces is filtered on: a window of start times and conditions any of the trace's
+/// spans must meet (service, host, a word of the name), a minimum duration and errors only.
+#[derive(Debug, Clone, Default)]
+pub struct TraceQuery {
+    pub since_ms: i64,
+    pub until_ms: i64,
+    pub service: String,
+    pub host: String,
+    pub name: String,
+    pub min_duration_us: i64,
+    pub errors_only: bool,
+    pub limit: usize,
+}
+
+/// One trace in a list: its root (the span without a parent, else the earliest), its span, error,
+/// service and host counts, and how long it ran from its first start to its last end.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct TraceSummary {
+    pub trace_id: String,
+    pub root_name: String,
+    pub root_service: String,
+    /// Unix ms of the first span's start.
+    pub start_ms: i64,
+    pub duration_us: i64,
+    pub spans: u64,
+    pub errors: u64,
+    pub services: Vec<String>,
+    pub hosts: Vec<String>,
+}
+
+/// The most recent traces matching `q`, newest first.
+pub fn list_traces(conn: &Connection, q: &TraceQuery) -> rusqlite::Result<Vec<TraceSummary>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT trace_id, MIN(start_us), MAX(start_us + duration_us) - MIN(start_us), COUNT(*),
+                SUM(status = 2), GROUP_CONCAT(DISTINCT service), GROUP_CONCAT(DISTINCT host)
+         FROM spans WHERE start_us >= ?1 AND start_us <= ?2
+         GROUP BY trace_id
+         HAVING (?3 = '' OR SUM(service = ?3) > 0) AND (?4 = '' OR SUM(host = ?4) > 0)
+            AND (?5 = '' OR SUM(instr(lower(name), lower(?5)) > 0) > 0)
+            AND MAX(start_us + duration_us) - MIN(start_us) >= ?6
+            AND (?7 = 0 OR SUM(status = 2) > 0)
+         ORDER BY MIN(start_us) DESC LIMIT ?8",
+    )?;
+    let split = |s: Option<String>| -> Vec<String> {
+        s.unwrap_or_default()
+            .split(',')
+            .filter(|x| !x.is_empty())
+            .map(String::from)
+            .collect()
+    };
+    let rows = stmt.query_map(
+        params![
+            q.since_ms.saturating_mul(1000),
+            q.until_ms.saturating_mul(1000),
+            q.service,
+            q.host,
+            q.name,
+            q.min_duration_us,
+            q.errors_only,
+            q.limit as i64
+        ],
+        |r| {
+            Ok(TraceSummary {
+                trace_id: r.get(0)?,
+                root_name: String::new(),
+                root_service: String::new(),
+                start_ms: r.get::<_, i64>(1)? / 1000,
+                duration_us: r.get(2)?,
+                spans: r.get::<_, i64>(3)? as u64,
+                errors: r.get::<_, i64>(4)? as u64,
+                services: split(r.get(5)?),
+                hosts: split(r.get(6)?),
+            })
+        },
+    )?;
+    let mut out: Vec<TraceSummary> = rows.collect::<rusqlite::Result<_>>()?;
+    let mut root = conn.prepare_cached(
+        "SELECT name, service FROM spans WHERE trace_id = ?1
+         ORDER BY parent_id = '' DESC, start_us LIMIT 1",
+    )?;
+    for t in &mut out {
+        (t.root_name, t.root_service) =
+            root.query_row([&t.trace_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    }
+    Ok(out)
+}
+
+/// Every span of a trace, by start time.
+pub fn trace_spans(conn: &Connection, trace_id: &str) -> rusqlite::Result<Vec<crate::spans::Span>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT trace_id, span_id, parent_id, name, kind, service, host, start_us, duration_us,
+                status, status_message, attributes, events
+         FROM spans WHERE trace_id = ?1 ORDER BY start_us, id",
+    )?;
+    let rows = stmt.query_map([trace_id], |r| {
+        Ok(crate::spans::Span {
+            trace_id: r.get(0)?,
+            span_id: r.get(1)?,
+            parent_id: r.get(2)?,
+            name: r.get(3)?,
+            kind: r.get(4)?,
+            service: r.get(5)?,
+            host: r.get(6)?,
+            start_us: r.get(7)?,
+            duration_us: r.get(8)?,
+            status: r.get(9)?,
+            status_message: r.get(10)?,
+            attributes: serde_json::from_str(&r.get::<_, String>(11)?).unwrap_or_default(),
+            events: serde_json::from_str(&r.get::<_, String>(12)?).unwrap_or_default(),
+        })
+    })?;
+    rows.collect()
+}
+
 /// Deletes the spans that started before `cutoff_ms`, a chunk at a time; returns how many.
 pub fn purge_spans(conn: &Connection, cutoff_ms: i64) -> rusqlite::Result<usize> {
     let mut total = 0;
@@ -3343,6 +3457,93 @@ mod tests {
             .unwrap()
             .is_empty()
         );
+    }
+
+    #[test]
+    fn traces_are_listed_with_their_root_and_filtered() {
+        let mut conn = mem();
+        let span = |trace: char,
+                    id: char,
+                    parent: Option<char>,
+                    name: &str,
+                    service: &str,
+                    start_us,
+                    dur,
+                    status| {
+            crate::spans::Span {
+                trace_id: trace.to_string().repeat(32),
+                span_id: id.to_string().repeat(16),
+                parent_id: parent.map(|p| p.to_string().repeat(16)).unwrap_or_default(),
+                name: name.into(),
+                service: service.into(),
+                host: "pve".into(),
+                start_us,
+                duration_us: dur,
+                status,
+                ..Default::default()
+            }
+        };
+        insert_spans(
+            &mut conn,
+            &[
+                // Trace a: a server span with a slow, failing database child.
+                span('a', '1', None, "GET /cart", "shop", 1_000_000, 300_000, 0),
+                span(
+                    'a',
+                    '2',
+                    Some('1'),
+                    "SELECT cart",
+                    "db",
+                    1_050_000,
+                    200_000,
+                    2,
+                ),
+                // Trace b: later, quick, one span.
+                span('b', '3', None, "GET /health", "shop", 5_000_000, 1_000, 1),
+            ],
+        )
+        .unwrap();
+        let q = |f: &dyn Fn(&mut TraceQuery)| {
+            let mut q = TraceQuery {
+                since_ms: 0,
+                until_ms: 10_000,
+                limit: 10,
+                ..Default::default()
+            };
+            f(&mut q);
+            list_traces(&conn, &q).unwrap()
+        };
+        let all = q(&|_| {});
+        assert_eq!(
+            all.iter().map(|t| &t.trace_id[..1]).collect::<Vec<_>>(),
+            ["b", "a"]
+        );
+        let a = &all[1];
+        assert_eq!(
+            (a.root_name.as_str(), a.root_service.as_str()),
+            ("GET /cart", "shop")
+        );
+        assert_eq!(
+            (a.start_ms, a.duration_us, a.spans, a.errors),
+            (1000, 300_000, 2, 1)
+        );
+        let mut services = a.services.clone();
+        services.sort();
+        assert_eq!(services, ["db", "shop"]);
+        // A condition on any span selects the whole trace.
+        assert_eq!(q(&|q| q.service = "db".into()).len(), 1);
+        assert_eq!(q(&|q| q.name = "select".into())[0].root_name, "GET /cart");
+        assert_eq!(q(&|q| q.errors_only = true).len(), 1);
+        assert_eq!(q(&|q| q.min_duration_us = 100_000).len(), 1);
+        assert_eq!(q(&|q| q.until_ms = 2_000).len(), 1);
+        assert_eq!(q(&|q| q.limit = 1).len(), 1);
+        let spans = trace_spans(&conn, &"a".repeat(32)).unwrap();
+        assert_eq!(
+            spans.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            ["GET /cart", "SELECT cart"]
+        );
+        assert_eq!(spans[1].parent_id, "1".repeat(16));
+        assert!(trace_spans(&conn, "nope").unwrap().is_empty());
     }
 
     #[test]
