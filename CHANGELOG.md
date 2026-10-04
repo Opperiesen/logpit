@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.17.0 - 2026-10-05
+
 - Web UI redesign of the search page, a live match centre for the homelab: a command bar with a Live
   pill that pulses, a host rail where each host has a dot that pulses while it talks, its recent form as
   five marks calibrated on its own window, its counts and a volume bar; a momentum curve (errors pushed
