@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.18.0 - 2026-10-05
+
 - Web UI host page: its latest twelve lines on top, which arrive live through the tail, with *Pause*.
 
 - Web UI admin: a *Storage* section with the database's size (and its cap), entries, oldest entry and
