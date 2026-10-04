@@ -1455,7 +1455,8 @@ On the search page, each message pattern has a bell: it asks how many lines like
 minutes (per host or overall) should notify you, and creates the rule, whose regular expression is the
 pattern's template (each `<*>` matches anything). The rule runs at once, beside the configuration's
 `[[alerts]]`, and behaves like them. The *Alert rules* section of `/admin` lists them, with how many times
-each fired since LogPit started, and deletes them.
+each fired since LogPit started, edits them in place (name, lines, window, quiet period, per host;
+the pattern is kept) and deletes them.
 
 They are kept in the database (a table that does not change the schema version) and managed with the
 `admin` scope:

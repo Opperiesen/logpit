@@ -347,10 +347,15 @@ async function admin() {
     for (const m of metrics.matchAll(/^logpit_alerts_fired_total\{rule="([^"]*)"\} (\d+)/gm)) fired[m[1]] = Number(m[2]);
     const ruleText = r => r.count.toLocaleString() + ' lines' + (r.pattern ? ' matching ' : '') + (r.severity && r.severity.length ? ' at ' + r.severity.join(', ') : '') +
       (r.host ? ' from ' + r.host : '') + (r.app ? ' in ' + r.app : '') + ' within ' + Math.round(r.window_secs / 60) + ' min' + (r.per_host ? ', per host' : '');
-    const ruleRows = rules.length ? rules.map(r => h('tr', null,
-      h('td', null, r.name), h('td', 'muted', ruleText(r), r.pattern ? h('span', 'mono', ' /' + r.pattern + '/') : null),
-      h('td', 'n' + (fired[r.name] ? ' e' : ' muted'), (fired[r.name] || 0).toLocaleString()), h('td', 'muted nw', fmtTime(r.created_ts)),
-      h('td', null, Object.assign(h('button', { type: 'button', class: 'small', 'aria-label': 'Delete the alert rule ' + r.name }, 'Delete'), { onclick: () => deleteRule(r.id) })))) : [empty(5, 'No alert rule yet: create one from a message pattern on the search page (the bell).')];
+    const ruleRows = rules.length ? rules.map(r => {
+      const tr = h('tr', null,
+        h('td', null, r.name), h('td', 'muted', ruleText(r), r.pattern ? h('span', 'mono', ' /' + r.pattern + '/') : null),
+        h('td', 'n' + (fired[r.name] ? ' e' : ' muted'), (fired[r.name] || 0).toLocaleString()), h('td', 'muted nw', fmtTime(r.created_ts)),
+        h('td', 'nw',
+          Object.assign(h('button', { type: 'button', class: 'small', 'aria-label': 'Edit the alert rule ' + r.name }, 'Edit'), { onclick: () => editRule(tr, r) }), ' ',
+          Object.assign(h('button', { type: 'button', class: 'small', 'aria-label': 'Delete the alert rule ' + r.name }, 'Delete'), { onclick: () => deleteRule(r.id) })));
+      return tr;
+    }) : [empty(5, 'No alert rule yet: create one from a message pattern on the search page (the bell).')];
     // Refusals for quota, from the Prometheus text: logpit_quota_rejected_total{token="name"} 12
     const rejected = {};
     for (const m of metrics.matchAll(/^logpit_quota_rejected_total\{token="([^"]*)"\} (\d+)/gm)) rejected[m[1]] = Number(m[2]);
@@ -401,6 +406,34 @@ async function admin() {
     await loadAudit();
     say('');
   } catch (e) { failed(e, 'admin'); }
+}
+// Editing a rule in place: its name, how many lines within how many minutes, per host or overall; the
+// pattern and the other conditions are kept. A new name saves the rule under it and deletes the old one.
+function editRule(tr, r) {
+  const num = (name, value, label) => h('input', { name, type: 'number', min: '1', value: String(value), required: '', 'aria-label': label, style: 'width:6em' });
+  const form = h('form', 'row',
+    h('label', null, 'Name', h('input', { name: 'name', value: r.name, required: '', maxlength: '80', size: '28' })),
+    h('label', null, 'Lines', num('count', r.count, 'Number of matching lines')),
+    h('label', null, 'Within (minutes)', num('mins', Math.max(1, Math.round(r.window_secs / 60)), 'Window in minutes')),
+    h('label', null, 'Quiet after (minutes)', h('input', { name: 'cool', type: 'number', min: '1', value: r.cooldown_secs ? String(Math.round(r.cooldown_secs / 60)) : '', placeholder: 'the window', 'aria-label': 'Quiet period in minutes', style: 'width:7em' })),
+    h('label', { style: 'display:flex;gap:6px;align-items:center' }, h('input', { name: 'per', type: 'checkbox', ...(r.per_host ? { checked: '' } : {}) }), 'per host'),
+    h('button', { class: 'primary' }, 'Save'),
+    Object.assign(h('button', { type: 'button' }, 'Cancel'), { onclick: () => admin() }));
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(form), name = String(f.get('name')).trim(), cool = Number(f.get('cool'));
+    const { id, created_ts, ...rule } = r;
+    Object.assign(rule, { name, count: Number(f.get('count')), window_secs: 60 * Number(f.get('mins')), per_host: f.get('per') === 'on', cooldown_secs: cool ? 60 * cool : null });
+    try {
+      await api('/api/alert-rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rule) });
+      if (name !== r.name) await api('/api/alert-rules/' + id, { method: 'DELETE' });
+      await admin();
+      say('alert rule "' + name + '" saved');
+    } catch (err) { say('could not save the alert rule: ' + err.message); }
+  };
+  const cell = h('td', { colspan: '5' }, form);
+  tr.replaceChildren(cell);
+  form.querySelector('input').focus();
 }
 async function deleteRule(id) {
   try { await api('/api/alert-rules/' + id, { method: 'DELETE' }); admin(); } catch (e) { say('could not delete the alert rule: ' + e.message); }

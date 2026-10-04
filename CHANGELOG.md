@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Web UI admin: an alert rule can be edited in place (name, lines, window, quiet period, per host),
+  keeping its pattern and other conditions.
+
 - Web UI: *Notify me of new alerts* under Settings. A new alert shows in the page with a *Show* button
   that zooms to it, and, while the tab is in the background, as a system notification once the browser
   allows it (over HTTPS or `localhost` only); alerts are then checked every minute even in the background.
