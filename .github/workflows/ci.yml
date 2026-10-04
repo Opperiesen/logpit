@@ -1,24 +1,47 @@
 name: CI
 
+# Changes that cannot affect the build or the tests do not start a run.
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", LICENSE, ".impeccable/**", "contrib/**"]
   pull_request:
+    paths-ignore: ["**.md", LICENSE, ".impeccable/**", "contrib/**"]
+
+# A newer push to a pull request replaces the run of the previous one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # Debug info is only read by a debugger: without it the crate compiles and links faster and
+  # the cache is half the size. Panics still report their file and line.
+  CARGO_PROFILE_DEV_DEBUG: 0
 
+# The jobs use the stable toolchain already on the runner image instead of downloading the
+# newest one (about 10 s per job). It trails the latest release by a few weeks at most; the
+# release workflow still builds with the newest.
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - run: rustup component add rustfmt clippy
       - run: cargo fmt --all -- --check
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --all-targets --locked -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --locked
 
   audit:
