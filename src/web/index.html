@@ -9,236 +9,310 @@
   html { overflow-anchor:none; }
   @media (pointer:coarse) { input:not([type=checkbox]), select, button:not(.link) { min-height:44px; } button.small { min-height:36px; }
     .row1 label { min-height:44px; padding:0 4px; } input[type=checkbox] { width:22px; height:22px; } }
+  @keyframes rise { from { opacity:0; transform:translateY(-4px) scale(.98); } }
+  @keyframes reveal { from { opacity:0; transform:translateY(-3px); } }
+  @keyframes arrive { from { opacity:0; transform:translateY(-6px); } }
+  @keyframes pulse { 0% { transform:scale(1); opacity:.55; } 70%, 100% { transform:scale(2.6); opacity:0; } }
+  @keyframes ping { 0% { box-shadow:0 0 0 0 currentColor; } 100% { box-shadow:0 0 0 6px transparent; } }
 
-  /* Header: the platform-navy band carries the search; the row under it the secondary filters. */
-  header { position:sticky; top:0; z-index:10; background:var(--shell); color:var(--shell-ink); }
-  .row1 { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:10px 16px; }
-  h1 { margin:0 12px 0 0; font-size:20px; line-height:32px; font-weight:700; letter-spacing:-.01em; }
-  .row1 input, .row1 select { background:var(--shell-field); color:var(--shell-field-ink); border-color:var(--shell-line); }
-  .row1 label { display:flex; align-items:center; gap:6px; color:var(--shell-ink); font-weight:600; }
-  .row1 button:not(.primary) { background:transparent; color:var(--shell-ink); border-color:var(--shell-line); }
-  .row1 :focus-visible { outline-color:var(--shell-ink); }
-  #q { flex:1 1 280px; min-width:180px; }
-  #status { margin-left:auto; color:var(--shell-muted); font-size:13px; }
+  /* Header: a command bar (brand, search, range, live, Search), then the secondary filters. */
+  header { position:sticky; top:0; z-index:10; background:color-mix(in srgb, var(--shell) 88%, transparent); color:var(--shell-ink); backdrop-filter:saturate(1.4) blur(12px); border-bottom:1px solid var(--rule); }
+  .row1 { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:10px 16px 8px; }
+  h1 { display:flex; align-items:center; gap:8px; margin:0 10px 0 0; font-size:17px; line-height:32px; font-weight:700; letter-spacing:-.02em; }
+  h1 svg { flex:none; }
+  .row1 input, .row1 select { background:var(--shell-field); color:var(--shell-field-ink); }
+  .row1 > label { display:flex; align-items:center; gap:6px; color:var(--shell-ink); font-weight:600; }
+  .row1 button:not(.primary) { background:var(--shell-field); color:var(--shell-ink); }
+  .search { position:relative; flex:1 1 320px; min-width:200px; display:flex; }
+  .search > svg { position:absolute; left:11px; top:50%; translate:0 -50%; color:var(--muted); pointer-events:none; }
+  .search kbd { position:absolute; right:8px; top:50%; translate:0 -50%; pointer-events:none; }
+  #q { flex:1; height:36px; padding:0 34px 0 34px; border-radius:var(--radius); font-size:14px; }
+  #q:focus-visible ~ kbd { opacity:0; }
+  .row1 select, .row1 button { height:36px; border-radius:var(--radius); }
+  .row1 .live { height:36px; padding:0 12px 0 10px; border:1px solid var(--rule); border-radius:999px; background:var(--shell-field); cursor:pointer; user-select:none; transition:background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease); }
+  .row1 .live input { position:absolute; opacity:0; width:1px; height:1px; }
+  .live .dot { position:relative; width:8px; height:8px; border-radius:50%; background:var(--field); transition:background-color .2s var(--ease); }
+  .live:has(input:checked) { background:var(--err-tint); border-color:color-mix(in srgb, var(--live) 45%, transparent); color:var(--live); }
+  .live:has(input:checked) .dot { background:var(--live); }
+  .live:has(input:checked) .dot::after { content:''; position:absolute; inset:0; border-radius:50%; background:var(--live); animation:pulse 1.6s var(--ease) infinite; }
+  .live:has(input:focus-visible) { outline:2px solid var(--focus); outline-offset:2px; }
+  #go { padding:0 16px; }
+  #status { margin-left:auto; color:var(--shell-muted); font-size:12.5px; }
   #filtersToggle { display:none; }
-  .row2 { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 16px; background:var(--band); color:var(--ink); border-bottom:1px solid var(--rule); }
+  .row2 { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:0 16px 10px; color:var(--ink); }
+  .row2 input, .row2 select { height:30px; font-size:13px; }
+  .row2 > button, .row2 .prefs summary { height:30px; font-size:13px; }
   .row2 .sep { flex:1; }
-  .row2 .pages { display:flex; gap:14px; margin-right:8px; }
-  .row2 .pages a, .hp { color:var(--ink); font-weight:600; text-underline-offset:3px; }
-  .hp { margin-left:6px; font-size:11px; color:var(--muted); }
+  .row2 .pages { display:flex; gap:2px; margin-right:6px; padding:2px; border-radius:var(--radius); background:var(--surface); }
+  .row2 .pages a { padding:4px 10px; border-radius:var(--radius-s); color:var(--muted); font-size:13px; font-weight:600; text-decoration:none; transition:background-color .16s var(--ease), color .16s var(--ease); }
+  .row2 .pages a:hover { background:var(--surface-2); color:var(--ink); }
   .row2 .inline { display:none; align-items:center; gap:6px; }
-  .row2.naming #viewForm, .row2.deleting #viewDel { display:inline-flex; }
+  .row2.naming #viewForm, .row2.deleting #viewDel { display:inline-flex; animation:reveal .2s var(--ease); }
   .row2.naming #saveView, .row2.naming #delView, .row2.deleting #saveView, .row2.deleting #delView { display:none; }
   #viewDelText { color:var(--ink); font-weight:600; }
-  .prefs { position:relative; }
-  .help, .rangewrap { position:relative; }
-  .pick { position:absolute; left:0; top:calc(100% + 4px); z-index:20; display:grid; grid-template-columns:auto auto; gap:8px 10px; align-items:center; padding:12px; background:var(--ground); color:var(--ink); border:1px solid var(--field); border-radius:2px; font-weight:400; }
+  .prefs, .help, .rangewrap { position:relative; }
+  .pick, .help .panel, .prefs .panel { z-index:20; background:var(--surface); color:var(--ink); border:1px solid var(--rule); border-radius:12px; box-shadow:var(--pop); font-weight:400; animation:rise .18s var(--ease); transform-origin:top left; }
+  .pick { position:absolute; left:0; top:calc(100% + 6px); display:grid; grid-template-columns:auto auto; gap:8px 10px; align-items:center; padding:14px; }
   .pick .acts2 { grid-column:1 / -1; display:flex; gap:6px; align-items:center; }
   .pick .err { color:var(--err); font-size:12px; }
-  .row1 .pick input { background:var(--ground); color:var(--ink); border-color:var(--field); }
-  .row1 .pick button:not(.primary) { background:var(--ground); color:var(--ink); border-color:var(--field); }
-  .row1 .pick :focus-visible { outline-color:var(--focus); }
-  dialog#palette { width:min(560px, calc(100vw - 32px)); margin-top:12vh; padding:0; background:var(--ground); color:var(--ink); border:1px solid var(--field); border-radius:2px; }
-  dialog#palette::backdrop { background:rgb(0 0 0 / .3); }
-  #palIn { width:100%; height:44px; border:0; border-bottom:1px solid var(--rule); border-radius:0; font-size:14px; padding:0 14px; }
-  #palIn:focus-visible { outline:none; }
-  #palList { list-style:none; margin:0; padding:4px 0; max-height:50vh; overflow:auto; }
-  #palList li { display:flex; gap:10px; padding:6px 14px; cursor:pointer; }
-  #palList li span { width:5.5em; flex:none; color:var(--muted); font-size:12px; line-height:21px; }
+  .row1 .pick input, .row1 .pick button:not(.primary) { background:var(--ground); color:var(--ink); height:32px; }
+  dialog#palette { width:min(620px, calc(100vw - 32px)); margin-top:14vh; padding:0; background:var(--surface); color:var(--ink); border:1px solid var(--rule); border-radius:12px; box-shadow:var(--pop); overflow:hidden; }
+  dialog#palette[open] { animation:rise .2s var(--ease); }
+  dialog#palette::backdrop { background:rgb(0 0 0 / .45); }
+  #palIn { width:100%; height:54px; border:0; border-bottom:1px solid var(--rule); border-radius:0; background:transparent; font-size:16px; padding:0 18px; }
+  #palIn:focus-visible { outline:none; box-shadow:none; }
+  #palList { list-style:none; margin:0; padding:6px; max-height:52vh; overflow:auto; }
+  #palList li { display:flex; align-items:center; gap:12px; padding:8px 10px; border-radius:var(--radius); cursor:pointer; transition:background-color .12s var(--ease); }
+  #palList li:hover { background:var(--tint); }
+  #palList li span { width:6.5em; flex:none; color:var(--muted); font-size:12px; }
   #palList li[aria-selected=true] { background:var(--tint-strong); }
-  #palList:empty::after { content:'Nothing matches.'; display:block; padding:6px 14px; color:var(--muted); }
-  .help summary { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border:1px solid var(--shell-line); border-radius:2px; color:var(--shell-ink); font-weight:700; cursor:pointer; list-style:none; user-select:none; }
+  #palList:empty::after { content:'Nothing matches.'; display:block; padding:8px 10px; color:var(--muted); }
+  .help summary { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border:1px solid var(--rule); border-radius:var(--radius); background:var(--shell-field); color:var(--muted); font-weight:700; cursor:pointer; list-style:none; user-select:none; transition:color .16s var(--ease), border-color .16s var(--ease); }
+  .help summary:hover { color:var(--ink); border-color:var(--field); }
   .help summary::-webkit-details-marker { display:none; }
-  .help[open] summary { background:var(--shell-field); color:var(--shell-field-ink); }
-  .help .panel { position:absolute; left:0; top:calc(100% + 4px); z-index:20; width:min(460px, calc(100vw - 32px)); padding:12px 14px; background:var(--ground); color:var(--ink); border:1px solid var(--field); border-radius:2px; font-size:13px; font-weight:400; }
+  .help[open] summary { color:var(--accent); border-color:var(--accent); }
+  .help .panel { position:absolute; left:0; top:calc(100% + 6px); width:min(480px, calc(100vw - 32px)); padding:14px 16px; font-size:13px; }
   .help .panel p { margin:0 0 6px; color:var(--muted); }
-  .help h2 { margin:10px 0 4px; font-size:12px; font-weight:700; }
-  .help dl { display:grid; grid-template-columns:max-content minmax(0, 1fr); gap:3px 12px; margin:0; align-items:baseline; }
+  .help h2 { margin:12px 0 6px; font-size:12px; font-weight:600; color:var(--muted); }
+  .help dl { display:grid; grid-template-columns:max-content minmax(0, 1fr); gap:4px 12px; margin:0; align-items:baseline; }
   .help dd { margin:0; color:var(--muted); }
-  .help dt button { height:auto; padding:1px 6px; border-color:var(--rule); font:600 12px var(--mono); }
+  .help dt button { height:auto; padding:2px 8px; font:500 12px var(--mono); }
   .help code { font:12px var(--mono); color:var(--ink); }
-  .row1 .help .panel button { background:var(--ground); color:var(--ink); border-color:var(--rule); }
-  .row1 .help .panel button:hover { background:var(--band); }
-  .row1 .help .panel :focus-visible { outline-color:var(--focus); }
-  .prefs summary { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 10px; border:1px solid var(--field); border-radius:2px; background:var(--ground); font-weight:600; cursor:pointer; list-style:none; user-select:none; }
+  .row1 .help .panel button { background:var(--ground); color:var(--ink); }
+  .prefs summary { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 10px; border:1px solid var(--rule); border-radius:var(--radius-s); background:var(--surface); font-weight:600; cursor:pointer; list-style:none; user-select:none; transition:background-color .16s var(--ease), border-color .16s var(--ease); }
+  .prefs summary:hover { background:var(--surface-2); border-color:var(--field); }
   .prefs summary::-webkit-details-marker { display:none; }
-  .prefs .panel { position:absolute; right:0; top:calc(100% + 4px); z-index:20; display:grid; gap:10px; min-width:260px; padding:12px; background:var(--ground); border:1px solid var(--field); border-radius:2px; }
+  .prefs .panel { position:absolute; right:0; top:calc(100% + 6px); display:grid; gap:10px; min-width:280px; padding:14px; transform-origin:top right; }
   .prefs .panel label { display:flex; justify-content:space-between; align-items:center; gap:12px; color:var(--muted); }
   .prefs .panel .cols { display:flex; flex-wrap:wrap; gap:6px 14px; }
   .prefs .panel .cols label { gap:6px; color:var(--ink); }
   .prefs .panel button { justify-self:start; }
-  .prefs .panel .keys { margin:0; padding-top:8px; border-top:1px solid var(--rule); color:var(--muted); font-size:12px; line-height:1.9; }
-  kbd { padding:0 4px; border:1px solid var(--field); border-radius:2px; font:700 11px var(--mono); color:var(--ink); }
-  /* Active filters of the last search, each removable in one click. */
-  .chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px 16px; background:var(--ground); color:var(--ink); border-bottom:1px solid var(--rule); }
-  .chip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 6px 0 8px; font-weight:400; max-width:28em; }
-  .chip .k { color:var(--muted); }
-  .chip b { font:700 12px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .chip svg { flex:none; }
+  .prefs .panel .keys { margin:0; padding-top:10px; border-top:1px solid var(--rule); color:var(--muted); font-size:12px; line-height:2; }
+  kbd { display:inline-block; min-width:18px; padding:0 5px; border:1px solid var(--rule); border-radius:4px; box-shadow:inset 0 -1px 0 var(--rule); background:var(--surface-2); font:600 11px/16px var(--sans); text-align:center; color:var(--muted); }
+  /* Active filters of the last search, each removable in one click: they are the viewer's focus. */
+  .chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:0 16px 10px; color:var(--ink); }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 8px 0 10px; border-color:transparent; border-radius:999px; background:var(--focus-tint); color:var(--ink); font-weight:400; max-width:28em; animation:rise .2s var(--ease); }
+  .chip:hover { background:var(--focus-strong); border-color:transparent; }
+  .chip .k { color:var(--accent); font-weight:600; }
+  .chip b { font:600 12px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip svg { flex:none; opacity:.7; }
   .chips .all { height:26px; padding:0 8px; border-color:transparent; background:none; color:var(--muted); font-weight:600; }
   .chips .all:hover { color:var(--accent); background:none; }
 
-  /* Work areas: the rail (hosts, top values, alerts, patterns) beside the chart and the stream. */
+  /* Work areas: the host rail beside the momentum curve and the stream. */
   .layout { display:grid; grid-template-columns:minmax(0, 1fr); grid-template-areas:"bar" "chart" "marks" "axis" "stream" "rail"; }
   #chartbar { grid-area:bar; } #chart, #maint { grid-area:chart; } #marks { grid-area:marks; } #axis { grid-area:axis; } .stream { grid-area:stream; } #rail { grid-area:rail; }
   #rail { border-top:1px solid var(--rule); }
   @media (min-width:1000px) {
-    .layout { grid-template-columns:300px minmax(0, 1fr); grid-template-areas:"rail bar" "rail chart" "rail marks" "rail axis" "rail stream"; grid-template-rows:auto auto auto auto 1fr; }
-    #rail { position:sticky; top:var(--hdr); align-self:start; max-height:calc(100vh - var(--hdr)); overflow:auto; border-top:0; border-right:1px solid var(--rule); }
-    #unseen { left:calc(50% + 150px); }
+    .layout { grid-template-columns:330px minmax(0, 1fr); grid-template-areas:"rail bar" "rail chart" "rail marks" "rail axis" "rail stream"; grid-template-rows:auto auto auto auto 1fr; }
+    #rail { position:sticky; top:var(--hdr); align-self:start; min-height:calc(100vh - var(--hdr)); max-height:calc(100vh - var(--hdr)); overflow:hidden auto; border-top:0; border-right:1px solid var(--rule); background:var(--band); }
+    #unseen { left:calc(50% + 165px); }
   }
-  @media (min-width:1280px) { .layout { grid-template-columns:340px minmax(0, 1fr); } #unseen { left:calc(50% + 170px); } }
+  @media (min-width:1280px) { .layout { grid-template-columns:360px minmax(0, 1fr); } #unseen { left:calc(50% + 180px); } }
   #rail details { border-bottom:1px solid var(--rule); font-size:12.5px; }
   #rail details:last-child { border-bottom:0; }
-  #rail summary { padding:10px 16px; font-size:13px; font-weight:700; cursor:pointer; list-style:none; }
+  #rail summary { display:flex; align-items:center; gap:8px; padding:14px 16px; font-size:15px; font-weight:650; letter-spacing:-.01em; cursor:pointer; list-style:none; transition:background-color .16s var(--ease); }
+  #rail summary:hover { background:var(--tint); }
   #rail summary::-webkit-details-marker { display:none; }
-  #rail summary::before { content:''; display:inline-block; width:6px; height:6px; margin:0 10px 2px 2px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(-45deg); }
+  #rail summary::before { content:''; flex:none; width:6px; height:6px; margin:0 2px 2px 2px; border-right:1.5px solid var(--muted); border-bottom:1.5px solid var(--muted); transform:rotate(-45deg); transition:transform .2s var(--ease); }
   #rail details[open] > summary::before { transform:rotate(45deg); }
   #rail summary h2 { display:inline; margin:0; font:inherit; }
-  #rail summary span { color:var(--muted); font-weight:400; }
-  #rail summary .badge { color:var(--ground); font-weight:700; }
-  #rail .body { padding:0 16px 12px; }
-  .note { color:var(--muted); margin-bottom:6px; }
+  #rail summary span { color:var(--muted); font-weight:400; font-size:13px; }
+  #rail summary .badge { margin-left:auto; color:var(--ground); font-weight:600; }
+  #rail .body { padding:0 16px 14px; }
+  #rail details[open] > .body { animation:reveal .22s var(--ease); }
+  .note { color:var(--muted); margin-bottom:8px; }
 
-  #hostsTable { width:100%; border-collapse:collapse; }
-  #hostsTable th { text-align:left; font-size:12px; font-weight:600; color:var(--muted); padding:4px 8px 4px 0; border-bottom:1px solid var(--rule); white-space:nowrap; }
-  #hostsTable th[data-sort] { cursor:pointer; user-select:none; } #hostsTable th[data-sort]:hover { color:var(--accent); }
-  #hostsTable th[aria-sort]::after { content:''; display:inline-block; margin:0 0 2px 5px; border:4px solid transparent; border-top:0; border-bottom:5px solid currentColor; vertical-align:middle; }
-  #hostsTable th[aria-sort=descending]::after { border-bottom:0; border-top:5px solid currentColor; }
+  /* The host squad: a live dot, the name, its recent form, a bar for its share of the volume. */
+  #hostsTable { width:100%; border-collapse:collapse; table-layout:fixed; }
+  #hostsTable col.c-form { width:40px; } #hostsTable col.c-n { width:44px; } #hostsTable col.c-e { width:32px; } #hostsTable col.c-w { width:38px; } #hostsTable col.c-seen { width:32px; }
+  #hostsTable th { text-align:left; font-size:11.5px; font-weight:500; color:var(--muted); padding:4px 6px 6px 0; white-space:nowrap; }
+  #hostsTable th[data-sort] { cursor:pointer; user-select:none; transition:color .16s var(--ease); } #hostsTable th[data-sort]:hover { color:var(--ink); }
+  #hostsTable th[aria-sort] { color:var(--ink); }
+  #hostsTable th[aria-sort]::after { content:''; display:inline-block; margin:0 0 2px 4px; border:3.5px solid transparent; border-top:0; border-bottom:4.5px solid currentColor; vertical-align:middle; }
+  #hostsTable th[aria-sort=descending]::after { border-bottom:0; border-top:4.5px solid currentColor; }
   #hostsTable th.n, #hostsTable td.n { text-align:right; }
-  #hostsTable td { padding:4px 8px 4px 0; border-bottom:1px solid var(--rule); white-space:nowrap; vertical-align:baseline; }
-  #hostsTable td.name { white-space:normal; font-weight:600; }
-  #hostsTable tr.active td.name > [role=button] { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
-  #hostsTable td.zero { color:var(--muted); }
-  #hostsTable td.s3 { color:var(--err); font-weight:700; } #hostsTable td.s4 { color:var(--warn); font-weight:700; }
-  .badge { display:inline-block; margin-left:6px; padding:0 5px; border-radius:2px; background:var(--err); color:var(--ground); font:700 11px/16px var(--sans); }
-  .tag { display:inline-block; margin:2px 4px 0 0; padding:0 5px; border:1px solid var(--field); border-radius:2px; font:400 11px/16px var(--sans); color:var(--muted); }
+  #hostsTable td { padding:7px 6px 7px 0; border-top:1px solid var(--rule); white-space:nowrap; vertical-align:middle; }
+  #hostsTable tbody tr { transition:background-color .16s var(--ease); }
+  #hostsTable tbody tr:hover { background:var(--tint); }
+  #hostsTable td.name { position:relative; white-space:normal; font-weight:600; }
+  #hostsTable td.name .who { display:flex; align-items:center; gap:8px; min-width:0; }
+  #hostsTable td.name .who > [role=button] { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #hostsTable tr.active td.name .who > [role=button] { color:var(--accent); }
+  #hostsTable tr.active { background:var(--focus-tint); }
+  #hostsTable td.zero { color:var(--muted); opacity:.6; }
+  #hostsTable td.s3 { color:var(--err); font-weight:600; } #hostsTable td.s4 { color:var(--warn); font-weight:600; }
+  #hostsTable td.seen { color:var(--muted); font-size:11.5px; text-align:right; }
+  #hostsTable th[data-sort=last_ts] { text-align:right; }
+  .vol { height:3px; margin-top:6px; border-radius:2px; background:color-mix(in srgb, var(--ink) 40%, transparent); transition:width .5s var(--ease); }
+  .hp { position:absolute; right:6px; top:8px; display:inline-flex; padding:2px; border-radius:4px; background:var(--surface-2); color:var(--muted); opacity:0; transition:opacity .16s var(--ease), color .16s var(--ease); }
+  #hostsTable tr:hover .hp, .hp:focus-visible { opacity:1; } .hp:hover { color:var(--accent); }
+  .pulse { position:relative; flex:none; width:8px; height:8px; border-radius:50%; background:var(--field); color:var(--field); }
+  .pulse.on { background:var(--ok); color:var(--ok); }
+  .pulse.hot { background:var(--err); color:var(--err); }
+  .pulse.on::after, .pulse.hot::after { content:''; position:absolute; inset:0; border-radius:50%; background:currentColor; animation:pulse 2.4s var(--ease) infinite; }
+  .pulse.off { background:transparent; box-shadow:inset 0 0 0 1.5px var(--field); }
+  .pulse.ping { animation:ping .6s var(--ease); }
+  .form { display:inline-flex; gap:2px; vertical-align:middle; }
+  .form i { width:6px; height:14px; border-radius:2px; background:var(--quiet-tint); transition:background-color .3s var(--ease); }
+  .form i.ok { background:color-mix(in srgb, var(--ok) 70%, transparent); } .form i.warn { background:var(--warn); } .form i.err { background:var(--err); }
+  .badge { display:inline-block; padding:0 6px; border-radius:999px; background:var(--err); color:var(--ground); font:600 10.5px/17px var(--sans); }
+  .badge.silent { background:var(--quiet-tint); color:var(--muted); box-shadow:inset 0 0 0 1px var(--field); }
+  .tag { display:inline-block; margin:4px 4px 0 0; padding:0 7px; border-radius:999px; background:var(--quiet-tint); font:500 11px/18px var(--sans); color:var(--muted); }
 
-  .topctl { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-bottom:8px; color:var(--muted); }
+  .topctl { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-bottom:10px; color:var(--muted); }
   .topctl label { display:flex; align-items:center; gap:6px; }
   .topctl select { height:28px; }
-  .toprow { display:grid; grid-template-columns:minmax(0, 1fr) auto auto; gap:2px 10px; align-items:baseline; padding:3px 0; }
+  .toprow { display:grid; grid-template-columns:minmax(0, 1fr) auto auto; gap:3px 10px; align-items:baseline; padding:4px 0; }
   .toprow .x { height:20px; padding:0 6px; font-size:12px; }
-  .toprow .v { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); }
-  .toprow .bar { grid-column:1 / -1; grid-row:2; height:4px; background:var(--notice); min-width:1px; }
-  .toprow .n { text-align:right; color:var(--muted); } .toprow .n b { color:var(--ink); }
+  .toprow .v { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); font-size:12px; }
+  .toprow .bar { grid-column:1 / -1; grid-row:2; height:4px; border-radius:2px; background:var(--notice); min-width:2px; transition:width .5s var(--ease); }
+  .toprow .n { text-align:right; color:var(--muted); } .toprow .n b { color:var(--ink); font-weight:600; }
 
-  .alrow { display:grid; grid-template-columns:auto auto minmax(0, 1fr) auto; gap:2px 10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--rule); }
-  .alrow:last-child { border-bottom:0; }
+  .alrow { display:grid; grid-template-columns:auto auto minmax(0, 1fr) auto; gap:2px 10px; align-items:baseline; padding:8px 0; border-top:1px solid var(--rule); }
+  .alrow:first-child { border-top:0; }
   .alrow > span:first-child { color:var(--muted); white-space:nowrap; }
-  .alrow .k { font-weight:700; white-space:nowrap; } .alrow .k.bad { color:var(--err); } .alrow .k.ok { color:var(--ok); }
+  .alrow .k { font-weight:600; white-space:nowrap; } .alrow .k.bad { color:var(--err); } .alrow .k.ok { color:var(--ok); }
   .alrow .h { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .alrow .m { grid-column:1 / -1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .alrow .d { grid-row:1; grid-column:4; color:var(--muted); white-space:nowrap; }
+  .alrow .m { grid-column:1 / -1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
+  .alrow .d { grid-row:1; grid-column:4; color:var(--muted); white-space:nowrap; font-size:11.5px; }
 
-  .patrow { display:grid; grid-template-columns:auto auto minmax(0, 1fr); gap:2px 10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--rule); }
-  .patrow:last-child { border-bottom:0; }
-  .patrow .n { font-weight:700; }
-  .patrow .p { grid-column:1 / -1; grid-row:2; font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .patrow .m { color:var(--muted); text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .patrow .t { white-space:nowrap; font-weight:600; } .t.up { color:var(--err); } .t.new { color:var(--new); } .t.down { color:var(--ok); } .t.flat { color:var(--muted); }
+  .patrow { display:grid; grid-template-columns:auto auto minmax(0, 1fr); gap:2px 10px; align-items:baseline; padding:8px 0; border-top:1px solid var(--rule); }
+  .patrow:first-child { border-top:0; }
+  .patrow .n { font-weight:600; }
+  .patrow .p { grid-column:1 / -1; grid-row:2; font:12px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .patrow .m { color:var(--muted); text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; }
+  .patrow .t { white-space:nowrap; font-weight:600; font-size:11.5px; } .t.up { color:var(--err); } .t.new { color:var(--new); } .t.down { color:var(--ok); } .t.flat { color:var(--muted); }
   #alertList:empty::after { content:'No notifications yet.'; color:var(--muted); }
   #patList:empty::after { content:'No entries in the current results.'; color:var(--muted); }
   #topList:empty::after { content:'No values for this field in the current results.'; color:var(--muted); }
 
-  /* Volume chart. */
-  #chartbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; padding:10px 16px 6px; font-size:12.5px; color:var(--muted); }
+  /* The momentum curve: volume rises above the line, errors push below it, alerts sit on its timeline. */
+  #chartbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:14px 16px 8px; font-size:12.5px; color:var(--muted); }
   #chartbar label { display:flex; align-items:center; gap:6px; }
-  #chartbar select { height:28px; }
+  #chartbar select { height:28px; font-size:12.5px; }
   #chartbar .exp { margin-left:auto; display:flex; align-items:center; gap:6px; }
-  #legend { display:flex; flex-wrap:wrap; gap:2px 14px; }
-  .lg { display:inline-flex; align-items:center; gap:6px; }
-  .lg i { width:10px; height:10px; background:currentColor; display:inline-block; }
+  #brushInfo { color:var(--accent); font-weight:600; }
+  #legend { display:flex; flex-wrap:wrap; gap:2px 4px; }
+  .lg { display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; transition:background-color .16s var(--ease); }
+  .lg[role=button]:hover { background:var(--tint); color:var(--muted); }
+  .lg i { width:8px; height:8px; border-radius:2px; background:currentColor; display:inline-block; }
   #legend i.s6 { color:var(--chart-info); } #legend i.s7 { color:var(--chart-debug); }
-  .lg b { color:var(--ink); }
-  #chart { display:block; width:calc(100% - 32px); height:72px; margin:0 16px; border-bottom:1px solid var(--ink); touch-action:pan-y; user-select:none; }
-  /* Maintenance windows shade the chart; alerts are ticks under it, each one a way into its moment. */
-  #maint { position:relative; height:72px; margin:0 16px; pointer-events:none; }
-  #maint span { position:absolute; top:0; bottom:0; min-width:2px; border-top:2px solid var(--warn); background:color-mix(in srgb, var(--warn) 16%, transparent); font-size:11px; font-weight:700; color:var(--warn); padding:1px 3px; overflow:hidden; white-space:nowrap; }
-  #marks { position:relative; height:14px; margin:2px 16px 0; }
-  #marks button { position:absolute; top:0; width:6px; height:12px; padding:0; border:0; border-radius:0; margin-left:-3px; background:var(--notice); }
+  .lg b { color:var(--ink); font-size:14px; font-weight:650; }
+  #chart { position:relative; display:flex; gap:2px; height:190px; margin:0 16px; padding:0; touch-action:pan-y; user-select:none; cursor:crosshair; }
+  #chart::before { content:''; position:absolute; left:0; right:0; top:134px; height:1px; background:var(--rule); }
+  #chart .col { position:relative; flex:1 1 0; min-width:0; display:flex; flex-direction:column; border-radius:4px; transition:background-color .12s var(--ease); }
+  #chart .col:hover { background:var(--tint); }
+  #chart .up { height:134px; display:flex; flex-direction:column-reverse; }
+  #chart .dn { height:56px; display:flex; flex-direction:column; padding-top:1px; }
+  #chart .seg { flex:none; height:0; background:currentColor; transition:height .32s var(--ease); }
+  #chart .up .seg:last-child { border-radius:4px 4px 0 0; }
+  #chart .dn .seg:last-child { border-radius:0 0 4px 4px; }
+  #chart .seg.s6 { color:var(--chart-info); } #chart .seg.s7 { color:var(--chart-debug); }
+  #chart.solo { height:138px; } #chart.solo .dn { display:none; } #chart.flat { cursor:default; }
+  /* The window's live edge: while it ends now, a pulse marks where the next lines will land. */
+  #chart .now { position:absolute; right:0; top:0; bottom:56px; width:1px; background:color-mix(in srgb, var(--live) 55%, transparent); pointer-events:none; }
+  #chart.solo .now { bottom:4px; }
+  #chart .now::before { content:'now'; position:absolute; right:6px; top:-2px; font-size:10.5px; font-weight:600; color:var(--live); }
+  #chart .now::after { content:''; position:absolute; left:-3px; top:0; width:7px; height:7px; border-radius:50%; background:var(--live); }
+  #chart.live .now::after { animation:pulse 1.6s var(--ease) infinite; box-shadow:0 0 0 0 var(--live); }
+  #chart .sel { position:absolute; top:0; bottom:0; border-radius:4px; background:var(--focus-tint); box-shadow:inset 0 0 0 1px var(--accent); pointer-events:none; }
+  #tip { position:absolute; z-index:5; top:2px; translate:12px 0; padding:6px 9px; border-radius:8px; background:var(--surface); color:var(--ink); border:1px solid var(--rule); box-shadow:var(--raise); font-size:11.5px; line-height:1.45; white-space:nowrap; pointer-events:none; }
+  #tip b { font-weight:600; } #tip .e { color:var(--err); font-weight:600; }
+  /* Maintenance windows shade the curve; alerts are marks on the timeline under it, each a way into its moment. */
+  #maint { position:relative; height:190px; margin:0 16px; pointer-events:none; }
+  #maint span { position:absolute; top:0; height:134px; min-width:2px; border-radius:4px; background:repeating-linear-gradient(135deg, var(--warn-tint) 0 6px, transparent 6px 12px); box-shadow:inset 0 2px 0 var(--warn); font-size:11px; font-weight:600; color:var(--warn); padding:3px 5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #marks { position:relative; height:18px; margin:6px 16px 0; background:linear-gradient(var(--rule), var(--rule)) center / 100% 1px no-repeat; }
+  #marks button { position:absolute; top:2px; width:8px; height:14px; padding:0; border:0; border-radius:4px; margin-left:-4px; background:var(--notice); box-shadow:0 0 0 2px var(--ground); transition:transform .16s var(--ease); }
+  #marks button:hover, #marks button:focus-visible { transform:scale(1.25); }
   #marks button.bad { background:var(--err); } #marks button.good { background:var(--ok); }
-  #axis { position:relative; height:20px; margin:0 16px; font-size:11px; font-weight:700; overflow:hidden; }
-  #axis button { position:absolute; top:2px; height:16px; padding:0 0 0 3px; border:0; border-left:1px solid var(--ink); border-radius:0; background:none; font:inherit; line-height:14px; white-space:nowrap; }
-  #axis button:hover { color:var(--accent); background:none; }
+  #axis { position:relative; height:22px; margin:2px 16px 0; font-size:11px; font-weight:500; color:var(--muted); overflow:hidden; }
+  #axis button { position:absolute; top:3px; height:16px; padding:0 4px; border:0; border-radius:4px; translate:-50% 0; background:none; color:inherit; font:inherit; line-height:16px; white-space:nowrap; }
+  #axis button:hover { color:var(--accent); background:var(--focus-tint); }
   #axis button:focus-visible { outline-offset:0; }
-  #stream tr.band { scroll-margin-top:var(--hdr); }
-  #chart rect { fill:currentColor; }
-  #chart .s6 { color:var(--chart-info); } #chart .s7 { color:var(--chart-debug); }
-  #chart .hit { fill:transparent; cursor:zoom-in; } #chart .hit:hover { fill:var(--accent); fill-opacity:.18; }
-  #chart .hit.flat { cursor:default; }
-  #chart .sel { fill:var(--accent); fill-opacity:.3; stroke:var(--accent); stroke-width:1; vector-effect:non-scaling-stroke; pointer-events:none; }
 
-  /* The stream, set like a timetable: the hour once on its band, minutes and seconds on each line. */
-  .stream { min-width:0; padding-top:8px; }
+  /* The stream: hours on sticky bands, lines that slide in as they arrive. */
+  .stream { min-width:0; padding-top:10px; }
   #stream { width:100%; border-collapse:collapse; }
-  #stream td { padding:4px 10px; border-bottom:1px solid var(--rule); vertical-align:baseline; }
+  #stream tr.band { scroll-margin-top:var(--hdr); }
+  #stream td { padding:6px 10px; border-bottom:1px solid color-mix(in srgb, var(--rule) 65%, transparent); vertical-align:baseline; }
   #stream td:first-child { padding-left:16px; }
-  #stream td.ts { width:1%; white-space:nowrap; font-weight:700; }
+  #stream tr.entry > td { transition:background-color .12s var(--ease), box-shadow 2.4s var(--ease), opacity .2s var(--ease); }
+  #stream tr.entry:hover > td { background:var(--tint); }
+  #stream td.ts { width:1%; white-space:nowrap; font-weight:600; font-size:13px; }
   #stream td.ts .hh { color:var(--muted); font-weight:400; }
-  #stream tr.e td.ts { color:var(--err); } #stream tr.e td.ts .hh { color:inherit; }
-  #stream td.sev { width:1%; white-space:nowrap; font-size:12px; font-weight:700; }
-  #stream td.host, #stream td.app { width:1%; max-width:14em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
+  #stream tr.e td.ts { color:var(--err); } #stream tr.e td.ts .hh { color:inherit; opacity:.75; }
+  #stream td.sev { width:1%; white-space:nowrap; }
+  .lv { display:inline-block; min-width:44px; padding:0 7px; border-radius:999px; background:transparent; font:600 11px/19px var(--sans); text-align:center; letter-spacing:.02em; }
+  .lv.s0, .lv.s1, .lv.s2, .lv.s3 { background:var(--err-tint); } .lv.s4 { background:var(--warn-tint); } .lv.s5 { background:var(--notice-tint); }
+  #stream td.host, #stream td.app { width:1%; max-width:14em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:13px; }
   #stream td.host { color:var(--ink); font-weight:600; }
-  #stream td.msg { position:relative; font:12.5px/1.45 var(--mono); white-space:pre-wrap; word-break:break-word; }
+  #stream td.msg { position:relative; font:12.5px/1.55 var(--mono); white-space:pre-wrap; word-break:break-word; }
   /* One toolbar, moved to the line under the pointer or the current line. */
-  .acts { position:absolute; top:2px; right:6px; display:flex; gap:4px; visibility:hidden; }
-  tr.entry:hover .acts, tr.entry:focus-within .acts, tr.kb .acts { visibility:visible; }
-  .acts button { height:22px; padding:0 6px; font:600 11px var(--sans); border-color:var(--muted); }
-  #stream tr.entry { scroll-margin-top:calc(var(--hdr) + 44px); scroll-margin-bottom:16px; }
-  #stream tr.kb > td { background:var(--tint); }
+  .acts { position:absolute; top:3px; right:8px; display:flex; gap:2px; padding:2px; border:1px solid var(--rule); border-radius:var(--radius); background:var(--surface); box-shadow:var(--raise); opacity:0; visibility:hidden; transition:opacity .14s var(--ease), visibility .14s; }
+  tr.entry:hover .acts, tr.entry:focus-within .acts, tr.kb .acts { opacity:1; visibility:visible; }
+  .acts button { height:22px; padding:0 8px; border:0; background:none; font:600 11px var(--sans); }
+  .acts button:hover { background:var(--tint-strong); }
+  #stream tr.entry { scroll-margin-top:calc(var(--hdr) + 48px); scroll-margin-bottom:16px; }
+  #stream tr.kb > td { background:var(--focus-tint); }
   #stream tr.entry:focus { outline:2px solid var(--focus); outline-offset:-2px; }
-  /* A line that just arrived live is lit, then put out, both in one step (no fade). */
-  #stream tr.fresh, #stream tr.fresh > td { background:var(--fresh); }
-  mark { background:var(--mark); color:inherit; font-weight:700; }
-  #stream tr.since > td { padding:3px 16px; border-bottom:2px solid var(--accent); color:var(--accent); font:700 12px var(--sans); }
-  #stream tr.fresh:not(.e) td.ts { color:var(--fresh-time); }
-  #stream tr.band th { position:sticky; top:var(--hdr); z-index:1; padding:8px 10px 6px 16px; background:var(--band); border-bottom:1px solid var(--ink); text-align:left; font-weight:400; }
-  .band .h { font-size:20px; font-weight:700; line-height:1; margin-right:10px; color:var(--band-hour); }
-  .band .d { color:var(--muted); }
-  .band .c { float:right; font-size:12.5px; color:var(--muted); }
-  .band .c .e { color:var(--err); font-weight:700; } .band .c .w { color:var(--warn); font-weight:700; }
-  .sev { font-weight:700; }
+  #stream tr.out > td { opacity:.22; }
+  /* A line that arrived live slides in lit, then the light fades. */
+  #stream tr.fresh { animation:arrive .42s var(--ease); }
+  #stream tr.fresh > td { box-shadow:inset 0 0 0 999px var(--fresh); transition:none; }
+  mark { background:var(--mark); color:inherit; border-radius:4px; box-shadow:0 0 0 1px var(--mark); }
+  #stream tr.since > td { padding:5px 16px; border-bottom:0; color:var(--accent); font:600 12px var(--sans); background:linear-gradient(var(--accent), var(--accent)) bottom / 100% 1.5px no-repeat; }
+  #stream tr.band th { position:sticky; top:var(--hdr); z-index:1; padding:10px 10px 8px 16px; background:color-mix(in srgb, var(--ground) 86%, transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--rule); text-align:left; font-weight:400; }
+  .band .h { font-size:20px; font-weight:700; letter-spacing:-.02em; margin-right:10px; color:var(--band-hour); }
+  .band .d { color:var(--muted); font-size:12.5px; }
+  .band .c { float:right; display:flex; gap:6px; font-size:12px; color:var(--muted); }
+  .band .c > span { padding:0 8px; border-radius:999px; background:var(--quiet-tint); line-height:20px; }
+  .band .c b { font-weight:inherit; }
+  .band .c .e { color:var(--err); background:var(--err-tint); font-weight:600; } .band .c .w { color:var(--warn); background:var(--warn-tint); font-weight:600; }
+  .sev { font-weight:600; }
   .s0, .s1, .s2, .s3 { color:var(--err); } .s4 { color:var(--warn); } .s5 { color:var(--notice); } .s6, .s7 { color:var(--muted); }
   /* Fields follow the message on its line; past the first few, a +N opens them all underneath. */
   .fields { margin-left:12px; color:var(--muted); font-size:11.5px; white-space:normal; }
   .fields > span { margin-right:10px; }
   .fields:not(.all) > .more { display:none; }
-  .fields.all { display:flex; flex-wrap:wrap; gap:2px 10px; margin:3px 0 0; }
+  .fields.all { display:flex; flex-wrap:wrap; gap:3px 10px; margin:4px 0 0; animation:reveal .2s var(--ease); }
   .fields.all > span { margin-right:0; }
-  .fields .morebtn { color:var(--accent); font-weight:600; }
-  .fields b { font-weight:600; }
-  .fields .tracebtn { color:var(--accent); font-weight:600; text-decoration:underline; text-underline-offset:3px; }
-  body.compact #stream td { padding-top:1px; padding-bottom:1px; } body.compact #stream { font-size:12px; } body.compact #stream td.msg { font-size:11.5px; line-height:1.3; }
-  body.compact #stream tr.band th { padding-top:4px; padding-bottom:3px; } body.compact .band .h { font-size:14px; }
+  .fields .morebtn { padding:0 6px; border-radius:999px; background:var(--quiet-tint); color:var(--ink); font-weight:600; }
+  .fields b { font-weight:500; opacity:.8; }
+  .fields .tracebtn { padding:0 6px; border-radius:999px; background:var(--notice-tint); color:var(--notice); font-weight:600; }
+  body.compact #stream td { padding-top:2px; padding-bottom:2px; } body.compact #stream { font-size:12px; } body.compact #stream td.msg { font-size:11.5px; line-height:1.35; }
+  body.compact #stream tr.band th { padding-top:5px; padding-bottom:4px; } body.compact .band .h { font-size:15px; } body.compact .lv { line-height:16px; }
   body.nowrap #stream td.msg { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
   body.hide-ts td.ts, body.hide-sev td.sev, body.hide-host td.host, body.hide-app td.app, body.hide-fields .fields { display:none; }
 
-  tr.ctx > td { padding:8px 16px 12px 32px !important; background:var(--tint); }
-  .ctxhead { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; margin-bottom:6px; color:var(--muted); font:12.5px var(--sans); }
+  tr.ctx > td { padding:10px 16px 14px 32px !important; background:var(--band); border-bottom:1px solid var(--rule); }
+  tr.ctx > td > * { animation:reveal .22s var(--ease); }
+  .ctxhead { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; margin-bottom:8px; color:var(--muted); font:12.5px var(--sans); }
   .ctxline.tl { grid-template-columns:auto 10em 4.5em 9em minmax(0, 1fr); }
-  .wf { position:relative; height:10px; align-self:center; border-left:1px solid var(--rule); border-right:1px solid var(--rule); background:linear-gradient(var(--rule), var(--rule)) center / 100% 1px no-repeat; }
-  .wf i { position:absolute; top:0; width:3px; height:10px; margin-left:-1px; background:currentColor; }
+  .wf { position:relative; height:10px; align-self:center; border-radius:999px; background:var(--quiet-tint); }
+  .wf i { position:absolute; top:1px; width:8px; height:8px; margin-left:-4px; border-radius:50%; background:currentColor; }
   .wf i.s6, .wf i.s7 { color:var(--muted); }
-  .ctxline { display:grid; grid-template-columns:auto 4.5em 9em minmax(0, 1fr); gap:0 10px; padding:1px 0; font:12px/1.45 var(--mono); }
+  .ctxline { display:grid; grid-template-columns:auto 4.5em 9em minmax(0, 1fr); gap:0 10px; padding:2px 6px; border-radius:4px; font:12px/1.5 var(--mono); }
   .ctxline > span:first-child, .ctxline .app { color:var(--muted); white-space:nowrap; }
   .ctxline .m { white-space:pre-wrap; word-break:break-word; }
-  .ctxline.cur { background:var(--tint-strong); font-weight:700; }
+  .ctxline.cur { background:var(--focus-tint); font-weight:600; }
 
-  #morebar { text-align:center; padding:16px; }
-  #unseen { position:fixed; z-index:15; top:calc(var(--hdr) + 52px); left:50%; transform:translateX(-50%); background:var(--shell); color:var(--shell-ink); border-color:var(--shell); }
-  #unseen:hover { background:var(--notice); border-color:var(--notice); color:var(--ground); }
-  #empty { padding:32px 16px; color:var(--muted); font-size:14px; }
-  #empty p { margin:0 0 10px; }
+  #morebar { text-align:center; padding:18px; }
+  #unseen { position:fixed; z-index:15; top:calc(var(--hdr) + 56px); left:50%; transform:translateX(-50%); height:30px; padding:0 14px; border:0; border-radius:999px; background:var(--accent); color:var(--ground); box-shadow:var(--raise); animation:rise .24s var(--ease); }
+  #unseen:hover { background:var(--accent); filter:brightness(1.08); }
+  #empty { padding:40px 16px; color:var(--muted); font-size:14px; }
+  #empty p { margin:0 0 12px; }
   #empty .ways { display:flex; flex-wrap:wrap; gap:8px; }
-  #empty.welcome { color:var(--ink); max-width:72ch; }
-  .welcome h2 { margin:0 0 6px; font-size:20px; }
-  .welcome h3 { margin:20px 0 2px; font-size:14px; }
-  .welcome p { margin:0 0 6px; color:var(--muted); }
-  .welcome pre { margin:0 0 6px; padding:8px 10px; background:var(--band); border:1px solid var(--rule); font:12.5px/1.5 var(--mono); white-space:pre-wrap; word-break:break-all; }
+  #empty.welcome { color:var(--ink); max-width:76ch; }
+  .welcome h2 { margin:0 0 6px; font-size:22px; letter-spacing:-.02em; }
+  .welcome h3 { margin:24px 0 4px; font-size:14px; font-weight:600; }
+  .welcome p { margin:0 0 8px; color:var(--muted); }
+  .welcome pre { margin:0 0 8px; padding:10px 12px; background:var(--surface); border:1px solid var(--rule); border-radius:var(--radius); font:12.5px/1.55 var(--mono); white-space:pre-wrap; word-break:break-all; }
 
   @media (max-width:759px) {
     header { position:static; }
+    .search { flex-basis:100%; min-width:0; }
+    #chartbar .exp { margin-left:0; }
     #filtersToggle { display:inline-flex; align-items:center; }
     header:not(.filters-open) .row2 { display:none; }
     #status { flex-basis:100%; margin-left:0; }
@@ -257,10 +331,10 @@
 <a class="skip" href="#stream">Skip to the results</a>
 <header>
   <div class="row1">
-    <h1>LogPit</h1>
-    <input id="q" type="search" placeholder="Search messages…" aria-label="Search messages" autofocus title="Words must all match. Use OR between alternatives, -word or NOT word to exclude, &quot;a phrase&quot; for adjacent words, and prefix* for prefixes. Example: disk error OR timeout -debug">
+    <h1><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect width="22" height="22" rx="6" fill="currentColor"/><path d="M5 13.5h2.2l1.8-5 2.6 9 2.2-6.5 1.2 2.5H17" fill="none" style="stroke:var(--ground)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>LogPit</h1>
+    <span class="search"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><input id="q" type="search" placeholder="Search messages…" aria-label="Search messages" autofocus title="Words must all match. Use OR between alternatives, -word or NOT word to exclude, &quot;a phrase&quot; for adjacent words, and prefix* for prefixes. Example: disk error OR timeout -debug"><kbd aria-hidden="true">/</kbd></span>
     <details class="help" id="help">
-      <summary aria-label="Search syntax" title="Search syntax and examples">?</summary>
+      <summary aria-label="Search syntax" title="Search syntax and examples"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.3 6.2a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".9" fill="currentColor"/></svg></summary>
       <div class="panel" id="helpPanel">
         <p>Click an example to search with it.</p>
         <h2>Search box</h2>
@@ -305,7 +379,7 @@
       <div class="acts2"><button id="pickApply" type="button" class="primary small">Apply</button><button id="pickCancel" type="button" class="small">Cancel</button><span class="err" id="pickErr"></span></div>
     </div>
     </span>
-    <label title="Stream new entries as they arrive"><input id="live" type="checkbox"> Live</label>
+    <label class="live" title="Stream new entries as they arrive (L)"><input id="live" type="checkbox"><span class="dot" aria-hidden="true"></span>Live</label>
     <button id="go" class="primary">Search</button>
     <button id="filtersToggle" type="button" aria-expanded="false" aria-controls="filters">Filters<span id="filterCount"></span></button>
     <span id="status" role="status"></span>
@@ -345,6 +419,7 @@
     <select id="group"><option value="severity">severity</option><option value="host">host</option><option value="app">app</option></select>
   </label>
   <div id="legend" role="group" aria-label="Legend (arrow keys move along it)"></div>
+  <span id="brushInfo" aria-live="polite" hidden></span>
   <button id="zoomOut" type="button" class="small" title="Double the zoomed window around its middle" hidden>Zoom out</button>
   <button id="cli" type="button" class="small" title="Copy this search as a logpit search command">Copy as CLI</button>
   <span class="exp">Export
@@ -352,7 +427,7 @@
     <button id="expCsv" type="button" class="small" title="Download the matching entries as CSV (up to 100,000)">CSV</button>
   </span>
 </div>
-<svg id="chart" viewBox="0 0 1 1" preserveAspectRatio="none" role="img" aria-label="Volume over time" hidden></svg>
+<div id="chart" role="img" aria-label="Volume over time" hidden><div id="tip" hidden></div></div>
 <div id="maint" aria-hidden="true"></div>
 <div id="marks" role="group" aria-label="Alerts in this window (arrow keys move, Enter zooms in)" hidden></div>
 <div id="axis" role="group" aria-label="Go to an hour" hidden></div>
@@ -371,7 +446,8 @@
   <summary><h2>Hosts <span id="hostsCount"></span></h2></summary>
   <div class="body">
   <table id="hostsTable">
-    <thead><tr><th data-sort="host">Host</th><th class="n" data-sort="count">Entries</th><th class="n" data-sort="errors" title="Errors">Err</th><th class="n" data-sort="warnings" title="Warnings">Warn</th><th data-sort="last_ts">Seen</th></tr></thead>
+    <colgroup><col><col class="c-form"><col class="c-n"><col class="c-e"><col class="c-w"><col class="c-seen"></colgroup>
+    <thead><tr><th data-sort="host">Host</th><th title="Recent form: the time window in five slices, oldest first">Form</th><th class="n" data-sort="count">Entries</th><th class="n" data-sort="errors" title="Errors">Err</th><th class="n" data-sort="warnings" title="Warnings">Warn</th><th data-sort="last_ts" title="Last entry">Seen</th></tr></thead>
     <tbody id="hostsBody"></tbody>
   </table>
   </div>
@@ -471,11 +547,21 @@ function ctxTime(ts) {
   return d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
 }
 
+// The context a line opens with is fetched while the pointer rests on it, so it opens at once.
+const ctxCache = new Map(), CTX_CACHE = 40, CTX_DEFAULT = { lines: 5, scope: 'host' };
+const contextUrl = (id, opts) => '/api/logs/' + id + '/context?' + new URLSearchParams({ lines: String(opts.lines), scope: opts.scope });
+function prefetchContext(row) {
+  const url = contextUrl(row.id, CTX_DEFAULT);
+  if (ctxCache.has(url)) return;
+  if (ctxCache.size >= CTX_CACHE) ctxCache.delete(ctxCache.keys().next().value);
+  ctxCache.set(url, fetch(url, { headers: authHeaders() }).catch(() => null));
+}
 async function fillContext(box, row, opts) {
   box.replaceChildren(document.createTextNode('Loading…'));
   try {
-    const q = new URLSearchParams({ lines: String(opts.lines), scope: opts.scope });
-    const res = await fetch('/api/logs/' + row.id + '/context?' + q, { headers: authHeaders() });
+    const url = contextUrl(row.id, opts), early = ctxCache.get(url);
+    ctxCache.delete(url);
+    const res = (early && await early) || await fetch(url, { headers: authHeaders() });
     if (res.status === 404) { box.textContent = 'This entry is no longer stored.'; return; }
     if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
     const d = await res.json();
@@ -529,7 +615,7 @@ function togglePanel(tr, kind, fill) {
 }
 
 function toggleContext(tr, row) {
-  togglePanel(tr, 'context', cell => fillContext(cell, row, { lines: 5, scope: 'host' }));
+  togglePanel(tr, 'context', cell => fillContext(cell, row, CTX_DEFAULT));
 }
 
 // Every entry sharing the line's trace id, oldest first, with the time since the first one.
@@ -659,13 +745,27 @@ function countInBand(band, r, k, paint = true) {
   if (paint) paintBand(band);
 }
 function paintBand(band) {
-  const parts = [document.createTextNode(band._n.toLocaleString() + (band._n === 1 ? ' entry' : ' entries'))];
-  const add = (n, cls, word) => { if (!n) return; const s = document.createElement('span'); s.className = cls; s.textContent = n.toLocaleString() + ' ' + word; parts.push(document.createTextNode(' · '), s); };
+  const parts = [], was = band._shown || {};
+  // Live counts roll to their new value; the word follows the final figure.
+  const add = (n, cls, word) => {
+    if (!n) return;
+    const s = document.createElement('span'); s.className = cls;
+    s.append(roll(document.createElement('b'), n, was[cls]), ' ' + word);
+    parts.push(s);
+  };
+  add(band._n, 'n', band._n === 1 ? 'entry' : 'entries');
   add(band._e, 'e', band._e === 1 ? 'error' : 'errors');
   add(band._w, 'w', band._w === 1 ? 'warning' : 'warnings');
   band._c.replaceChildren(...parts);
+  band._shown = { n: band._n, e: band._e, w: band._w };
 }
 
+function lvCell(sev) {
+  const c = td('sev', ''), b = document.createElement('span');
+  b.className = 'lv s' + sev; b.textContent = LEVELS[sev] || sev;
+  c.append(b);
+  return c;
+}
 function rowEl(r) {
   const tr = document.createElement('tr');
   tr.className = 'entry' + (r.severity <= 3 ? ' e' : '');
@@ -689,7 +789,7 @@ function rowEl(r) {
   }
   tr.append(
     ts,
-    td('sev s' + r.severity, LEVELS[r.severity] || r.severity),
+    lvCell(r.severity),
     td('host', r.host), td('app', r.app), msgCell(r, tr));
   return tr;
 }
@@ -827,6 +927,7 @@ function flushLive() {
     entries++;
     newestSeen = Math.max(newestSeen, r.ts);
     if (document.hidden && r.severity <= 3) hiddenErrors++;
+    pingHost(r.host, r.severity);
     tr.classList.add('fresh');
     fresh.push(tr);
   }
@@ -988,8 +1089,28 @@ function dragRange(a, b) {
 function drawSelection(r) {
   let el = $('chart').querySelector('.sel');
   if (!r) { if (el) el.remove(); return; }
-  if (!el) { el = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); el.setAttribute('class', 'sel'); el.setAttribute('y', 0); el.setAttribute('height', 100); $('chart').append(el); }
-  el.setAttribute('x', r.i0); el.setAttribute('width', r.i1 - r.i0 + 1);
+  if (!el) { el = document.createElement('div'); el.className = 'sel'; $('chart').append(el); }
+  const n = chartGeo.buckets.length;
+  el.style.left = (100 * r.i0 / n) + '%'; el.style.width = (100 * (r.i1 - r.i0 + 1) / n) + '%';
+}
+// While a range is brushed, the stream dims what falls outside it and the bar counts what it holds.
+let brushFrame = 0;
+function brushStream(r) {
+  cancelAnimationFrame(brushFrame);
+  brushFrame = requestAnimationFrame(() => {
+    for (const tr of $('rows').children) if (tr._r) tr.classList.toggle('out', !!r && (tr._r.ts < r.since || tr._r.ts > r.until));
+    const info = $('brushInfo');
+    if (!r) { info.hidden = true; return; }
+    let n = 0;
+    for (let i = r.i0; i <= r.i1; i++) n += chartGeo.buckets[i].total;
+    const t = ms => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(prefs.time !== 'local' ? { timeZone: 'UTC' } : {}) });
+    info.textContent = n.toLocaleString() + (n === 1 ? ' entry' : ' entries') + ' · ' + t(r.since) + ' → ' + t(r.until + 1) + ' · release to zoom';
+    info.hidden = false;
+  });
+}
+function bucketAt(x) {
+  const rect = $('chart').getBoundingClientRect(), n = chartGeo.buckets.length;
+  return Math.min(n - 1, Math.max(0, Math.floor((x - rect.left) / rect.width * n)));
 }
 (function () {
   const chart = $('chart');
@@ -998,16 +1119,18 @@ function drawSelection(r) {
     drag = { x: e.clientX }; dragged = false;
   });
   chart.addEventListener('pointermove', e => {
-    if (!drag) return;
+    if (!drag) { showTip(e.clientX); return; }
     // Capture only once it is a drag, so a plain click still reaches the bucket under it.
-    if (!dragged && Math.abs(e.clientX - drag.x) > 4) { dragged = true; chart.setPointerCapture(e.pointerId); }
-    if (dragged) drawSelection(dragRange(drag.x, e.clientX));
+    if (!dragged && Math.abs(e.clientX - drag.x) > 4) { dragged = true; chart.setPointerCapture(e.pointerId); $('tip').hidden = true; }
+    if (dragged) { const r = dragRange(drag.x, e.clientX); drawSelection(r); brushStream(r); }
   });
+  chart.addEventListener('pointerleave', () => { $('tip').hidden = true; });
   const end = e => {
     if (!drag) return;
     const from = drag.x;
     drag = null;
     drawSelection(null);
+    brushStream(null);
     if (dragged && e.type === 'pointerup') {
       const r = dragRange(from, e.clientX);
       zoomTo(r.since, r.until);
@@ -1016,62 +1139,126 @@ function drawSelection(r) {
   };
   chart.addEventListener('pointerup', end);
   chart.addEventListener('pointercancel', end);
-  window.addEventListener('keydown', e => { if (e.key === 'Escape' && drag) { drag = null; dragged = false; drawSelection(null); } });
+  // A click on a bucket zooms to it.
+  chart.addEventListener('click', e => {
+    if (dragged || !chartGeo || !chartGeo.buckets.length || chartGeo.bucket_ms <= MIN_ZOOM_MS) return;
+    const b = chartGeo.buckets[bucketAt(e.clientX)];
+    zoomTo(b.ts, b.ts + chartGeo.bucket_ms - 1);
+  });
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && drag) { drag = null; dragged = false; drawSelection(null); brushStream(null); } });
 })();
 
+// The bucket under the pointer, told in a tooltip above the curve.
+function showTip(x) {
+  const tip = $('tip');
+  if (!chartGeo || !chartGeo.buckets.length) { tip.hidden = true; return; }
+  const i = bucketAt(x), b = chartGeo.buckets[i];
+  const parts = chartGeo.keys.filter(k => (b.groups || {})[k]).map(k => {
+    const s = document.createElement('div');
+    if (chartGeo.group === 'severity' && LEVELS.indexOf(k) <= 3) s.className = 'e';
+    s.textContent = (k || '(none)') + ' ' + b.groups[k].toLocaleString();
+    return s;
+  });
+  const head = document.createElement('div');
+  const when = document.createElement('b'); when.textContent = fmtTime(b.ts);
+  head.append(when, ' · ' + b.total.toLocaleString() + (b.total === 1 ? ' entry' : ' entries'));
+  tip.replaceChildren(head, ...parts.slice(0, 6));
+  // Beside the bucket, on whichever side has room.
+  const right = (i + 0.5) / chartGeo.buckets.length < 0.7;
+  tip.style.left = (100 * (i + (right ? 1 : 0)) / chartGeo.buckets.length) + '%';
+  tip.style.translate = right ? '8px 0' : 'calc(-100% - 8px) 0';
+  tip.hidden = false;
+}
+
+// Figures change in place: a number rolls from what it showed to its new value.
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
+function roll(el, to, from) {
+  const start = from === undefined ? to : from;
+  el.dataset.n = String(to);
+  if (start === to || document.hidden || REDUCED.matches) { el.textContent = to.toLocaleString(); return el; }
+  el.textContent = start.toLocaleString();
+  const t0 = performance.now();
+  const step = now => {
+    if (el.dataset.n !== String(to)) return; // a newer value took over
+    const k = Math.min(1, (now - t0) / 700), e = 1 - Math.pow(1 - k, 4);
+    el.textContent = Math.round(start + (to - start) * e).toLocaleString();
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+  return el;
+}
+
+// The momentum curve: per bucket, what is not an error rises above the line and errors push below
+// it (grouped by host or app, everything rises). Columns and their segments are kept between renders,
+// so a refresh or a new search morphs the curve instead of redrawing it.
+const UP_PX = 132, DN_PX = 54;
+let legendPrev = new Map();
+function setSegs(box, list) {
+  const have = new Map([...box.children].map(c => [c.dataset.k, c]));
+  list.forEach((it, j) => {
+    let seg = have.get(it.k);
+    if (seg) have.delete(it.k);
+    else { seg = document.createElement('div'); seg.dataset.k = it.k; }
+    seg.className = 'seg' + (it.cls ? ' ' + it.cls : '');
+    seg.style.color = it.color || '';
+    seg._h = it.h;
+    if (box.children[j] !== seg) box.insertBefore(seg, box.children[j] || null);
+  });
+  have.forEach(seg => seg.remove());
+}
 async function loadChart() {
   if (!snap || drag) return;
   const chart = $('chart'), bar = $('chartbar'), group = $('group').value;
   const p = chartParams();
   p.set('group_by', group);
-  const hide = () => { chart.toggleAttribute('hidden', true); bar.hidden = true; $('axis').hidden = true; }; // an SVG element has no hidden property
+  const hide = () => { chart.hidden = true; bar.hidden = true; $('axis').hidden = true; };
   try {
     const res = await fetch('/api/stats?' + p, { headers: authHeaders() });
     if (!res.ok) { hide(); return; }
     const d = await res.json();
     // Stacking order: severities from most to least severe, otherwise largest group first.
     const keys = group === 'severity' ? LEVELS.filter(k => d.keys.includes(k)) : d.keys;
+    const low = k => group === 'severity' && LEVELS.indexOf(k) <= 3;
     const totals = Object.fromEntries(keys.map(k => [k, 0]));
-    const max = Math.max(1, ...d.buckets.map(b => b.total));
-    const NS = 'http://www.w3.org/2000/svg';
-    const style = (el, k, i) => {
-      if (group === 'severity') el.setAttribute('class', 's' + LEVELS.indexOf(k));
-      else el.style.color = colorFor(group, k, i);
-    };
-    const bars = [], hits = [];
+    let maxUp = 1, maxDn = 1;
+    for (const b of d.buckets) {
+      let up = 0, dn = 0;
+      for (const k of keys) { const n = (b.groups || {})[k] || 0; totals[k] += n; if (low(k)) dn += n; else up += n; }
+      maxUp = Math.max(maxUp, up); maxDn = Math.max(maxDn, dn);
+    }
+    chart.classList.toggle('solo', !keys.some(low));
+    // The live edge shows while the window slides with the clock.
+    let edge = chart.querySelector('.now');
+    if (snap.range && snap.range !== 'custom') { if (!edge) { edge = document.createElement('div'); edge.className = 'now'; chart.append(edge); } }
+    else if (edge) edge.remove();
+    chart.classList.toggle('live', $('live').checked);
+    chart.classList.toggle('flat', d.bucket_ms <= MIN_ZOOM_MS);
+    let cols = [...chart.querySelectorAll('.col')];
+    if (cols.length !== d.buckets.length) {
+      cols.forEach(c => c.remove());
+      cols = d.buckets.map(() => {
+        const c = document.createElement('div'), up = document.createElement('div'), dn = document.createElement('div');
+        c.className = 'col'; up.className = 'up'; dn.className = 'dn';
+        c.append(up, dn);
+        chart.append(c);
+        return c;
+      });
+    }
     d.buckets.forEach((b, i) => {
-      let y = 100;
-      const parts = [];
+      const ups = [], dns = [];
       keys.forEach((k, ki) => {
         const n = (b.groups || {})[k];
         if (!n) return;
-        totals[k] += n;
-        const h = 100 * n / max;
-        y -= h;
-        const r = document.createElementNS(NS, 'rect');
-        style(r, k, ki);
-        r.setAttribute('x', i + 0.1); r.setAttribute('width', 0.8);
-        r.setAttribute('y', y); r.setAttribute('height', h);
-        bars.push(r);
-        parts.push((k || '(none)') + ' ' + n);
+        const it = { k, cls: group === 'severity' ? 's' + LEVELS.indexOf(k) : '', color: colorFor(group, k, ki) };
+        if (low(k)) dns.push({ ...it, h: Math.max(2, DN_PX * n / maxDn) }); else ups.push({ ...it, h: Math.max(2, UP_PX * n / maxUp) });
       });
-      const hit = document.createElementNS(NS, 'rect');
-      hit.setAttribute('class', 'hit');
-      hit.setAttribute('x', i); hit.setAttribute('width', 1);
-      hit.setAttribute('y', 0); hit.setAttribute('height', 100);
-      const zoomable = d.bucket_ms > MIN_ZOOM_MS;
-      if (zoomable) hit.onclick = () => { if (!dragged) zoomTo(b.ts, b.ts + d.bucket_ms - 1); };
-      else hit.classList.add('flat');
-      const t = document.createElementNS(NS, 'title');
-      t.textContent = fmtTime(b.ts) + ' — ' + b.total +
-        (parts.length ? ' (' + parts.join(', ') + ')' : '') + (zoomable ? ' · click to zoom, drag to select a range' : ' · drag to select a range');
-      hit.append(t);
-      hits.push(hit);
+      setSegs(cols[i].children[0], ups);
+      setSegs(cols[i].children[1], dns);
     });
-    chartGeo = { bucket_ms: d.bucket_ms, buckets: d.buckets };
-    chart.setAttribute('viewBox', '0 0 ' + Math.max(1, d.buckets.length) + ' 100');
-    chart.replaceChildren(...bars, ...hits);
-    chart.toggleAttribute('hidden', false);
+    // Heights are set a frame later, so new segments grow from the line and kept ones move to their value.
+    requestAnimationFrame(() => { for (const seg of chart.querySelectorAll('.seg')) seg.style.height = seg._h + 'px'; });
+    chartGeo = { bucket_ms: d.bucket_ms, buckets: d.buckets, keys, group };
+    chart.hidden = false;
     drawAxis(d);
     drawMarks(d.buckets[0] ? d.buckets[0].ts : 0, d.buckets.length ? d.buckets[d.buckets.length - 1].ts + d.bucket_ms : 0);
 
@@ -1079,11 +1266,10 @@ async function loadChart() {
       const el = document.createElement('span');
       el.className = 'lg';
       const sw = document.createElement('i');
-      style(sw, k, ki);
+      if (group === 'severity') sw.className = 's' + LEVELS.indexOf(k); else sw.style.color = colorFor(group, k, ki);
       const name = document.createElement('span');
       name.textContent = k || '(none)';
-      const n = document.createElement('b');
-      n.textContent = totals[k].toLocaleString();
+      const n = roll(document.createElement('b'), totals[k], legendPrev.get(group + ':' + k));
       el.append(sw, name, n);
       if (group === 'severity' && k) {
         // A severity in the legend sets the minimum level the selector offers that includes it.
@@ -1097,12 +1283,13 @@ async function loadChart() {
       }
       return el;
     });
+    legendPrev = new Map(keys.map(k => [group + ':' + k, totals[k]]));
     $('legend').replaceChildren(...items);
     roving($('legend'));
     const total = Object.values(totals).reduce((a, b) => a + b, 0);
     const peak = d.buckets.reduce((a, b) => (b.total > (a ? a.total : -1) ? b : a), null);
     chart.setAttribute('aria-label', 'Volume over time: ' + total.toLocaleString() + ' entries in ' + d.buckets.length + ' buckets' +
-      (peak && peak.total ? ', peak of ' + peak.total.toLocaleString() + ' at ' + fmtTime(peak.ts) : ''));
+      (peak && peak.total ? ', peak of ' + peak.total.toLocaleString() + ' at ' + fmtTime(peak.ts) : '') + '. Click a bucket to zoom in, drag to select a range.');
     bar.hidden = false;
   } catch { hide(); }
 }
@@ -1129,7 +1316,7 @@ function maintSpans(list, since, until) {
   return out;
 }
 async function drawMarks(since, until) {
-  if (!since || until <= since) { $('marks').hidden = true; $('maint').replaceChildren(); return; }
+  if (!since || until <= since) { $('marks').replaceChildren(); $('maint').replaceChildren(); return; }
   const key = snap.range === 'custom' ? since + '-' + until : snap.range + '|' + snap.host;
   if (marksCache.key !== key || Date.now() - marksCache.at > 30000) {
     const [alerts, maint] = await Promise.all([
@@ -1143,7 +1330,7 @@ async function drawMarks(since, until) {
   $('maint').replaceChildren(...maintSpans(marksCache.maint, since, until).map(({ a, b, w }) => {
     const sp = document.createElement('span');
     sp.style.left = pos(a); sp.style.width = (100 * (b - a) / (until - since)) + '%';
-    sp.textContent = 'maintenance' + (w.reason ? ': ' + w.reason : '');
+    sp.textContent = sp.title = 'maintenance' + (w.reason ? ': ' + w.reason : '');
     return sp;
   }));
   const ticks = marksCache.alerts.filter(x => x.ts >= since && x.ts < until);
@@ -1152,41 +1339,44 @@ async function drawMarks(since, until) {
     b.type = 'button'; b.tabIndex = 0;
     b.className = ALERT_GOOD.includes(x.kind) ? 'good' : ALERT_BAD.includes(x.kind) ? 'bad' : '';
     b.style.left = pos(x.ts);
-    b.title = fmtTime(x.ts) + ' · ' + x.kind.replace(/_/g, ' ') + (x.host ? ' · ' + x.host : '') + ' · ' + x.message + ' (click to zoom in)';
+    b.title = fmtTime(x.ts) + ' · ' + (ALERT_GOOD.includes(x.kind) ? 'recovered' : x.kind.replace(/_/g, ' ')) + (x.host ? ' · ' + x.host : '') + ' · ' + x.message + ' (click to zoom in)';
     b.setAttribute('aria-label', b.title);
     b.onclick = () => zoomTo(x.ts - 600000, x.ts + 600000);
     return b;
   }));
   roving($('marks'));
-  $('marks').hidden = ticks.length === 0;
+  $('marks').hidden = false;
+  $('marks').setAttribute('aria-label', ticks.length ? 'Alerts in this window (arrow keys move, Enter zooms in)' : 'No alerts in this window');
 }
 
-// Hour graduation under the chart, in the stream's time zone so it lines up with the hour bands.
-// Over a long window the hours thin out to every few hours, then to days.
+// Time graduation under the curve, in the stream's time zone so it lines up with the hour bands: as
+// fine as fits (about 64px a label), from minutes to days.
+const AXIS_STEPS = [60000, 300000, 600000, 900000, 1800000, 3600000, 7200000, 10800000, 21600000, 43200000, 86400000, 172800000, 604800000];
 function drawAxis(d) {
-  const n = d.buckets.length, marks = [];
-  let prev = null;
-  d.buckets.forEach((b, i) => {
-    const { d: t, utc, h, key } = hourOf(b.ts);
-    if (prev !== null && key !== prev) marks.push({ i, h, day: utc ? t.getUTCDate() : t.getDate(), t, utc });
-    prev = key;
-  });
-  // As many labels as fit (about 56px each), none hugging the right edge.
-  const room = Math.max(2, Math.floor($('chart').getBoundingClientRect().width / 56));
-  const days = marks.length / 12 > room;
-  let list = (days ? marks.filter(m => m.h === 0) : marks).filter(m => m.i / n < 0.95);
-  const step = (days ? [1, 2, 7] : [1, 2, 3, 6, 12, 24]).find(s => list.length / s <= room) || 14;
-  list = days ? list.filter((m, k) => k % step === 0) : list.filter(m => m.h % step === 0);
-  $('axis').replaceChildren(...list.map(m => {
+  const n = d.buckets.length;
+  if (!n) { $('axis').hidden = true; return; }
+  const from = d.buckets[0].ts, to = d.buckets[n - 1].ts + d.bucket_ms;
+  const room = Math.max(2, Math.floor($('chart').getBoundingClientRect().width / 64));
+  const step = AXIS_STEPS.find(s => s >= d.bucket_ms && (to - from) / s <= room) || 604800000;
+  // Local steps count from local midnight; a day step lands on midnight in the chosen zone.
+  const zone = prefs.time === 'local' ? new Date(from).getTimezoneOffset() * 60000 : 0;
+  const days = step >= 86400000;
+  const marks = [];
+  for (let t = Math.ceil((from - zone) / step) * step + zone; t < to; t += step) {
+    const at = days ? hourStart(t, true) : t;
+    const i = (at - from) / (to - from);
+    if (i > 0.02 && i < 0.97) marks.push({ t: at, i });
+  }
+  $('axis').replaceChildren(...marks.map(m => {
     const s = document.createElement('button');
     s.type = 'button';
     s.tabIndex = 0;
-    s.style.left = (100 * m.i / n) + '%';
-    s.textContent = days ? m.t.toLocaleDateString([], { weekday: 'short', day: 'numeric', ...(m.utc ? { timeZone: 'UTC' } : {}) })
-      : String(m.h).padStart(2, '0') + ':00';
-    const start = hourStart(d.buckets[m.i].ts, days), span = days ? 86400000 : 3600000;
+    s.style.left = (100 * m.i) + '%';
+    const dt = new Date(m.t), utc = prefs.time !== 'local' ? { timeZone: 'UTC' } : {};
+    s.textContent = days ? dt.toLocaleDateString([], { weekday: 'short', day: 'numeric', ...utc })
+      : dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false, ...utc });
     s.title = 'Go to ' + s.textContent + ' in the list (zooms in when it is not loaded)';
-    s.onclick = () => jumpTo(start, span);
+    s.onclick = () => jumpTo(m.t, step);
     return s;
   }));
   roving($('axis'));
@@ -1209,11 +1399,12 @@ for (const box of [$('axis'), $('legend'), $('marks')]) box.addEventListener('ke
 // Scroll the stream to the newest band of [start, start + span) without searching again; when that time
 // is not in the loaded lines, zoom to it instead.
 function jumpTo(start, span) {
-  const band = [...$('rows').querySelectorAll('tr.band')].find(b => b._ts >= start && b._ts < start + span);
-  if (!band) { zoomTo(start, start + span - 1); return; }
-  band.scrollIntoView({ block: 'start' });
-  const first = band.nextElementSibling;
-  if (first && first._r) focusRow(first);
+  // The newest loaded line of the span, under its hour band.
+  const row = [...$('rows').querySelectorAll('tr.entry')].find(tr => tr._r.ts >= start && tr._r.ts < start + span);
+  if (!row) { zoomTo(start, start + span - 1); return; }
+  const band = row._band;
+  if (band && band.nextElementSibling === row) band.scrollIntoView({ block: 'start' }); else row.scrollIntoView({ block: 'center' });
+  focusRow(row);
 }
 
 // Download the entries of the last search (its filters and time window) through /api/export.
@@ -1488,17 +1679,17 @@ async function loadPatterns() {
 
 // Per-host summary of the current filters (all hosts, even when one is selected).
 // Relative ages ("3m ago") are refreshed every 30 seconds, so the rail does not go stale between searches.
-function agoEl(el, ms) { el.dataset.ago = String(ms); el.textContent = ago(ms); return el; }
+function agoEl(el, ms, short) { el.dataset.ago = String(ms); if (short) el.dataset.short = ''; el.textContent = ago(ms, short); return el; }
 setInterval(() => {
   if (document.hidden) return;
-  for (const el of document.querySelectorAll('[data-ago]')) el.textContent = ago(Number(el.dataset.ago));
+  for (const el of document.querySelectorAll('[data-ago]')) el.textContent = ago(Number(el.dataset.ago), 'short' in el.dataset);
 }, 30000);
-function ago(ms) {
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return s + 's ago';
-  if (s < 3600) return Math.floor(s / 60) + 'm ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-  return Math.floor(s / 86400) + 'd ago';
+function ago(ms, short) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000)), tail = short ? '' : ' ago';
+  if (s < 60) return s + 's' + tail;
+  if (s < 3600) return Math.floor(s / 60) + 'm' + tail;
+  if (s < 86400) return Math.floor(s / 3600) + 'h' + tail;
+  return Math.floor(s / 86400) + 'd' + tail;
 }
 
 // Column sorting is done by the server (`sort`/`order`), so the 200-host cap applies after
@@ -1531,30 +1722,89 @@ function markSort() {
   }
 }
 
+// The host squad: a dot that pulses while the host talks (red when its latest slice has errors, hollow
+// when it went silent), the name, its recent form, and a bar for its share of the entries.
+const SEEN_LIVE_MS = 120000;
+let hostPrev = new Map(), hostDots = new Map();
+const NS_SVG = 'http://www.w3.org/2000/svg';
+function arrowIcon() {
+  const svg = document.createElementNS(NS_SVG, 'svg');
+  svg.setAttribute('width', '12'); svg.setAttribute('height', '12'); svg.setAttribute('viewBox', '0 0 12 12'); svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(NS_SVG, 'path');
+  path.setAttribute('d', 'M4 2.5h5.5V8M9.5 2.5L3 9'); path.setAttribute('fill', 'none'); path.setAttribute('stroke', 'currentColor');
+  path.setAttribute('stroke-width', '1.5'); path.setAttribute('stroke-linecap', 'round'); path.setAttribute('stroke-linejoin', 'round');
+  svg.append(path);
+  return svg;
+}
+// A slice reads red or amber only when it stands out from the host's own window: twice its usual share of
+// errors (or of errors and warnings) and at least two of them, so a host that always logs a few errors
+// stays green and one that starts failing shows it.
+function formWords(h) {
+  const tot = h.form.reduce((a, f) => ({ n: a.n + f.count, e: a.e + f.errors, i: a.i + f.errors + f.warnings }), { n: 0, e: 0, i: 0 });
+  const errRate = tot.n ? tot.e / tot.n : 0, issueRate = tot.n ? tot.i / tot.n : 0;
+  return h.form.map(f => {
+    if (!f.count) return '';
+    if (f.errors >= 2 && f.errors / f.count >= Math.max(2 * errRate, 0.05)) return 'err';
+    const issues = f.errors + f.warnings;
+    if (issues >= 2 && issues / f.count >= Math.max(2 * issueRate, 0.1)) return 'warn';
+    return 'ok';
+  });
+}
+function pulseState(h) {
+  if (h.silent) return { cls: 'off', text: 'silent: no logs within the silence threshold' };
+  const recent = Date.now() - h.last_ts < SEEN_LIVE_MS;
+  const words = h.form ? formWords(h) : [];
+  if (recent && words[words.length - 1] === 'err') return { cls: 'hot', text: 'talking, with more errors than usual in the latest slice' };
+  return recent ? { cls: 'on', text: 'talking: last entry ' + ago(h.last_ts) } : { cls: '', text: 'last entry ' + ago(h.last_ts) };
+}
+function formEl(h) {
+  const box = document.createElement('span');
+  box.className = 'form';
+  if (!h.form) return box;
+  const words = formWords(h);
+  const said = { err: 0, warn: 0, ok: 0, '': 0 };
+  for (const [k, f] of h.form.entries()) {
+    const i = document.createElement('i'), w = words[k];
+    i.className = w; said[w]++;
+    i.title = f.count.toLocaleString() + ' entries' + (f.errors ? ', ' + f.errors.toLocaleString() + ' errors' : '') + (f.warnings ? ', ' + f.warnings.toLocaleString() + ' warnings' : '');
+    box.append(i);
+  }
+  box.setAttribute('role', 'img');
+  box.setAttribute('aria-label', 'Recent form, oldest first: ' + [[said.err, 'with more errors than usual'], [said.warn, 'with more warnings than usual'], [said.ok, 'as usual'], [said[''], 'quiet']]
+    .filter(([n]) => n).map(([n, t]) => n + ' ' + t).join(', '));
+  return box;
+}
 function renderHosts() {
   markSort();
   $('hostsCount').textContent = '(' + hostRows.length + ')';
+  const maxCount = Math.max(1, ...hostRows.map(h => h.count));
+  hostDots = new Map();
   $('hostsBody').replaceChildren(...hostRows.map(h => {
     const tr = document.createElement('tr');
     if (snap && h.host === snap.host) tr.className = 'active';
+    const before = hostPrev.get(h.host) || {};
     const name = td('name', '');
+    const who = document.createElement('div');
+    who.className = 'who';
+    const dot = document.createElement('span'), st = pulseState(h);
+    dot.className = 'pulse ' + st.cls; dot.title = st.text;
+    hostDots.set(h.host, dot);
     const label = document.createElement('span');
     label.textContent = h.host;
-    name.append(clickable(label, () => { $('host').value = h.host; load(); }, 'Filter on host ' + h.host));
-    const hp = document.createElement('a'); hp.className = 'hp'; hp.href = '/host/' + encodeURIComponent(h.host); hp.textContent = 'page';
-    hp.setAttribute('aria-label', 'Page of ' + h.host);
-    name.append(hp);
+    who.append(dot, clickable(label, () => { $('host').value = h.host; load(); }, 'Filter on host ' + h.host));
     if (h.silent) {
       const b = document.createElement('span');
-      b.className = 'badge';
+      b.className = 'badge silent';
       b.textContent = 'silent';
       b.title = 'No logs received within the silence threshold';
-      name.append(b);
+      who.append(b);
     }
-    const num = (v, cls) => td('n' + (v ? (cls ? ' ' + cls : '') : ' zero'), v.toLocaleString());
-    const seen = agoEl(td('', ''), h.last_ts);
-    seen.title = new Date(h.last_ts).toLocaleString();
-    // Tags sit under the host name, so the rail keeps to five narrow columns.
+    const hp = document.createElement('a'); hp.className = 'hp'; hp.href = '/host/' + encodeURIComponent(h.host);
+    hp.setAttribute('aria-label', 'Page of ' + h.host); hp.title = 'Open the page of ' + h.host;
+    hp.append(arrowIcon());
+    who.append(hp);
+    name.append(who);
+    // Tags sit under the host name, so the rail keeps to narrow columns.
     if ((h.tags || []).length) {
       const tags = document.createElement('div');
       for (const t of h.tags) {
@@ -1565,9 +1815,26 @@ function renderHosts() {
       }
       name.append(tags);
     }
-    tr.append(name, num(h.count), num(h.errors, 's3'), num(h.warnings, 's4'), seen);
+    const vol = document.createElement('div');
+    vol.className = 'vol'; vol.style.width = (100 * h.count / maxCount) + '%';
+    name.append(vol);
+    const num = (v, cls, key) => roll(td('n' + (v ? (cls ? ' ' + cls : '') : ' zero'), ''), v, before[key]);
+    const seen = agoEl(td('seen', ''), h.last_ts, true);
+    seen.title = new Date(h.last_ts).toLocaleString();
+    const form = td('', '');
+    form.append(formEl(h));
+    tr.append(name, form, num(h.count, '', 'count'), num(h.errors, 's3', 'errors'), num(h.warnings, 's4', 'warnings'), seen);
     return tr;
   }));
+  hostPrev = new Map(hostRows.map(h => [h.host, { count: h.count, errors: h.errors, warnings: h.warnings }]));
+}
+// A line that arrives live lights its host's dot.
+function pingHost(host, severity) {
+  const dot = hostDots.get(host);
+  if (!dot) return;
+  dot.classList.remove('ping', 'off');
+  void dot.offsetWidth; // restart the animation
+  dot.classList.add('ping', dot.classList.contains('hot') ? 'hot' : 'on');
 }
 
 let hostsReq = 0;
@@ -1579,6 +1846,7 @@ async function loadHosts() {
   p.set('limit', '200');
   p.set('sort', hostSort.key);
   p.set('order', hostSort.dir === 1 ? 'asc' : 'desc');
+  p.set('form', '5');
   try {
     const res = await fetch('/api/hosts?' + p, { headers: authHeaders() });
     if (!res.ok) return;
@@ -2053,7 +2321,13 @@ function showActs(tr) {
   acts._tr = tr;
   tr.querySelector('td.msg').append(acts);
 }
-$('rows').addEventListener('mouseover', e => showActs(e.target.closest('tr.entry')));
+let dwell = 0;
+$('rows').addEventListener('mouseover', e => {
+  const tr = e.target.closest('tr.entry');
+  showActs(tr);
+  clearTimeout(dwell);
+  if (tr && tr._r && tr._r.id !== undefined) dwell = setTimeout(() => prefetchContext(tr._r), 180);
+});
 
 function markRow(tr) {
   if (curRow && curRow !== tr) curRow.classList.remove('kb');

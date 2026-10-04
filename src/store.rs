@@ -1,5 +1,6 @@
 //! SQLite storage: batched writer thread, FTS5 search, retention.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -673,6 +674,17 @@ pub struct HostSummary {
     /// The `[[tags]]` the host belongs to; filled in by the API, not the database.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// The host's recent form: the window cut in equal slices, oldest first (`form=` in the API).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub form: Option<Vec<FormSlice>>,
+}
+
+/// Entries, errors and warnings of one host in one slice of the window.
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+pub struct FormSlice {
+    pub count: u64,
+    pub errors: u64,
+    pub warnings: u64,
 }
 
 /// Column of the per-host summary to order by.
@@ -747,10 +759,59 @@ pub fn host_summary(
                 last_ts: r.get(4)?,
                 silent: None,
                 tags: Vec::new(),
+                form: None,
             })
         },
     )?;
     rows.collect()
+}
+
+/// Per host, the entries matching `q` counted in `slices` equal parts of `since_ms..until_ms`,
+/// oldest first; `q` must already keep that window. Hosts with no entry in it are absent.
+pub fn host_form(
+    conn: &Connection,
+    q: &Query,
+    since_ms: i64,
+    until_ms: i64,
+    slices: usize,
+) -> rusqlite::Result<HashMap<String, Vec<FormSlice>>> {
+    let filter = Filter::new(q)?;
+    let n = slices.max(1) as i64;
+    let span = (until_ms - since_ms).max(1);
+    // Numbers formatted by us, never user text; the last slice also takes an entry at `until_ms`.
+    let sql = format!(
+        "SELECT l.host, MIN({last}, MAX(0, (l.ts - {since_ms}) * {n} / {span})) AS i, COUNT(*), \
+         COALESCE(SUM(l.severity <= 3), 0), COALESCE(SUM(l.severity = 4), 0) FROM logs l{} \
+         GROUP BY l.host, i",
+        filter.sql(),
+        last = n - 1,
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut out: HashMap<String, Vec<FormSlice>> = HashMap::new();
+    let rows = stmt.query_map(
+        params_from_iter(filter.args.iter().map(|a| a.as_ref())),
+        |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                FormSlice {
+                    count: r.get::<_, i64>(2)? as u64,
+                    errors: r.get::<_, i64>(3)? as u64,
+                    warnings: r.get::<_, i64>(4)? as u64,
+                },
+            ))
+        },
+    )?;
+    for row in rows {
+        let (host, i, slice) = row?;
+        let form = out
+            .entry(host)
+            .or_insert_with(|| vec![FormSlice::default(); slices.max(1)]);
+        if let Some(at) = usize::try_from(i).ok().and_then(|i| form.get_mut(i)) {
+            *at = slice;
+        }
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Serialize)]
@@ -1947,6 +2008,60 @@ mod tests {
             host_summary(&mem(), &q(10), HostSort::default())
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn host_form_counts_each_slice_of_the_window() {
+        let mut conn = mem();
+        let batch = vec![
+            entry(100, "pve", 6, "boot"),
+            entry(150, "pve", 3, "disk error"),
+            entry(320, "pve", 4, "slow"),
+            entry(499, "pve", 6, "late"),
+            entry(500, "pve", 6, "at the end"),
+            entry(260, "nas", 6, "ok"),
+        ];
+        insert_batch(&mut conn, &batch).unwrap();
+        let window = Query {
+            since_ms: Some(100),
+            until_ms: Some(500),
+            ..q(10)
+        };
+        let form = host_form(&conn, &window, 100, 500, 4).unwrap();
+        let slice = |count, errors, warnings| FormSlice {
+            count,
+            errors,
+            warnings,
+        };
+        // 100..200, 200..300, 300..400, 400..=500: the end of the window joins the last slice.
+        assert_eq!(
+            form["pve"],
+            [
+                slice(2, 1, 0),
+                slice(0, 0, 0),
+                slice(1, 0, 1),
+                slice(2, 0, 0)
+            ]
+        );
+        assert_eq!(
+            form["nas"],
+            [
+                slice(0, 0, 0),
+                slice(1, 0, 0),
+                slice(0, 0, 0),
+                slice(0, 0, 0)
+            ]
+        );
+        // Filters apply; an empty window or zero slices never divides by zero or panics.
+        let errors = Query {
+            max_severity: Some(3),
+            ..window.clone()
+        };
+        assert_eq!(host_form(&conn, &errors, 100, 500, 4).unwrap().len(), 1);
+        assert_eq!(
+            host_form(&conn, &window, 100, 100, 0).unwrap()["pve"].len(),
+            1
         );
     }
 

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Web UI redesign of the search page, a live match centre for the homelab: a command bar with a Live
+  pill that pulses, a host rail where each host has a dot that pulses while it talks, its recent form as
+  five marks calibrated on its own window, its counts and a volume bar; a momentum curve (errors pushed
+  below the line) that morphs between refreshes, with a tooltip, a *now* edge and an alert timeline;
+  dragging across it dims the lines outside the range before zooming. Live lines slide in, counts roll
+  to their new value, a line's context is prefetched on hover. New night-stadium dark and pitch-side
+  light themes, shared by the other views; violet is kept for your focus (selection, active filters).
+
+- `GET /api/hosts` takes `form=N` (1 to 24): with a `since`, each host gets its `form`, the window cut in
+  N slices with their entries, errors and warnings.
+
 - Web UI: structured fields follow the message on its line instead of taking a line of their own,
   nearly twice as many entries per screen; past the first three, a `+N` shows them all. The Hosts
   panel starts open on a wide screen, and stays closed once closed.

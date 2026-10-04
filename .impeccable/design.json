@@ -1,1192 +1,828 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-03T22:22:12+00:00",
+  "generatedAt": "2026-10-04T22:49:38+00:00",
   "title": "Design System: LogPit",
   "extensions": {
     "colorMeta": {
-      "timetable-paper": {
+      "night-ground": {
         "role": "neutral",
-        "displayName": "Timetable Paper",
-        "canonical": "#ffffff",
+        "displayName": "Night Ground",
+        "canonical": "#0e1015",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252525",
-          "#424242",
-          "#616161",
-          "#828282",
-          "#a5a5a5",
-          "#c9c9c9",
-          "#eeeeee"
+          "#1f232e",
+          "#363e51",
+          "#4d5874",
+          "#657397",
+          "#8792af",
+          "#aab2c6",
+          "#cdd2dd",
+          "#f0f1f5"
         ],
-        "theme": "light"
+        "theme": "dark"
       },
-      "ink": {
+      "floodlit-surface": {
         "role": "neutral",
-        "displayName": "Ink",
-        "canonical": "#111111",
+        "displayName": "Floodlit Surface",
+        "canonical": "#171a21",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252525",
-          "#424242",
-          "#616161",
-          "#828282",
-          "#a5a5a5",
-          "#c9c9c9",
-          "#eeeeee"
+          "#1f242d",
+          "#373f4f",
+          "#4f5a72",
+          "#677594",
+          "#8994ad",
+          "#abb3c5",
+          "#ced2dd",
+          "#f0f1f5"
         ],
-        "theme": "light"
+        "theme": "dark"
       },
-      "pencil-grey": {
+      "floodlit-surface-raised": {
         "role": "neutral",
-        "displayName": "Pencil Grey",
-        "canonical": "#5e5e5e",
+        "displayName": "Floodlit Surface Raised",
+        "canonical": "#1e222b",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252525",
-          "#424242",
-          "#616161",
-          "#828282",
-          "#a5a5a5",
-          "#c9c9c9",
-          "#eeeeee"
+          "#1f242d",
+          "#373f4f",
+          "#4f5a72",
+          "#677594",
+          "#8994ad",
+          "#abb3c5",
+          "#ced2dd",
+          "#f0f1f5"
         ],
-        "theme": "light"
+        "theme": "dark"
       },
-      "hairline": {
+      "rail-band": {
         "role": "neutral",
-        "displayName": "Hairline",
-        "canonical": "#d6d6d6",
+        "displayName": "Rail Band",
+        "canonical": "#13161c",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252525",
-          "#424242",
-          "#616161",
-          "#828282",
-          "#a5a5a5",
-          "#c9c9c9",
-          "#eeeeee"
+          "#1f242e",
+          "#363f50",
+          "#4e5a73",
+          "#667696",
+          "#8894ae",
+          "#aab3c6",
+          "#cdd2dd",
+          "#f0f1f5"
         ],
-        "theme": "light"
+        "theme": "dark"
       },
-      "field-grey": {
+      "night-ink": {
         "role": "neutral",
-        "displayName": "Field Grey",
-        "canonical": "#8a8a8a",
+        "displayName": "Night Ink",
+        "canonical": "#e8eaf0",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252525",
-          "#424242",
-          "#616161",
-          "#828282",
-          "#a5a5a5",
-          "#c9c9c9",
-          "#eeeeee"
+          "#1e222e",
+          "#353c52",
+          "#4c5675",
+          "#637098",
+          "#8690b0",
+          "#a9b0c7",
+          "#ccd1de",
+          "#f0f1f5"
         ],
-        "theme": "light"
+        "theme": "dark"
       },
-      "band-grey": {
+      "terrace-muted": {
         "role": "neutral",
-        "displayName": "Band Grey",
-        "canonical": "#f2f2f2",
+        "displayName": "Terrace Muted",
+        "canonical": "#9aa0ae",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252525",
-          "#424242",
-          "#616161",
-          "#828282",
-          "#a5a5a5",
-          "#c9c9c9",
-          "#eeeeee"
+          "#22252a",
+          "#3c404b",
+          "#565c6b",
+          "#70788b",
+          "#9096a6",
+          "#b0b5c0",
+          "#d1d3da",
+          "#f1f2f4"
         ],
-        "theme": "light"
+        "theme": "dark"
       },
-      "platform-navy": {
-        "role": "secondary",
-        "displayName": "Platform Navy",
-        "canonical": "#2d327d",
-        "tonalRamp": [
-          "#060030",
-          "#191660",
-          "#313783",
-          "#4e58a7",
-          "#6d7acd",
-          "#8f9ef3",
-          "#bac6fd",
-          "#eaeefe"
-        ],
-        "theme": "light"
-      },
-      "platform-lavender": {
-        "role": "secondary",
-        "displayName": "Platform Lavender",
-        "canonical": "#c3c6ea",
-        "tonalRamp": [
-          "#09071f",
-          "#21223d",
-          "#3d3f5c",
-          "#5c5e7e",
-          "#7d7fa0",
-          "#9fa2c5",
-          "#c3c6ea",
-          "#ebedfe"
-        ],
-        "theme": "light"
-      },
-      "platform-rule": {
-        "role": "secondary",
-        "displayName": "Platform Rule",
-        "canonical": "#8f94c8",
-        "tonalRamp": [
-          "#08032a",
-          "#1f1f49",
-          "#3a3d6a",
-          "#595c8c",
-          "#797db0",
-          "#9ba0d5",
-          "#bfc4fb",
-          "#ebedff"
-        ],
-        "theme": "light"
-      },
-      "notice-tint": {
+      "night-hairline": {
         "role": "neutral",
-        "displayName": "Notice Tint",
-        "canonical": "#eceef8",
+        "displayName": "Night Hairline",
+        "canonical": "#252933",
         "tonalRamp": [
-          "#0a0b11",
-          "#23252c",
-          "#404149",
-          "#5f6169",
-          "#80828b",
-          "#a3a4ae",
-          "#c7c8d2",
-          "#eceef8"
+          "#20242c",
+          "#393f4e",
+          "#515a70",
+          "#6a7592",
+          "#8b94ab",
+          "#adb3c3",
+          "#ced2dc",
+          "#f0f1f4"
         ],
-        "theme": "light"
+        "theme": "dark"
       },
-      "notice-tint-strong": {
+      "night-field-line": {
         "role": "neutral",
-        "displayName": "Notice Tint Strong",
-        "canonical": "#d9dcf1",
+        "displayName": "Night Field Line",
+        "canonical": "#343946",
         "tonalRamp": [
-          "#090a17",
-          "#222433",
-          "#3e4151",
-          "#5d6072",
-          "#7e8194",
-          "#a1a4b7",
-          "#c5c8dc",
-          "#ebedff"
+          "#21242c",
+          "#393f4d",
+          "#525a6f",
+          "#6b7590",
+          "#8c94aa",
+          "#adb3c2",
+          "#cfd2db",
+          "#f0f1f4"
         ],
-        "theme": "light"
+        "theme": "dark"
       },
-      "selection-lavender": {
-        "role": "neutral",
-        "displayName": "Selection Lavender",
-        "canonical": "#c9cbe8",
-        "tonalRamp": [
-          "#09081b",
-          "#222238",
-          "#3e3f57",
-          "#5d5f78",
-          "#7e809a",
-          "#a1a2be",
-          "#c5c6e3",
-          "#ebedff"
-        ],
-        "theme": "light"
-      },
-      "signal-red": {
+      "focus-violet": {
         "role": "primary",
-        "displayName": "Signal Red",
-        "canonical": "#d30000",
+        "displayName": "Focus Violet",
+        "canonical": "#8b7cff",
         "tonalRamp": [
-          "#1f0000",
-          "#4d0000",
-          "#7e0a06",
-          "#b80201",
-          "#ea2e22",
-          "#ff7462",
-          "#feb4a8",
-          "#ffe9e5"
+          "#09004c",
+          "#0f0087",
+          "#1600c1",
+          "#1d00fb",
+          "#4e37ff",
+          "#8171ff",
+          "#b5abff",
+          "#e8e6ff"
         ],
-        "theme": "light"
+        "theme": "dark"
       },
-      "signal-red-deep": {
-        "role": "primary",
-        "displayName": "Signal Red Deep",
-        "canonical": "#b00000",
+      "live-red": {
+        "role": "secondary",
+        "displayName": "Live Red",
+        "canonical": "#ff4d4f",
         "tonalRamp": [
-          "#1e0000",
-          "#4c0201",
-          "#7f0603",
-          "#b61009",
-          "#df4335",
-          "#fc7665",
-          "#ffb3a7",
-          "#fee9e5"
+          "#4c0001",
+          "#870002",
+          "#c10002",
+          "#fb0003",
+          "#ff3739",
+          "#ff7173",
+          "#ffabac",
+          "#ffe6e6"
         ],
-        "theme": "light"
+        "theme": "dark"
+      },
+      "error-red": {
+        "role": "secondary",
+        "displayName": "Error Red",
+        "canonical": "#ff5c5e",
+        "tonalRamp": [
+          "#4c0001",
+          "#870002",
+          "#c10002",
+          "#fb0003",
+          "#ff3739",
+          "#ff7173",
+          "#ffabac",
+          "#ffe6e6"
+        ],
+        "theme": "dark"
       },
       "warning-amber": {
-        "role": "tertiary",
+        "role": "secondary",
         "displayName": "Warning Amber",
-        "canonical": "#9a5300",
+        "canonical": "#fbbf24",
         "tonalRamp": [
-          "#160700",
-          "#3b1c00",
-          "#623506",
-          "#904e01",
-          "#b76e2b",
-          "#dd9151",
-          "#fdb983",
-          "#ffeadb"
-        ],
-        "theme": "light"
-      },
-      "clear-green": {
-        "role": "tertiary",
-        "displayName": "Clear Green",
-        "canonical": "#1b7a34",
-        "tonalRamp": [
-          "#001002",
-          "#002f0c",
-          "#00511b",
-          "#13752f",
-          "#3f9850",
-          "#64bc72",
-          "#89e195",
-          "#cbfed0"
-        ],
-        "theme": "light"
-      },
-      "first-purple": {
-        "role": "tertiary",
-        "displayName": "First Purple",
-        "canonical": "#6b3fa0",
-        "tonalRamp": [
-          "#120026",
-          "#33015b",
-          "#522383",
-          "#7246a8",
-          "#9469cd",
-          "#b78cf4",
-          "#d4bbfe",
-          "#f2eaff"
-        ],
-        "theme": "light"
-      },
-      "chart-info-grey": {
-        "role": "neutral",
-        "displayName": "Chart Info Grey",
-        "canonical": "#868686",
-        "tonalRamp": [
-          "#0b0b0b",
-          "#252525",
-          "#424242",
-          "#616161",
-          "#828282",
-          "#a5a5a5",
-          "#c9c9c9",
-          "#eeeeee"
-        ],
-        "theme": "light"
-      },
-      "chart-debug-grey": {
-        "role": "neutral",
-        "displayName": "Chart Debug Grey",
-        "canonical": "#949494",
-        "tonalRamp": [
-          "#0b0b0b",
-          "#252525",
-          "#424242",
-          "#616161",
-          "#828282",
-          "#a5a5a5",
-          "#c9c9c9",
-          "#eeeeee"
-        ],
-        "theme": "light"
-      },
-      "board-navy": {
-        "role": "neutral",
-        "displayName": "Board Navy",
-        "canonical": "#141a46",
-        "tonalRamp": [
-          "#05032d",
-          "#19204c",
-          "#343e6d",
-          "#525e90",
-          "#727fb4",
-          "#94a2d9",
-          "#b8c7fd",
-          "#e9eefe"
+          "#4b3701",
+          "#846002",
+          "#be8a03",
+          "#f7b305",
+          "#fbc53a",
+          "#fcd673",
+          "#fde7ad",
+          "#fff8e6"
         ],
         "theme": "dark"
       },
-      "board-band": {
-        "role": "neutral",
-        "displayName": "Board Band",
-        "canonical": "#1b2257",
-        "tonalRamp": [
-          "#050032",
-          "#171e52",
-          "#323c74",
-          "#4f5d97",
-          "#6f7ebc",
-          "#91a1e1",
-          "#b8c6fd",
-          "#e9eefe"
-        ],
-        "theme": "dark"
-      },
-      "board-shell": {
-        "role": "neutral",
-        "displayName": "Board Shell",
-        "canonical": "#0b0f2e",
-        "tonalRamp": [
-          "#050724",
-          "#1c2243",
-          "#373f63",
-          "#565f85",
-          "#7680a8",
-          "#98a3cd",
-          "#bcc7f2",
-          "#e9eeff"
-        ],
-        "theme": "dark"
-      },
-      "board-white": {
-        "role": "neutral",
-        "displayName": "Board White",
-        "canonical": "#f3f4fa",
-        "tonalRamp": [
-          "#0a0b0f",
-          "#242529",
-          "#414246",
-          "#606166",
-          "#818287",
-          "#a4a5aa",
-          "#c8c9ce",
-          "#edeef4"
-        ],
-        "theme": "dark"
-      },
-      "board-muted": {
-        "role": "neutral",
-        "displayName": "Board Muted",
-        "canonical": "#a7acd4",
-        "tonalRamp": [
-          "#080622",
-          "#202140",
-          "#3c3f60",
-          "#5a5e82",
-          "#7b7fa5",
-          "#9da2c9",
-          "#c1c6ef",
-          "#ebedfe"
-        ],
-        "theme": "dark"
-      },
-      "board-rule": {
-        "role": "neutral",
-        "displayName": "Board Rule",
-        "canonical": "#2b3170",
-        "tonalRamp": [
-          "#060031",
-          "#191a58",
-          "#333a7a",
-          "#505a9e",
-          "#707cc2",
-          "#919fe8",
-          "#bac6fd",
-          "#eaeeff"
-        ],
-        "theme": "dark"
-      },
-      "board-field": {
-        "role": "neutral",
-        "displayName": "Board Field",
-        "canonical": "#6f76b3",
-        "tonalRamp": [
-          "#07012f",
-          "#1d1c51",
-          "#373b73",
-          "#555b96",
-          "#757cba",
-          "#979fdf",
-          "#bcc5fe",
-          "#eaedff"
-        ],
-        "theme": "dark"
-      },
-      "board-yellow": {
+      "notice-blue": {
         "role": "secondary",
-        "displayName": "Board Yellow",
-        "canonical": "#ffd23f",
+        "displayName": "Notice Blue",
+        "canonical": "#60a5fa",
         "tonalRamp": [
-          "#100a00",
-          "#2f2401",
-          "#514004",
-          "#765e0b",
-          "#9d7f14",
-          "#c7a009",
-          "#f1c429",
-          "#ffeebe"
+          "#02234a",
+          "#043d83",
+          "#0657bb",
+          "#0871f4",
+          "#3d91f9",
+          "#75b1fb",
+          "#aed1fc",
+          "#e6f1fe"
         ],
         "theme": "dark"
       },
-      "board-tint": {
-        "role": "neutral",
-        "displayName": "Board Tint",
-        "canonical": "#1f275f",
-        "tonalRamp": [
-          "#050032",
-          "#171d54",
-          "#313c76",
-          "#4f5c99",
-          "#6e7ebe",
-          "#90a1e4",
-          "#b7c6ff",
-          "#e9eeff"
-        ],
-        "theme": "dark"
-      },
-      "board-tint-strong": {
-        "role": "neutral",
-        "displayName": "Board Tint Strong",
-        "canonical": "#2c3680",
-        "tonalRamp": [
-          "#050032",
-          "#151760",
-          "#2e3883",
-          "#4b59a7",
-          "#6a7ccc",
-          "#8b9ff3",
-          "#b8c6fd",
-          "#e9eefe"
-        ],
-        "theme": "dark"
-      },
-      "board-selection": {
-        "role": "neutral",
-        "displayName": "Board Selection",
-        "canonical": "#3a438f",
-        "tonalRamp": [
-          "#060130",
-          "#181660",
-          "#303883",
-          "#4d59a7",
-          "#6d7bcc",
-          "#8e9ef3",
-          "#b9c6fd",
-          "#e9eefe"
-        ],
-        "theme": "dark"
-      },
-      "board-red": {
-        "role": "primary",
-        "displayName": "Board Red",
-        "canonical": "#c40000",
-        "tonalRamp": [
-          "#1f0000",
-          "#4d0000",
-          "#810000",
-          "#b80302",
-          "#e5382b",
-          "#fe7463",
-          "#feb4a8",
-          "#ffe9e5"
-        ],
-        "theme": "dark"
-      },
-      "board-red-deep": {
-        "role": "primary",
-        "displayName": "Board Red Deep",
-        "canonical": "#a30000",
-        "tonalRamp": [
-          "#1f0000",
-          "#4c0201",
-          "#7f0704",
-          "#b21d14",
-          "#db493a",
-          "#fc7665",
-          "#feb3a7",
-          "#ffe9e5"
-        ],
-        "theme": "dark"
-      },
-      "board-error": {
-        "role": "primary",
-        "displayName": "Board Error Red",
-        "canonical": "#ff6b6b",
-        "tonalRamp": [
-          "#1f0002",
-          "#4c020a",
-          "#7e0718",
-          "#b11d2c",
-          "#d9484c",
-          "#ff7271",
-          "#feb3ae",
-          "#ffe9e7"
-        ],
-        "theme": "dark"
-      },
-      "board-amber": {
-        "role": "tertiary",
-        "displayName": "Board Amber",
-        "canonical": "#ffb54d",
-        "tonalRamp": [
-          "#130800",
-          "#352001",
-          "#5b3a04",
-          "#84560b",
-          "#af7413",
-          "#dc9422",
-          "#fdbb61",
-          "#ffebd3"
-        ],
-        "theme": "dark"
-      },
-      "board-notice": {
+      "healthy-green": {
         "role": "secondary",
-        "displayName": "Board Notice Blue",
-        "canonical": "#9cb0ff",
+        "displayName": "Healthy Green",
+        "canonical": "#34d399",
         "tonalRamp": [
-          "#050032",
-          "#151a5c",
-          "#2f3a7e",
-          "#4c5ba2",
-          "#6b7dc7",
-          "#8da0ee",
-          "#b7c6ff",
-          "#e9eeff"
+          "#0e3f2d",
+          "#186f4f",
+          "#229f71",
+          "#2dcf94",
+          "#5adbac",
+          "#8ae6c4",
+          "#baf0dc",
+          "#eafaf4"
         ],
         "theme": "dark"
       },
-      "board-green": {
+      "new-sky": {
+        "role": "secondary",
+        "displayName": "New Sky",
+        "canonical": "#38bdf8",
+        "tonalRamp": [
+          "#03344a",
+          "#055c82",
+          "#0783bb",
+          "#09abf3",
+          "#3dbff8",
+          "#76d1fa",
+          "#aee4fc",
+          "#e6f7fe"
+        ],
+        "theme": "dark"
+      },
+      "chart-info-slate": {
         "role": "tertiary",
-        "displayName": "Board Green",
-        "canonical": "#5fd38a",
+        "displayName": "Chart Info Slate",
+        "canonical": "#4b5568",
         "tonalRamp": [
-          "#001004",
-          "#012e15",
-          "#045029",
-          "#0c743f",
-          "#159b56",
-          "#4abf78",
-          "#72e59b",
-          "#c8fed7"
+          "#20242c",
+          "#38404e",
+          "#515c70",
+          "#697792",
+          "#8b96ab",
+          "#acb4c3",
+          "#ced3dc",
+          "#f0f2f4"
         ],
         "theme": "dark"
       },
-      "board-purple": {
+      "chart-debug-slate": {
         "role": "tertiary",
-        "displayName": "Board Purple",
-        "canonical": "#c7a6ff",
+        "displayName": "Chart Debug Slate",
+        "canonical": "#363c4a",
         "tonalRamp": [
-          "#120027",
-          "#310858",
-          "#4e2c7a",
-          "#6e4d9e",
-          "#8f6fc3",
-          "#b291e9",
-          "#d3bbfe",
-          "#f1ebff"
+          "#20242c",
+          "#393f4e",
+          "#515b70",
+          "#6a7691",
+          "#8b95aa",
+          "#adb4c3",
+          "#cfd2dc",
+          "#f0f1f4"
         ],
         "theme": "dark"
       },
-      "board-chart-info": {
+      "pitch-white": {
         "role": "neutral",
-        "displayName": "Board Chart Info",
-        "canonical": "#6f76b3",
+        "displayName": "Pitch White",
+        "canonical": "#ffffff",
         "tonalRamp": [
-          "#080031",
-          "#1d1c51",
-          "#373b73",
-          "#555b96",
-          "#757cba",
-          "#979fdf",
-          "#bac4ff",
-          "#dfe9ff"
+          "#262626",
+          "#434343",
+          "#616161",
+          "#7e7e7e",
+          "#9b9b9b",
+          "#b8b8b8",
+          "#d5d5d5",
+          "#f2f2f2"
         ],
-        "theme": "dark"
+        "theme": "light"
       },
-      "board-chart-debug": {
+      "day-surface": {
         "role": "neutral",
-        "displayName": "Board Chart Debug",
-        "canonical": "#5f67a8",
+        "displayName": "Day Surface",
+        "canonical": "#f6f7f9",
         "tonalRamp": [
-          "#080034",
-          "#1b1b55",
-          "#363a77",
-          "#535a9a",
-          "#737cbf",
-          "#959fe5",
-          "#b8c3ff",
-          "#dde9ff"
-        ],
-        "theme": "dark"
-      },
-      "series-0": {
-        "role": "series",
-        "displayName": "Series 0",
-        "canonical": "#4e79a7",
-        "tonalRamp": [
-          "#000b1d",
-          "#022647",
-          "#19446e",
-          "#3a6491",
-          "#5a86b5",
-          "#7ca9da",
-          "#a2cefd",
-          "#e3f0ff"
+          "#1f242e",
+          "#363f51",
+          "#4d5a74",
+          "#657597",
+          "#8794af",
+          "#aab3c6",
+          "#cdd2dd",
+          "#f0f1f5"
         ],
         "theme": "light"
       },
-      "series-1": {
-        "role": "series",
-        "displayName": "Series 1",
-        "canonical": "#f28e2b",
-        "tonalRamp": [
-          "#160700",
-          "#3a1d01",
-          "#633504",
-          "#8e4f0c",
-          "#bd6b14",
-          "#ec8923",
-          "#fdb982",
-          "#ffeada"
-        ],
-        "theme": "light"
-      },
-      "series-2": {
-        "role": "series",
-        "displayName": "Series 2",
-        "canonical": "#59a14f",
-        "tonalRamp": [
-          "#011000",
-          "#042e01",
-          "#0d5102",
-          "#2b7321",
-          "#4e9644",
-          "#71ba67",
-          "#95df8a",
-          "#cdffc6"
-        ],
-        "theme": "light"
-      },
-      "series-3": {
-        "role": "series",
-        "displayName": "Series 3",
-        "canonical": "#b07aa1",
-        "tonalRamp": [
-          "#1b0015",
-          "#3d1034",
-          "#5e2e52",
-          "#804e73",
-          "#a36e95",
-          "#c891b8",
-          "#eeb4dd",
-          "#fee6f7"
-        ],
-        "theme": "light"
-      },
-      "series-4": {
-        "role": "series",
-        "displayName": "Series 4",
-        "canonical": "#76b7b2",
-        "tonalRamp": [
-          "#000f0e",
-          "#022c2a",
-          "#054d49",
-          "#2b6d69",
-          "#4f8f8b",
-          "#72b3ae",
-          "#96d8d2",
-          "#bbfef8"
-        ],
-        "theme": "light"
-      },
-      "series-5": {
-        "role": "series",
-        "displayName": "Series 5",
-        "canonical": "#d4a92a",
-        "tonalRamp": [
-          "#100a00",
-          "#302300",
-          "#533f01",
-          "#785d03",
-          "#a07d08",
-          "#ca9f18",
-          "#efc34c",
-          "#ffedc2"
-        ],
-        "theme": "light"
-      },
-      "series-6": {
-        "role": "series",
-        "displayName": "Series 6",
-        "canonical": "#ff9da7",
-        "tonalRamp": [
-          "#1e0005",
-          "#4c0015",
-          "#731f2f",
-          "#98414d",
-          "#be626e",
-          "#e4858f",
-          "#feb1b8",
-          "#fee8ea"
-        ],
-        "theme": "light"
-      },
-      "series-7": {
-        "role": "series",
-        "displayName": "Series 7",
-        "canonical": "#9c755f",
-        "tonalRamp": [
-          "#180600",
-          "#3b1b07",
-          "#5b3824",
-          "#7d5842",
-          "#a07862",
-          "#c49b84",
-          "#eabfa7",
-          "#ffeade"
-        ],
-        "theme": "light"
-      },
-      "series-8": {
-        "role": "series",
-        "displayName": "Series 8",
-        "canonical": "#7b5fb5",
-        "tonalRamp": [
-          "#110029",
-          "#2e075b",
-          "#4b2d7e",
-          "#6a4ea2",
-          "#8b6fc7",
-          "#ae92ed",
-          "#cfbdfe",
-          "#f0ebff"
-        ],
-        "theme": "light"
-      },
-      "series-9": {
-        "role": "series",
-        "displayName": "Series 9",
-        "canonical": "#86bc86",
-        "tonalRamp": [
-          "#001001",
-          "#022f06",
-          "#1b4f1e",
-          "#3c6f3d",
-          "#5d915e",
-          "#7fb57f",
-          "#a3daa3",
-          "#ccfecb"
-        ],
-        "theme": "light"
-      },
-      "board-series-0": {
-        "role": "series",
-        "displayName": "Board Series 0",
-        "canonical": "#8fb3e0",
-        "tonalRamp": [
-          "#000b1f",
-          "#052549",
-          "#234369",
-          "#42638c",
-          "#6285af",
-          "#84a8d4",
-          "#a8ccfa",
-          "#e4f0fe"
-        ],
-        "theme": "dark"
-      },
-      "board-series-1": {
-        "role": "series",
-        "displayName": "Board Series 1",
-        "canonical": "#ffa64d",
-        "tonalRamp": [
-          "#150700",
-          "#391e01",
-          "#613604",
-          "#8b510c",
-          "#b96e14",
-          "#e58e30",
-          "#feb979",
-          "#ffead9"
-        ],
-        "theme": "dark"
-      },
-      "board-series-2": {
-        "role": "series",
-        "displayName": "Board Series 2",
-        "canonical": "#7fcf6f",
-        "tonalRamp": [
-          "#011000",
-          "#092e02",
-          "#155005",
-          "#24750e",
-          "#499839",
-          "#6dbc5d",
-          "#90e180",
-          "#cefec4"
-        ],
-        "theme": "dark"
-      },
-      "board-series-3": {
-        "role": "series",
-        "displayName": "Board Series 3",
-        "canonical": "#d6a3c9",
-        "tonalRamp": [
-          "#1a0016",
-          "#3b1333",
-          "#5b3152",
-          "#7d5072",
-          "#a07094",
-          "#c593b8",
-          "#eab6dd",
-          "#fee6f8"
-        ],
-        "theme": "dark"
-      },
-      "board-series-4": {
-        "role": "series",
-        "displayName": "Board Series 4",
-        "canonical": "#9ad9d3",
-        "tonalRamp": [
-          "#000f0d",
-          "#012c29",
-          "#034d49",
-          "#2f6d68",
-          "#528f8a",
-          "#75b2ad",
-          "#98d7d1",
-          "#bdfdf7"
-        ],
-        "theme": "dark"
-      },
-      "board-series-5": {
-        "role": "series",
-        "displayName": "Board Series 5",
-        "canonical": "#f5d76e",
-        "tonalRamp": [
-          "#0f0b00",
-          "#2e2400",
-          "#504101",
-          "#745f03",
-          "#9b8008",
-          "#c0a335",
-          "#e5c75e",
-          "#ffeeb7"
-        ],
-        "theme": "dark"
-      },
-      "board-series-6": {
-        "role": "series",
-        "displayName": "Board Series 6",
-        "canonical": "#ffb3bb",
-        "tonalRamp": [
-          "#1e0005",
-          "#460a19",
-          "#692b35",
-          "#8c4a53",
-          "#b16b74",
-          "#d78e96",
-          "#fdb1b9",
-          "#ffe8ea"
-        ],
-        "theme": "dark"
-      },
-      "board-series-7": {
-        "role": "series",
-        "displayName": "Board Series 7",
-        "canonical": "#c9a084",
-        "tonalRamp": [
-          "#170600",
-          "#3b1b02",
-          "#5b391f",
-          "#7d583e",
-          "#a0795e",
-          "#c49b80",
-          "#eabfa3",
-          "#ffeadc"
-        ],
-        "theme": "dark"
-      },
-      "board-series-8": {
-        "role": "series",
-        "displayName": "Board Series 8",
-        "canonical": "#c59fd9",
-        "tonalRamp": [
-          "#160020",
-          "#341343",
-          "#533164",
-          "#745185",
-          "#9672a9",
-          "#ba94cd",
-          "#dfb8f3",
-          "#f7e8fe"
-        ],
-        "theme": "dark"
-      },
-      "board-series-9": {
-        "role": "series",
-        "displayName": "Board Series 9",
-        "canonical": "#a8d8a8",
-        "tonalRamp": [
-          "#001001",
-          "#002f06",
-          "#224d24",
-          "#426e43",
-          "#629063",
-          "#85b385",
-          "#a8d8a8",
-          "#cdfecc"
-        ],
-        "theme": "dark"
-      },
-      "live-highlight": {
+      "day-surface-raised": {
         "role": "neutral",
-        "displayName": "Live Highlight",
-        "canonical": "#fff1b8",
+        "displayName": "Day Surface Raised",
+        "canonical": "#eef0f3",
         "tonalRamp": [
-          "#150900",
-          "#302400",
-          "#4e4106",
-          "#6e612c",
-          "#90824d",
-          "#b3a56f",
-          "#d7ca92",
-          "#fdefb6"
+          "#20252d",
+          "#38414f",
+          "#505d71",
+          "#687993",
+          "#8a97ac",
+          "#acb6c4",
+          "#ced4dc",
+          "#f0f2f4"
         ],
         "theme": "light"
       },
-      "board-live-highlight": {
+      "day-ink": {
         "role": "neutral",
-        "displayName": "Board Live Highlight",
-        "canonical": "#33303f",
+        "displayName": "Day Ink",
+        "canonical": "#0f1115",
         "tonalRamp": [
-          "#0c0915",
-          "#262331",
-          "#423f4f",
-          "#625f6f",
-          "#838091",
-          "#a5a2b5",
-          "#cac6d9",
-          "#efebff"
+          "#20242d",
+          "#38404f",
+          "#505b71",
+          "#697793",
+          "#8a95ac",
+          "#acb4c4",
+          "#ced3dc",
+          "#f0f2f4"
         ],
-        "theme": "dark"
+        "theme": "light"
+      },
+      "day-muted": {
+        "role": "neutral",
+        "displayName": "Day Muted",
+        "canonical": "#5b6070",
+        "tonalRamp": [
+          "#22242a",
+          "#3c404a",
+          "#575b6b",
+          "#71778b",
+          "#9095a5",
+          "#b1b4bf",
+          "#d1d3d9",
+          "#f1f2f4"
+        ],
+        "theme": "light"
+      },
+      "day-hairline": {
+        "role": "neutral",
+        "displayName": "Day Hairline",
+        "canonical": "#e4e6eb",
+        "tonalRamp": [
+          "#21242c",
+          "#393f4d",
+          "#525a6f",
+          "#6b7690",
+          "#8c94aa",
+          "#adb3c3",
+          "#cfd2db",
+          "#f0f1f4"
+        ],
+        "theme": "light"
+      },
+      "day-field-line": {
+        "role": "neutral",
+        "displayName": "Day Field Line",
+        "canonical": "#cfd3da",
+        "tonalRamp": [
+          "#21252b",
+          "#3b414c",
+          "#545d6d",
+          "#6d798e",
+          "#8e97a8",
+          "#afb5c1",
+          "#d0d4db",
+          "#f1f2f4"
+        ],
+        "theme": "light"
+      },
+      "focus-violet-day": {
+        "role": "primary",
+        "displayName": "Focus Violet (day)",
+        "canonical": "#6d5df5",
+        "tonalRamp": [
+          "#0c0448",
+          "#14087f",
+          "#1d0bb6",
+          "#260fed",
+          "#5542f3",
+          "#8679f7",
+          "#b8b0fa",
+          "#e9e7fe"
+        ],
+        "theme": "light"
+      },
+      "live-red-day": {
+        "role": "secondary",
+        "displayName": "Live Red (day)",
+        "canonical": "#e5383b",
+        "tonalRamp": [
+          "#44090a",
+          "#771011",
+          "#ab1619",
+          "#de1d20",
+          "#e84e50",
+          "#ef8183",
+          "#f5b5b6",
+          "#fce8e9"
+        ],
+        "theme": "light"
+      },
+      "error-red-day": {
+        "role": "secondary",
+        "displayName": "Error Red (day)",
+        "canonical": "#d92d2f",
+        "tonalRamp": [
+          "#410c0c",
+          "#721516",
+          "#a31e1f",
+          "#d52729",
+          "#e05557",
+          "#e98788",
+          "#f2b8b9",
+          "#fbe9ea"
+        ],
+        "theme": "light"
+      },
+      "warning-amber-day": {
+        "role": "secondary",
+        "displayName": "Warning Amber (day)",
+        "canonical": "#b45309",
+        "tonalRamp": [
+          "#492204",
+          "#803b06",
+          "#b85509",
+          "#ef6e0c",
+          "#f58f40",
+          "#f8af78",
+          "#fbd0af",
+          "#fef1e7"
+        ],
+        "theme": "light"
+      },
+      "notice-blue-day": {
+        "role": "secondary",
+        "displayName": "Notice Blue (day)",
+        "canonical": "#2563eb",
+        "tonalRamp": [
+          "#061a46",
+          "#0b2e7b",
+          "#1043b1",
+          "#1557e6",
+          "#477cee",
+          "#7da2f3",
+          "#b2c8f8",
+          "#e8eefd"
+        ],
+        "theme": "light"
+      },
+      "healthy-green-day": {
+        "role": "secondary",
+        "displayName": "Healthy Green (day)",
+        "canonical": "#0f9f6e",
+        "tonalRamp": [
+          "#074630",
+          "#0c7b55",
+          "#11b07a",
+          "#16e69f",
+          "#48eeb5",
+          "#7df3cb",
+          "#b2f8e0",
+          "#e8fdf6"
+        ],
+        "theme": "light"
+      },
+      "new-sky-day": {
+        "role": "secondary",
+        "displayName": "New Sky (day)",
+        "canonical": "#0284c7",
+        "tonalRamp": [
+          "#01324c",
+          "#015985",
+          "#027fbf",
+          "#03a5f9",
+          "#39bafd",
+          "#72cefe",
+          "#ace2fe",
+          "#e6f6ff"
+        ],
+        "theme": "light"
+      },
+      "chart-info-day": {
+        "role": "tertiary",
+        "displayName": "Chart Info (day)",
+        "canonical": "#94a3b8",
+        "tonalRamp": [
+          "#1f252e",
+          "#364151",
+          "#4d5d74",
+          "#647997",
+          "#8797af",
+          "#aab6c6",
+          "#cdd4de",
+          "#f0f2f5"
+        ],
+        "theme": "light"
+      },
+      "chart-debug-day": {
+        "role": "tertiary",
+        "displayName": "Chart Debug (day)",
+        "canonical": "#cbd5e1",
+        "tonalRamp": [
+          "#1c2531",
+          "#314255",
+          "#475e7a",
+          "#5c7b9f",
+          "#8098b6",
+          "#a5b6cb",
+          "#cad4e0",
+          "#eff2f6"
+        ],
+        "theme": "light"
       }
     },
-    "typographyMeta": {
-      "wordmark": {
-        "displayName": "Wordmark",
-        "purpose": "The LogPit wordmark on the header band (18px on phones)."
+    "seriesPalette": {
+      "dark": [
+        "#60a5fa",
+        "#fb923c",
+        "#4ade80",
+        "#f472b6",
+        "#22d3ee",
+        "#facc15",
+        "#fb7185",
+        "#d6a77a",
+        "#2dd4bf",
+        "#a3e635"
+      ],
+      "light": [
+        "#2563eb",
+        "#ea580c",
+        "#16a34a",
+        "#db2777",
+        "#0891b2",
+        "#ca8a04",
+        "#e11d48",
+        "#92400e",
+        "#0d9488",
+        "#65a30d"
+      ],
+      "other": {
+        "dark": "#6b7280",
+        "light": "#9ca3af"
       },
-      "hour": {
-        "displayName": "Hour",
-        "purpose": "The hour on each hour band; 14px in compact density."
+      "purpose": "Stacking the momentum curve by host or app; violet deliberately absent."
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Hour Numeral",
+        "purpose": "Hour-band numerals of the stream (15px compact); 22px for the welcome heading."
+      },
+      "title": {
+        "displayName": "Rail Title",
+        "purpose": "Rail section headers; brand wordmark at 17px/700."
       },
       "body": {
         "displayName": "Body",
-        "purpose": "Default UI text; tabular figures on the whole page."
+        "purpose": "Default text, search field, legend figures at 650."
       },
-      "time": {
-        "displayName": "Time",
-        "purpose": "Bold minutes:seconds leading each stream line; the hour prefix is 400 grey."
-      },
-      "rail-title": {
-        "displayName": "Rail Title",
-        "purpose": "Section heads in the rail."
-      },
-      "rail-body": {
-        "displayName": "Rail Body",
-        "purpose": "Rail content, chart bar, band counts."
+      "body-dense": {
+        "displayName": "Body Dense",
+        "purpose": "Filter row, host and app columns, stream timestamps at 600."
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Severity column, table headers, small buttons (600 or 700)."
+        "purpose": "Chart bar, table headers, counts, ages, tooltips (11.5-12.5px)."
       },
-      "micro": {
-        "displayName": "Micro",
-        "purpose": "Silent badge, chart axis hours; tags at 400."
+      "pill": {
+        "displayName": "Pill",
+        "purpose": "Level pills, badges (10.5px), tags."
       },
       "message": {
-        "displayName": "Message",
-        "purpose": "Message bodies, patterns, context lines."
-      },
-      "message-compact": {
-        "displayName": "Message Compact",
-        "purpose": "Message bodies in compact density."
-      },
-      "fields": {
-        "displayName": "Fields",
-        "purpose": "Structured key=value fields under a message (keys 600)."
+        "displayName": "Message Mono",
+        "purpose": "Log message bodies, patterns, values, code only."
       }
     },
-    "shadows": [],
+    "shadows": [
+      {
+        "name": "raise",
+        "value": "0 1px 2px rgb(0 0 0 / .4), 0 10px 28px -8px rgb(0 0 0 / .6)",
+        "light": "0 1px 2px rgb(15 17 21 / .06), 0 8px 24px -6px rgb(15 17 21 / .14)",
+        "purpose": "Tooltip, line toolbar, new-lines pill."
+      },
+      {
+        "name": "pop",
+        "value": "0 2px 8px rgb(0 0 0 / .45), 0 28px 56px -12px rgb(0 0 0 / .7)",
+        "light": "0 2px 6px rgb(15 17 21 / .08), 0 24px 48px -12px rgb(15 17 21 / .28)",
+        "purpose": "Popovers and the command palette."
+      },
+      {
+        "name": "focus-halo",
+        "value": "0 0 0 3px var(--focus-tint)",
+        "purpose": "Focused inputs, with a violet border."
+      }
+    ],
     "motion": [
       {
-        "name": "hard-step",
-        "value": "none",
-        "purpose": "No transitions or animations: every state change (hover, open, selection, chevron) is immediate."
+        "name": "ease",
+        "value": "cubic-bezier(.22, 1, .36, 1)",
+        "purpose": "The single easing curve for every transition and animation."
+      },
+      {
+        "name": "state",
+        "value": "120-160ms",
+        "purpose": "Hover, colour and border changes."
+      },
+      {
+        "name": "panel",
+        "value": "180-240ms",
+        "purpose": "Popovers (rise), chips, reveals, palette, new-lines pill."
+      },
+      {
+        "name": "segment-morph",
+        "value": "320ms",
+        "purpose": "Curve segment heights between renders."
+      },
+      {
+        "name": "arrive",
+        "value": "420ms",
+        "purpose": "Live line slides in; its wash fades over 2.4s."
+      },
+      {
+        "name": "bar-width",
+        "value": "500ms",
+        "purpose": "Host volume and top-value bars."
+      },
+      {
+        "name": "roll",
+        "value": "700ms, quartic ease-out",
+        "purpose": "Rolling numbers (script, skipped under reduced motion)."
+      },
+      {
+        "name": "pulse-live",
+        "value": "1.6s infinite",
+        "purpose": "Live badge dot and the curve now edge."
+      },
+      {
+        "name": "pulse-host",
+        "value": "2.4s infinite",
+        "purpose": "Talking or hot host dots."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "All animations and transitions collapse to 0.01ms; rolls jump."
       }
     ],
     "breakpoints": [
       {
-        "name": "phone",
-        "value": "759px",
-        "purpose": "max-width: header scrolls away, secondary filters fold behind a Filters toggle, entries become two-line grids."
+        "name": "narrow-fallback",
+        "value": "max-width: 759px"
       },
       {
         "name": "rail",
-        "value": "1100px",
-        "purpose": "min-width: 340px sticky left rail beside the chart and stream."
+        "value": "min-width: 1000px"
       },
       {
-        "name": "coarse-pointer",
-        "value": "pointer: coarse",
-        "purpose": "Controls grow to 44px minimum height (36px for small buttons)."
+        "name": "rail-wide",
+        "value": "min-width: 1280px"
       }
     ],
-    "themes": {
-      "light": "Timetable paper: --ground #ffffff, --ink #111111, accent platform navy.",
-      "dark": "Departure board: --ground #141a46, --ink #f3f4fa, accent board yellow; tokens prefixed board-."
-    }
+    "scope": "Reference surface: src/web/index.html with src/web/theme.css. src/web/pages.html inherits tokens only; its components are the retired world, pending redesign."
   },
   "components": [
     {
       "name": "Button",
       "kind": "button",
       "refersTo": "button",
-      "description": "Default outlined control: ground fill, field-grey border, bold label; band-grey hover, no easing.",
+      "description": "Default action button: surface fill, hairline border, presses down on click.",
       "html": "<button class=\"ds-btn\">Save view</button>",
-      "css": ".ds-btn{height:32px;padding:0 12px;border:1px solid var(--field,#8a8a8a);border-radius:2px;background:var(--ground,#fff);color:var(--ink,#111);font:600 14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif;cursor:pointer}.ds-btn:hover{background:var(--band,#f2f2f2)}.ds-btn:focus-visible{outline:2px solid var(--focus,#2d327d);outline-offset:2px}"
+      "css": ".ds-btn{height:32px;padding:0 12px;border:1px solid var(--rule);border-radius:var(--radius-s);background:var(--surface);color:var(--ink);font:600 14px var(--sans);cursor:pointer;transition:background-color .16s var(--ease),border-color .16s var(--ease),transform .16s var(--ease)}.ds-btn:hover{background:var(--surface-2);border-color:var(--field)}.ds-btn:active{transform:translateY(1px) scale(.98)}.ds-btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px}"
     },
     {
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The single filled red action per screen (Search).",
+      "description": "The one primary action (Search): ink fill that inverts per theme.",
       "html": "<button class=\"ds-btn-primary\">Search</button>",
-      "css": ".ds-btn-primary{height:32px;padding:0 12px;border:1px solid var(--primary,#d30000);border-radius:2px;background:var(--primary,#d30000);color:#fff;font:600 14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif;cursor:pointer}.ds-btn-primary:hover{background:var(--primary-hover,#b00000)}.ds-btn-primary:focus-visible{outline:2px solid var(--focus,#2d327d);outline-offset:2px}"
+      "css": ".ds-btn-primary{height:36px;padding:0 16px;border:1px solid var(--primary);border-radius:var(--radius);background:var(--primary);color:var(--on-primary);font:600 14px var(--sans);cursor:pointer;transition:background-color .16s var(--ease),transform .16s var(--ease)}.ds-btn-primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}.ds-btn-primary:active{transform:translateY(1px) scale(.98)}.ds-btn-primary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}"
     },
     {
-      "name": "Text Field",
+      "name": "Command Search",
       "kind": "input",
-      "refersTo": "input",
-      "description": "32px field with a field-grey border and 2px corners.",
-      "html": "<input class=\"ds-input\" type=\"search\" placeholder=\"field:value\">",
-      "css": ".ds-input{height:32px;padding:0 8px;border:1px solid var(--field,#8a8a8a);border-radius:2px;background:var(--ground,#fff);color:var(--ink,#111);font:14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif}.ds-input::placeholder{color:var(--muted,#5e5e5e);opacity:1}.ds-input:focus-visible{outline:2px solid var(--focus,#2d327d);outline-offset:2px}"
+      "refersTo": "command-search",
+      "description": "The command bar search field with inline SVG magnifier and key hint.",
+      "html": "<div class=\"ds-search\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><circle cx=\"7\" cy=\"7\" r=\"5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"/><path d=\"M11 11l3.5 3.5\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\"/></svg><input class=\"ds-input\" placeholder=\"Search messages...\"><kbd class=\"ds-kbd\">/</kbd></div>",
+      "css": ".ds-search{position:relative;display:flex;width:360px}.ds-search svg{position:absolute;left:11px;top:50%;translate:0 -50%;color:var(--muted)}.ds-search .ds-kbd{position:absolute;right:8px;top:50%;translate:0 -50%;min-width:18px;padding:0 5px;border:1px solid var(--rule);border-radius:4px;box-shadow:inset 0 -1px 0 var(--rule);background:var(--surface-2);font:600 11px/16px var(--sans);color:var(--muted);text-align:center}.ds-input{flex:1;height:36px;padding:0 34px;border:1px solid var(--rule);border-radius:var(--radius);background:var(--surface);color:var(--ink);font:14px var(--sans);transition:border-color .16s var(--ease),box-shadow .16s var(--ease)}.ds-input::placeholder{color:var(--muted)}.ds-input:hover{border-color:var(--field)}.ds-input:focus-visible{outline:none;border-color:var(--focus);box-shadow:0 0 0 3px var(--focus-tint)}.ds-input:focus-visible~.ds-kbd{opacity:0}"
     },
     {
-      "name": "Header Band",
-      "kind": "nav",
-      "refersTo": "header-band",
-      "description": "Platform-navy control strip: wordmark, wide search, Live, the red Search button, status right.",
-      "html": "<div class=\"ds-hdr\"><b class=\"ds-hdr-mark\">LogPit</b><input class=\"ds-hdr-q\" type=\"search\" placeholder=\"Search messages…\"><label class=\"ds-hdr-l\"><input type=\"checkbox\"> Live</label><button class=\"ds-hdr-go\">Search</button><span class=\"ds-hdr-st\">500 entries</span></div>",
-      "css": ".ds-hdr{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;background:var(--shell,#2d327d);color:#fff;font:14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif}.ds-hdr-mark{margin-right:12px;font-size:20px;line-height:32px;letter-spacing:-.01em}.ds-hdr-q{flex:1 1 200px;height:32px;padding:0 8px;border:1px solid var(--shell-line,#8f94c8);border-radius:2px;background:var(--shell-field,#fff);color:var(--shell-field-ink,#111);font:inherit}.ds-hdr-q:focus-visible,.ds-hdr-go:focus-visible{outline:2px solid #fff;outline-offset:2px}.ds-hdr-l{display:flex;align-items:center;gap:6px;font-weight:600}.ds-hdr-l input{accent-color:#d30000}.ds-hdr-go{height:32px;padding:0 12px;border:1px solid #d30000;border-radius:2px;background:#d30000;color:#fff;font:inherit;font-weight:600;cursor:pointer}.ds-hdr-go:hover{background:#b00000}.ds-hdr-st{margin-left:auto;color:var(--shell-muted,#c3c6ea);font-size:13px}"
-    },
-    {
-      "name": "Hour Band",
+      "name": "Live Badge",
       "kind": "custom",
-      "refersTo": "hour-band",
-      "description": "Signature: the hour stated once on a sticky band; lines below lead with grey HH: and bold MM:SS, errors in red.",
-      "html": "<table class=\"ds-tt\"><tr class=\"ds-band\"><th colspan=\"4\"><span class=\"ds-h\">14:00</span><span class=\"ds-d\">Sun, 4 Oct 2026</span><span class=\"ds-c\">32 entries · <span class=\"ds-e\">4 errors</span> · <span class=\"ds-w\">3 warnings</span></span></th></tr><tr><td class=\"ds-ts\"><span class=\"ds-hh\">14:</span>12:12</td><td class=\"ds-sev ds-s6\">info</td><td class=\"ds-host\">pve</td><td class=\"ds-msg\">GET /api/v1/items/9 HTTP/1.1 200 512</td></tr><tr class=\"ds-err\"><td class=\"ds-ts\"><span class=\"ds-hh\">14:</span>08:41</td><td class=\"ds-sev ds-s3\">err</td><td class=\"ds-host\">lxc-git</td><td class=\"ds-msg\">authentication failure; rhost=10.0.0.54</td></tr><tr><td class=\"ds-ts\"><span class=\"ds-hh\">14:</span>06:27</td><td class=\"ds-sev ds-s4\">warn</td><td class=\"ds-host\">nas</td><td class=\"ds-msg\">query: example69.lan A IN</td></tr></table>",
-      "css": ".ds-tt{width:100%;border-collapse:collapse;font:14px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif;font-variant-numeric:tabular-nums;color:var(--ink,#111);background:var(--ground,#fff)}.ds-band th{position:sticky;top:0;padding:8px 10px 6px 16px;background:var(--band,#f2f2f2);border-bottom:1px solid var(--ink,#111);text-align:left;font-weight:400}.ds-h{font-size:20px;font-weight:700;line-height:1;margin-right:10px;color:var(--band-hour,#111)}.ds-d{color:var(--muted,#5e5e5e)}.ds-c{float:right;font-size:12.5px;color:var(--muted,#5e5e5e)}.ds-e{color:var(--err,#d30000);font-weight:700}.ds-w{color:var(--warn,#9a5300);font-weight:700}.ds-tt td{padding:4px 10px;border-bottom:1px solid var(--rule,#d6d6d6);vertical-align:baseline}.ds-tt td:first-child{padding-left:16px}.ds-ts{width:1%;white-space:nowrap;font-weight:700}.ds-hh{color:var(--muted,#5e5e5e);font-weight:400}.ds-err .ds-ts,.ds-err .ds-hh{color:var(--err,#d30000)}.ds-sev{width:1%;font-size:12px;font-weight:700}.ds-s3{color:var(--err,#d30000)}.ds-s4{color:var(--warn,#9a5300)}.ds-s6{color:var(--muted,#5e5e5e)}.ds-host{width:1%;white-space:nowrap;font-weight:600}.ds-msg{font:12.5px/1.45 ui-monospace,\"SF Mono\",Menlo,Consolas,monospace;white-space:pre-wrap}"
+      "refersTo": "live-badge",
+      "description": "Live tail toggle: a pill whose dot pulses in live red when on.",
+      "html": "<label class=\"ds-live\"><input type=\"checkbox\" checked><span class=\"ds-dot\"></span>Live</label>",
+      "css": "@keyframes ds-pulse{0%{transform:scale(1);opacity:.55}70%,100%{transform:scale(2.6);opacity:0}}.ds-live{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px 0 10px;border:1px solid var(--rule);border-radius:999px;background:var(--surface);color:var(--ink);font:600 14px var(--sans);cursor:pointer;transition:background-color .2s var(--ease),border-color .2s var(--ease),color .2s var(--ease)}.ds-live input{position:absolute;opacity:0;width:1px;height:1px}.ds-dot{position:relative;width:8px;height:8px;border-radius:50%;background:var(--field)}.ds-live:has(input:checked){background:var(--err-tint);border-color:color-mix(in srgb,var(--live) 45%,transparent);color:var(--live)}.ds-live:has(input:checked) .ds-dot{background:var(--live)}.ds-live:has(input:checked) .ds-dot::after{content:'';position:absolute;inset:0;border-radius:50%;background:var(--live);animation:ds-pulse 1.6s var(--ease) infinite}.ds-live:has(input:focus-visible){outline:2px solid var(--focus);outline-offset:2px}@media (prefers-reduced-motion:reduce){.ds-dot::after{animation:none!important}}"
     },
     {
-      "name": "Silent Badge",
+      "name": "Filter Chip",
       "kind": "chip",
-      "refersTo": "badge-silent",
-      "description": "Red marker after a host that stopped sending logs.",
-      "html": "<span class=\"ds-host-name\">udr7</span><span class=\"ds-badge\">silent</span>",
-      "css": ".ds-host-name{font:600 12.5px/1.45 \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif}.ds-badge{display:inline-block;margin-left:6px;padding:0 5px;border-radius:2px;background:var(--err,#d30000);color:var(--ground,#fff);font:700 11px/16px \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif}"
+      "refersTo": "filter-chip",
+      "description": "An active filter, the viewer's focus: violet key, mono value, one click removes it.",
+      "html": "<button class=\"ds-chip\"><span class=\"ds-k\">host</span><b>pve</b><svg width=\"10\" height=\"10\" viewBox=\"0 0 10 10\" aria-hidden=\"true\"><path d=\"M2 2l6 6M8 2l-6 6\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px 0 10px;border:1px solid transparent;border-radius:999px;background:var(--focus-tint);color:var(--ink);font:400 14px var(--sans);cursor:pointer;transition:background-color .16s var(--ease)}.ds-chip:hover{background:var(--focus-strong)}.ds-chip:focus-visible{outline:2px solid var(--focus);outline-offset:2px}.ds-k{color:var(--accent);font-weight:600}.ds-chip b{font:600 12px var(--mono)}.ds-chip svg{opacity:.7}"
     },
     {
-      "name": "Tag",
+      "name": "Level Pills",
       "kind": "chip",
-      "refersTo": "tag",
-      "description": "Outlined host tag, clickable to filter.",
-      "html": "<span class=\"ds-tag\" tabindex=\"0\" role=\"button\">proxmox</span>",
-      "css": ".ds-tag{display:inline-block;margin:2px 4px 0 0;padding:0 5px;border:1px solid var(--field,#8a8a8a);border-radius:2px;color:var(--muted,#5e5e5e);font:400 11px/16px \"Helvetica Neue\",Helvetica,Arial,system-ui,sans-serif;cursor:pointer}.ds-tag:hover{color:var(--accent,#2d327d)}.ds-tag:focus-visible{outline:2px solid var(--focus,#2d327d);outline-offset:2px}"
+      "refersTo": "level-pill",
+      "description": "Severity pills of the stream: state text on its tint.",
+      "html": "<span class=\"ds-lv ds-e\">err</span> <span class=\"ds-lv ds-w\">warn</span> <span class=\"ds-lv ds-n\">notice</span> <span class=\"ds-lv\">info</span>",
+      "css": ".ds-lv{display:inline-block;min-width:44px;padding:0 7px;border-radius:999px;font:600 11px/19px var(--sans);letter-spacing:.02em;text-align:center;color:var(--muted)}.ds-e{color:var(--err);background:var(--err-tint)}.ds-w{color:var(--warn);background:var(--warn-tint)}.ds-n{color:var(--notice);background:var(--notice-tint)}"
     },
     {
-      "name": "Context Panel",
+      "name": "Host Rail Row",
+      "kind": "custom",
+      "refersTo": "form-pip",
+      "description": "A host in the rail: pulse dot, name, five calibrated form pips, volume bar, counts.",
+      "html": "<div class=\"ds-host\"><span class=\"ds-pulse\"></span><div class=\"ds-name\">pve<div class=\"ds-vol\" style=\"width:80%\"></div></div><span class=\"ds-form\"><i class=\"err\"></i><i class=\"ok\"></i><i class=\"ok\"></i><i class=\"warn\"></i><i class=\"ok\"></i></span><span class=\"ds-n\">627</span><span class=\"ds-n ds-e\">69</span><span class=\"ds-n ds-w\">61</span><span class=\"ds-seen\">2s</span></div>",
+      "css": "@keyframes ds-pulse{0%{transform:scale(1);opacity:.55}70%,100%{transform:scale(2.6);opacity:0}}.ds-host{display:flex;align-items:center;gap:10px;width:320px;padding:7px 8px;border-top:1px solid var(--rule);font:14px/1.5 var(--sans);font-variant-numeric:tabular-nums;color:var(--ink);transition:background-color .16s var(--ease)}.ds-host:hover{background:var(--tint)}.ds-pulse{position:relative;flex:none;width:8px;height:8px;border-radius:50%;background:var(--ok);color:var(--ok)}.ds-pulse::after{content:'';position:absolute;inset:0;border-radius:50%;background:currentColor;animation:ds-pulse 2.4s var(--ease) infinite}.ds-name{flex:1;font-weight:600}.ds-vol{height:3px;margin-top:6px;border-radius:2px;background:color-mix(in srgb,var(--ink) 40%,transparent)}.ds-form{display:inline-flex;gap:2px}.ds-form i{width:6px;height:14px;border-radius:2px;background:var(--quiet-tint)}.ds-form i.ok{background:color-mix(in srgb,var(--ok) 70%,transparent)}.ds-form i.warn{background:var(--warn)}.ds-form i.err{background:var(--err)}.ds-n{width:36px;text-align:right}.ds-e{color:var(--err);font-weight:600}.ds-w{color:var(--warn);font-weight:600}.ds-seen{color:var(--muted);font-size:11.5px}@media (prefers-reduced-motion:reduce){.ds-pulse::after{animation:none!important}}"
+    },
+    {
+      "name": "Momentum Curve",
+      "kind": "custom",
+      "refersTo": "incident-mark",
+      "description": "Signature: volume above the baseline, errors mirrored below, incident marks on a timeline, a live now edge.",
+      "html": "<div class=\"ds-curve\"><div class=\"ds-cols\"><div class=\"ds-col\"><div class=\"ds-up\"><i style=\"height:10px;color:var(--chart-info)\"></i><i style=\"height:2px;color:var(--warn)\"></i></div><div class=\"ds-dn\"><i style=\"height:4px;color:var(--err)\"></i></div></div><div class=\"ds-col\"><div class=\"ds-up\"><i style=\"height:14px;color:var(--chart-info)\"></i><i style=\"height:3px;color:var(--warn)\"></i></div><div class=\"ds-dn\"><i style=\"height:6px;color:var(--err)\"></i></div></div><div class=\"ds-col\"><div class=\"ds-up\"><i style=\"height:12px;color:var(--chart-info)\"></i><i style=\"height:2px;color:var(--warn)\"></i></div><div class=\"ds-dn\"><i style=\"height:3px;color:var(--err)\"></i></div></div><div class=\"ds-col\"><div class=\"ds-up\"><i style=\"height:30px;color:var(--chart-info)\"></i><i style=\"height:6px;color:var(--warn)\"></i></div><div class=\"ds-dn\"><i style=\"height:14px;color:var(--err)\"></i></div></div><div class=\"ds-col\"><div class=\"ds-up\"><i style=\"height:70px;color:var(--chart-info)\"></i><i style=\"height:10px;color:var(--warn)\"></i></div><div class=\"ds-dn\"><i style=\"height:30px;color:var(--err)\"></i></div></div><div class=\"ds-col\"><div class=\"ds-up\"><i style=\"height:84px;color:var(--chart-info)\"></i><i style=\"height:12px;color:var(--warn)\"></i></div><div class=\"ds-dn\"><i style=\"height:36px;color:var(--err)\"></i></div></div><div class=\"ds-col\"><div class=\"ds-up\"><i style=\"height:78px;color:var(--chart-info)\"></i><i style=\"height:10px;color:var(--warn)\"></i></div><div class=\"ds-dn\"><i style=\"height:28px;color:var(--err)\"></i></div></div><div class=\"ds-col\"><div class=\"ds-up\"><i style=\"height:90px;color:var(--chart-info)\"></i><i style=\"height:14px;color:var(--warn)\"></i></div><div class=\"ds-dn\"><i style=\"height:40px;color:var(--err)\"></i></div></div><span class=\"ds-now\"></span><span class=\"ds-sel\"></span></div><div class=\"ds-marks\"><button style=\"left:20%\"></button><button class=\"bad\" style=\"left:55%\"></button><button class=\"good\" style=\"left:72%\"></button></div></div>",
+      "css": "@keyframes ds-pulse{0%{transform:scale(1);opacity:.55}70%,100%{transform:scale(2.6);opacity:0}}.ds-curve{width:420px}.ds-cols{position:relative;display:flex;gap:2px;height:150px}.ds-cols::before{content:'';position:absolute;left:0;right:0;top:104px;height:1px;background:var(--rule)}.ds-col{flex:1;display:flex;flex-direction:column;border-radius:4px;transition:background-color .12s var(--ease)}.ds-col:hover{background:var(--tint)}.ds-up{height:104px;display:flex;flex-direction:column-reverse}.ds-dn{height:46px;display:flex;flex-direction:column;padding-top:1px}.ds-col i{flex:none;background:currentColor;transition:height .32s var(--ease)}.ds-up i:last-child{border-radius:4px 4px 0 0}.ds-dn i:last-child{border-radius:0 0 4px 4px}.ds-now{position:absolute;right:0;top:0;bottom:46px;width:1px;background:color-mix(in srgb,var(--live) 55%,transparent)}.ds-now::before{content:'now';position:absolute;right:6px;top:-2px;font:600 10.5px var(--sans);color:var(--live)}.ds-now::after{content:'';position:absolute;left:-3px;top:0;width:7px;height:7px;border-radius:50%;background:var(--live);animation:ds-pulse 1.6s var(--ease) infinite}.ds-sel{position:absolute;top:0;bottom:0;left:48%;width:22%;border-radius:4px;background:var(--focus-tint);box-shadow:inset 0 0 0 1px var(--accent)}.ds-marks{position:relative;height:18px;margin-top:6px;background:linear-gradient(var(--rule),var(--rule)) center/100% 1px no-repeat}.ds-marks button{position:absolute;top:2px;width:8px;height:14px;margin-left:-4px;padding:0;border:0;border-radius:4px;background:var(--notice);box-shadow:0 0 0 2px var(--ground);cursor:pointer;transition:transform .16s var(--ease)}.ds-marks button.bad{background:var(--err)}.ds-marks button.good{background:var(--ok)}.ds-marks button:hover,.ds-marks button:focus-visible{transform:scale(1.25)}@media (prefers-reduced-motion:reduce){.ds-now::after{animation:none!important}}"
+    },
+    {
+      "name": "Popover",
       "kind": "card",
-      "refersTo": "context-panel",
-      "description": "Tinted panel opened under a line, showing the surrounding entries; the current one in the stronger tint.",
-      "html": "<div class=\"ds-ctx\"><div class=\"ds-ctxl\"><span>14:08:40</span><span>info</span><span>sshd</span><span class=\"m\">Connection from 10.0.0.54</span></div><div class=\"ds-ctxl ds-cur\"><span>14:08:41</span><span>err</span><span>sshd</span><span class=\"m\">authentication failure; rhost=10.0.0.54</span></div><div class=\"ds-ctxl\"><span>14:08:43</span><span>info</span><span>sshd</span><span class=\"m\">Disconnected from 10.0.0.54</span></div></div>",
-      "css": ".ds-ctx{padding:8px 16px 12px 32px;background:var(--tint,#eceef8);color:var(--ink,#111)}.ds-ctxl{display:grid;grid-template-columns:auto 4.5em 9em minmax(0,1fr);gap:0 10px;padding:1px 0;font:12px/1.45 ui-monospace,\"SF Mono\",Menlo,Consolas,monospace}.ds-ctxl>span:not(.m){color:var(--muted,#5e5e5e);white-space:nowrap}.ds-cur{background:var(--tint-strong,#d9dcf1);font-weight:700}"
+      "refersTo": "popover",
+      "description": "Floating panel (range picker, help, settings): surface, hairline, 12px corners, Pop shadow, rises in.",
+      "html": "<div class=\"ds-pop\"><strong>Range</strong><p>From 23:50 to 00:45</p><button class=\"ds-btn-primary\">Apply</button></div>",
+      "css": "@keyframes ds-rise{from{opacity:0;transform:translateY(-4px) scale(.98)}}.ds-pop{display:grid;gap:10px;width:260px;padding:14px;background:var(--surface);color:var(--ink);border:1px solid var(--rule);border-radius:12px;box-shadow:var(--pop);font:14px/1.5 var(--sans);animation:ds-rise .18s var(--ease);transform-origin:top left}.ds-pop p{margin:0;color:var(--muted)}.ds-btn-primary{justify-self:start;height:32px;padding:0 12px;border:1px solid var(--primary);border-radius:var(--radius-s);background:var(--primary);color:var(--on-primary);font:600 14px var(--sans);cursor:pointer}"
     }
   ],
   "narrative": {
-    "northStar": "The Timetable",
-    "overview": "LogPit sets the log stream the way Swiss railway timetable books set departures. The hour is stated once, on a band; every line under it leads with its minutes and seconds in bold tabular figures while the hour recedes in grey; disruptions read in red. Read top to bottom, the stream has the calm, regular cadence of a printed timetable, and an incident shows up the way a cancelled train does: as a red line in an otherwise black column.\n\nThe world has two faces. In light, it is timetable paper: a white ground, near-black ink, hairline rules and a platform-navy band across the top. In dark, it is the station departure board: a deep navy ground, white type and board yellow as the accent. Both are flat, printed surfaces. Nothing floats, nothing glows, nothing eases in; state changes snap like a split-flap board turning over.\n\nThe system is dense but not cramped, and built for long reading during an incident. It rejects the category default (a dark observability console with a grey histogram over undifferentiated rows), the SaaS dashboard (cards, giant KPIs, gradients) and the hacker costume (green on black, CRT, neon). Because the page ships inside the binary under a `default-src 'none'` policy, everything is system type, inline CSS and inline SVG; lightness is part of the look.",
+    "northStar": "Match en direct",
+    "overview": "\n**Creative North Star: \"Match en direct\"**\n\nThe web UI reads a homelab the way a live match centre reads a game. A momentum curve shows who is pushing right now; every incident lands on a timeline at its minute; each host carries its recent form in the rail. The page is never a static grey histogram over undifferentiated rows: data moves in place, lines arrive while you watch, and the state of each host shows without opening anything. Night-stadium dark is the default (a near-black ground under floodlit surfaces); daytime is pitch-side white with the same state hues deepened for contrast.\n\nDensity is that of a working tool: 14px body, 32-36px controls, 16px gutters, hairline rules between rows rather than cards around them. Colour is semantic and scarce: red, amber, green and blue encode state, a ten-hue series palette encodes hosts or apps, and one violet belongs to the viewer alone. Motion is part of the material, authored and short, and steps aside under `prefers-reduced-motion`.\n\nThe world is a match centre in structure, never in costume: no football words, cards or goals in the labels, no green-on-black hacker theme, no KPI tiles or decorative gradients. Everything ships inline under a strict CSP, so type is the system stack and every icon is inline SVG.\n\nScope: the search page (`src/web/index.html`) is the redesigned surface and the reference for this system, with tokens in `src/web/theme.css`. `src/web/pages.html` (board, host, admin, compare) inherits these tokens but still carries the retired world's component styling (navy header band, timetable rows); it is scheduled for redesign and is not a source for this document. New work on those views follows this file, not their current markup.",
     "keyCharacteristics": [
-      "The pinned hour band: the hour stated once in large bold figures, the band sticking under the header while its hour scrolls past.",
-      "Bold tabular minutes:seconds leading each line, the hour prefix in grey.",
-      "Helvetica-family system stack for everything, monospace reserved for message text.",
-      "Colour only for meaning: red for errors and the one primary action, amber for warnings, navy for notices and structure, purple for first-ever patterns, yellow as the board accent at night.",
-      "Flat surfaces, hairline rules, radii of 2px at most, no shadows, no easing."
+      "Night-stadium dark by default, pitch-side white by day; theme auto/light/dark via `data-theme`.",
+      "Violet marks the viewer's focus and nothing else.",
+      "Signature: the momentum curve, volume above a baseline, errors mirrored below, incidents on a timeline beneath, a live \"now\" edge.",
+      "The host rail: pulse dot, five calibrated form pips, proportional volume bar.",
+      "Figures roll to new values; segments morph in height; live lines slide in lit and fade.",
+      "System sans with tabular figures everywhere; monospace for message bodies and code only."
     ],
     "rules": [
       {
-        "name": "The Meaning Rule",
-        "body": "Colour says something or it is ink. Red is an error or the primary action, amber a warning, navy a notice or structure, purple a first sighting, green a recovery. A coloured element with no such meaning is a defect.",
+        "name": "The Viewer's Violet Rule",
+        "body": "Violet means \"you are looking here\": selection, active filter, brush, zoomed range, current line. If an element would still be violet with nobody using the page, it is wrong.",
         "section": "colors"
       },
       {
-        "name": "The One Red Button Rule",
-        "body": "Exactly one filled red control per screen: Search. Every other button is outlined in field grey on the ground.",
+        "name": "The Two Reds Rule",
+        "body": "Live red says \"this is happening now\"; error red says \"this failed\". The Live badge and the now edge never borrow error red, and errors never pulse in live red.",
         "section": "colors"
       },
       {
-        "name": "The Two Boards Rule",
-        "body": "The light theme accent is navy; the dark theme accent is yellow. Never carry yellow into light, never carry navy accents into dark (the dark board is already navy).",
+        "name": "The State-Only Hue Rule",
+        "body": "Red, amber, green and blue carry severity and health; series hues carry identity. Neither is used for decoration, and series never reuse violet.",
         "section": "colors"
       },
       {
-        "name": "The Tabular Rule",
-        "body": "All figures are tabular (`font-variant-numeric: tabular-nums` on the body). Times, counts and hours must line up in columns like a printed timetable.",
+        "name": "The Tabular Figures Rule",
+        "body": "Every number on the page uses tabular figures, so counts can roll in place without shifting their neighbours.",
         "section": "typography"
       },
       {
-        "name": "The Receding Hour Rule",
-        "body": "On a line, the hour is grey and regular, minutes:seconds black and bold. On an error line the whole timestamp turns red, hour included.",
+        "name": "The Mono Is Evidence Rule",
+        "body": "Monospace is reserved for what the machine wrote (messages, patterns, values, queries). Interface text is never mono.",
         "section": "typography"
       },
       {
-        "name": "The Printed Sheet Rule",
-        "body": "Every surface lies on the same sheet of paper (or the same board). If something needs to stand out, give it a rule, a tint or a band, never a shadow or a blur.",
-        "section": "elevation"
+        "name": "The Hairline Not Box Rule",
+        "body": "Rows, rail sections and the stream are separated by 1px rules; containers with borders and shadows are reserved for floating things (popovers, palette, tooltip, toolbar).",
+        "section": "layout"
       },
       {
-        "name": "The Hard Step Rule",
-        "body": "State changes are immediate: hover fills, open sections, chevrons, selections, the live highlight going on and off. No transitions, no animations, no easing.",
+        "name": "The Float-Only Shadow Rule",
+        "body": "A shadow means the element floats above the page and will go away. Nothing anchored in the layout carries one.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "**Do** state the hour once, on a sticky hour band, and lead every line with bold tabular minutes:seconds with the hour prefix in grey.",
-      "**Do** keep every figure tabular so times and counts align in columns.",
-      "**Do** reserve red for errors and the single primary action; amber for warnings; navy for notices and structure; purple for first-seen patterns; green for recoveries.",
-      "**Do** use board yellow as the only accent in dark, and platform navy as the accent in light.",
-      "**Do** separate things with 1px rules (hairline between rows, ink under bands and the chart) and tints, not with boxes.",
-      "**Do** keep corners at 2px or square, and keep everything system type, inline CSS and inline SVG.",
-      "**Do** keep monospace for message text (messages, patterns, context lines)."
+      "Do keep violet for the viewer's focus: selection, active filters, brush, zoomed range, current line.",
+      "Do encode severity and health with the state hues only, each paired with its tint for fills.",
+      "Do let figures roll to their new value (700ms) and segments morph (320ms) instead of re-rendering.",
+      "Do use the one `--ease` curve and keep state transitions in the 120-240ms band.",
+      "Do honour `prefers-reduced-motion` for every new animation, in CSS and in script.",
+      "Do separate rows with hairlines and keep shadows for floating elements.",
+      "Do use pills (999px) for status and tokens, and the 2/4/6/8/12 scale for everything else.",
+      "Do set every number in tabular figures and every machine-written string in mono.",
+      "Do draw icons as inline SVG in `currentColor`."
     ],
     "donts": [
-      "**Don't** add shadows, blurs, gradients or glows; the world is a printed sheet or a departure board.",
-      "**Don't** add transitions or easing; state changes are hard steps.",
-      "**Don't** introduce cards, KPI tiles or dashboard chrome.",
-      "**Don't** use green-on-black terminal styling, CRT effects or neon.",
-      "**Don't** use colour decoratively or to \"brighten\" a section; if it does not mean something it is ink, grey or rule.",
-      "**Don't** add a second filled red button, or radii above 2px.",
-      "**Don't** load web fonts, icon fonts or any external resource; the CSP forbids it and lightness is the point."
+      "Don't use violet for a datum, a series or a severity.",
+      "Don't use live red for errors or error red for liveness.",
+      "Don't pulse anything that is not live; a static state does not loop.",
+      "Don't add web fonts, external images or any external resource; the CSP forbids them.",
+      "Don't add KPI tiles, decorative gradients or cards around content.",
+      "Don't dress the match-centre world as a sports app: no football words, cards or goals in labels.",
+      "Don't fall into the hacker costume: no green-on-black, CRT or neon.",
+      "Don't copy component styling from `pages.html` until it has been redesigned."
     ]
   }
 }

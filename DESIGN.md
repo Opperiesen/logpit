@@ -1,407 +1,335 @@
 ---
 name: LogPit
-description: A log stream set like a railway timetable, on paper by day and on the departure board by night.
+description: A homelab's logs read like a live match centre, night-stadium dark by default and pitch-side white by day.
 colors:
-  timetable-paper: "#ffffff"
-  ink: "#111111"
-  pencil-grey: "#5e5e5e"
-  hairline: "#d6d6d6"
-  field-grey: "#8a8a8a"
-  band-grey: "#f2f2f2"
-  platform-navy: "#2d327d"
-  platform-lavender: "#c3c6ea"
-  platform-rule: "#8f94c8"
-  notice-tint: "#eceef8"
-  notice-tint-strong: "#d9dcf1"
-  selection-lavender: "#c9cbe8"
-  signal-red: "#d30000"
-  signal-red-deep: "#b00000"
-  warning-amber: "#9a5300"
-  clear-green: "#1b7a34"
-  first-purple: "#6b3fa0"
-  chart-info-grey: "#868686"
-  chart-debug-grey: "#949494"
-  live-highlight: "#fff1b8"
-  palette-backdrop: "rgb(0 0 0 / .3)"
-  board-navy: "#141a46"
-  board-band: "#1b2257"
-  board-shell: "#0b0f2e"
-  board-white: "#f3f4fa"
-  board-muted: "#a7acd4"
-  board-rule: "#2b3170"
-  board-field: "#6f76b3"
-  board-yellow: "#ffd23f"
-  board-tint: "#1f275f"
-  board-tint-strong: "#2c3680"
-  board-selection: "#3a438f"
-  board-red: "#c40000"
-  board-red-deep: "#a30000"
-  board-error: "#ff6b6b"
-  board-amber: "#ffb54d"
-  board-notice: "#9cb0ff"
-  board-green: "#5fd38a"
-  board-purple: "#c7a6ff"
-  board-chart-info: "#6f76b3"
-  board-chart-debug: "#5f67a8"
-  board-live-highlight: "#33303f"
-  series-0: "#4e79a7"
-  series-1: "#f28e2b"
-  series-2: "#59a14f"
-  series-3: "#b07aa1"
-  series-4: "#76b7b2"
-  series-5: "#d4a92a"
-  series-6: "#ff9da7"
-  series-7: "#9c755f"
-  series-8: "#7b5fb5"
-  series-9: "#86bc86"
-  board-series-0: "#8fb3e0"
-  board-series-1: "#ffa64d"
-  board-series-2: "#7fcf6f"
-  board-series-3: "#d6a3c9"
-  board-series-4: "#9ad9d3"
-  board-series-5: "#f5d76e"
-  board-series-6: "#ffb3bb"
-  board-series-7: "#c9a084"
-  board-series-8: "#c59fd9"
-  board-series-9: "#a8d8a8"
+  night-ground: "#0e1015"
+  floodlit-surface: "#171a21"
+  floodlit-surface-raised: "#1e222b"
+  rail-band: "#13161c"
+  night-ink: "#e8eaf0"
+  terrace-muted: "#9aa0ae"
+  night-hairline: "#252933"
+  night-field-line: "#343946"
+  focus-violet: "#8b7cff"
+  live-red: "#ff4d4f"
+  error-red: "#ff5c5e"
+  warning-amber: "#fbbf24"
+  notice-blue: "#60a5fa"
+  healthy-green: "#34d399"
+  new-sky: "#38bdf8"
+  chart-info-slate: "#4b5568"
+  chart-debug-slate: "#363c4a"
+  pitch-white: "#ffffff"
+  day-surface: "#f6f7f9"
+  day-surface-raised: "#eef0f3"
+  day-ink: "#0f1115"
+  day-muted: "#5b6070"
+  day-hairline: "#e4e6eb"
+  day-field-line: "#cfd3da"
+  focus-violet-day: "#6d5df5"
+  live-red-day: "#e5383b"
+  error-red-day: "#d92d2f"
+  warning-amber-day: "#b45309"
+  notice-blue-day: "#2563eb"
+  healthy-green-day: "#0f9f6e"
+  new-sky-day: "#0284c7"
+  chart-info-day: "#94a3b8"
+  chart-debug-day: "#cbd5e1"
 typography:
-  wordmark:
-    fontFamily: "\"Helvetica Neue\", Helvetica, Arial, system-ui, sans-serif"
+  headline:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
     fontSize: "20px"
     fontWeight: 700
-    lineHeight: "32px"
+    lineHeight: 1.2
+    letterSpacing: "-0.02em"
+    fontFeature: "tnum"
+  title:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
+    fontSize: "15px"
+    fontWeight: 650
+    lineHeight: 1.5
     letterSpacing: "-0.01em"
-  hour:
-    fontFamily: "\"Helvetica Neue\", Helvetica, Arial, system-ui, sans-serif"
-    fontSize: "20px"
-    fontWeight: 700
-    lineHeight: 1
-    fontFeature: "\"tnum\""
   body:
-    fontFamily: "\"Helvetica Neue\", Helvetica, Arial, system-ui, sans-serif"
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
     fontSize: "14px"
     fontWeight: 400
-    lineHeight: 1.45
-    fontFeature: "\"tnum\""
-  time:
-    fontFamily: "\"Helvetica Neue\", Helvetica, Arial, system-ui, sans-serif"
-    fontSize: "14px"
-    fontWeight: 700
-    lineHeight: 1.45
-    fontFeature: "\"tnum\""
-  rail-title:
-    fontFamily: "\"Helvetica Neue\", Helvetica, Arial, system-ui, sans-serif"
+    lineHeight: 1.5
+    fontFeature: "tnum"
+  body-dense:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
     fontSize: "13px"
-    fontWeight: 700
-    lineHeight: 1.45
-  rail-body:
-    fontFamily: "\"Helvetica Neue\", Helvetica, Arial, system-ui, sans-serif"
-    fontSize: "12.5px"
     fontWeight: 400
-    lineHeight: 1.45
-    fontFeature: "\"tnum\""
+    lineHeight: 1.5
+    fontFeature: "tnum"
   label:
-    fontFamily: "\"Helvetica Neue\", Helvetica, Arial, system-ui, sans-serif"
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
     fontSize: "12px"
-    fontWeight: 700
-    lineHeight: 1.45
-  micro:
-    fontFamily: "\"Helvetica Neue\", Helvetica, Arial, system-ui, sans-serif"
+    fontWeight: 500
+    lineHeight: 1.5
+    fontFeature: "tnum"
+  pill:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
     fontSize: "11px"
-    fontWeight: 700
-    lineHeight: "16px"
+    fontWeight: 600
+    lineHeight: "19px"
+    letterSpacing: "0.02em"
   message:
-    fontFamily: "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace"
+    fontFamily: "ui-monospace, SF Mono, Cascadia Mono, Menlo, Consolas, monospace"
     fontSize: "12.5px"
     fontWeight: 400
-    lineHeight: 1.45
-  message-compact:
-    fontFamily: "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace"
-    fontSize: "11.5px"
-    fontWeight: 400
-    lineHeight: 1.3
-  fields:
-    fontFamily: "\"Helvetica Neue\", Helvetica, Arial, system-ui, sans-serif"
-    fontSize: "11.5px"
-    fontWeight: 400
-    lineHeight: 1.45
+    lineHeight: 1.55
 rounded:
-  none: "0px"
-  sm: "2px"
+  hair: "2px"
+  sm: "4px"
+  control: "6px"
+  md: "8px"
+  lg: "12px"
+  pill: "999px"
 spacing:
+  hair: "2px"
   xs: "4px"
   sm: "6px"
   md: "8px"
-  cell: "10px"
-  lg: "12px"
+  lg: "10px"
+  xl: "14px"
   gutter: "16px"
-  xl: "32px"
 components:
   button:
-    backgroundColor: "{colors.timetable-paper}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.sm}"
+    backgroundColor: "{colors.floodlit-surface}"
+    textColor: "{colors.night-ink}"
+    rounded: "{rounded.control}"
     padding: "0 12px"
     height: "32px"
   button-hover:
-    backgroundColor: "{colors.band-grey}"
+    backgroundColor: "{colors.floodlit-surface-raised}"
   button-primary:
-    backgroundColor: "{colors.signal-red}"
-    textColor: "{colors.timetable-paper}"
-    rounded: "{rounded.sm}"
-    padding: "0 12px"
-    height: "32px"
+    backgroundColor: "{colors.night-ink}"
+    textColor: "{colors.night-ground}"
+    rounded: "{rounded.md}"
+    padding: "0 16px"
+    height: "36px"
   button-primary-hover:
-    backgroundColor: "{colors.signal-red-deep}"
+    backgroundColor: "{colors.pitch-white}"
   button-small:
-    typography: "{typography.label}"
-    rounded: "{rounded.sm}"
-    padding: "0 8px"
-    height: "24px"
+    rounded: "{rounded.control}"
+    padding: "0 9px"
+    height: "26px"
   input:
-    backgroundColor: "{colors.timetable-paper}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.sm}"
-    padding: "0 8px"
+    backgroundColor: "{colors.floodlit-surface}"
+    textColor: "{colors.night-ink}"
+    rounded: "{rounded.control}"
+    padding: "0 10px"
     height: "32px"
-  header-band:
-    backgroundColor: "{colors.platform-navy}"
-    textColor: "{colors.timetable-paper}"
-    padding: "10px 16px"
-  header-field:
-    backgroundColor: "{colors.timetable-paper}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.sm}"
-    height: "32px"
-  filter-row:
-    backgroundColor: "{colors.band-grey}"
-    textColor: "{colors.ink}"
-    padding: "8px 16px"
-  hour-band:
-    backgroundColor: "{colors.band-grey}"
-    textColor: "{colors.ink}"
-    typography: "{typography.hour}"
-    padding: "8px 10px 6px 16px"
-  stream-row:
-    backgroundColor: "{colors.timetable-paper}"
-    textColor: "{colors.ink}"
+  command-search:
+    backgroundColor: "{colors.floodlit-surface}"
+    textColor: "{colors.night-ink}"
     typography: "{typography.body}"
-    padding: "4px 10px"
-  stream-row-error:
-    textColor: "{colors.signal-red}"
-  context-panel:
-    backgroundColor: "{colors.notice-tint}"
-    typography: "{typography.message}"
-    padding: "8px 16px 12px 32px"
-  badge-silent:
-    backgroundColor: "{colors.signal-red}"
-    textColor: "{colors.timetable-paper}"
-    typography: "{typography.micro}"
+    rounded: "{rounded.md}"
+    padding: "0 34px"
+    height: "36px"
+  live-badge:
+    backgroundColor: "{colors.floodlit-surface}"
+    textColor: "{colors.night-ink}"
+    rounded: "{rounded.pill}"
+    padding: "0 12px 0 10px"
+    height: "36px"
+  live-badge-on:
+    textColor: "{colors.live-red}"
+  filter-chip:
+    textColor: "{colors.night-ink}"
+    rounded: "{rounded.pill}"
+    padding: "0 8px 0 10px"
+    height: "26px"
+  level-pill:
+    typography: "{typography.pill}"
+    rounded: "{rounded.pill}"
+    padding: "0 7px"
+    width: "44px"
+  popover:
+    backgroundColor: "{colors.floodlit-surface}"
+    textColor: "{colors.night-ink}"
+    rounded: "{rounded.lg}"
+    padding: "14px"
+  tooltip:
+    backgroundColor: "{colors.floodlit-surface}"
+    textColor: "{colors.night-ink}"
+    rounded: "{rounded.md}"
+    padding: "6px 9px"
+  form-pip:
+    rounded: "{rounded.hair}"
+    width: "6px"
+    height: "14px"
+  incident-mark:
+    backgroundColor: "{colors.notice-blue}"
     rounded: "{rounded.sm}"
-    padding: "0 5px"
-  tag:
-    backgroundColor: "{colors.timetable-paper}"
-    textColor: "{colors.pencil-grey}"
-    rounded: "{rounded.sm}"
-    padding: "0 5px"
-  popover-panel:
-    backgroundColor: "{colors.timetable-paper}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.sm}"
-    padding: "12px"
+    width: "8px"
+    height: "14px"
 ---
 
 # Design System: LogPit
 
 ## Overview
 
-**Creative North Star: "The Timetable"**
+**Creative North Star: "Match en direct"**
 
-LogPit sets the log stream the way Swiss railway timetable books set departures. The hour is stated once, on a band; every line under it leads with its minutes and seconds in bold tabular figures while the hour recedes in grey; disruptions read in red. Read top to bottom, the stream has the calm, regular cadence of a printed timetable, and an incident shows up the way a cancelled train does: as a red line in an otherwise black column.
+The web UI reads a homelab the way a live match centre reads a game. A momentum curve shows who is pushing right now; every incident lands on a timeline at its minute; each host carries its recent form in the rail. The page is never a static grey histogram over undifferentiated rows: data moves in place, lines arrive while you watch, and the state of each host shows without opening anything. Night-stadium dark is the default (a near-black ground under floodlit surfaces); daytime is pitch-side white with the same state hues deepened for contrast.
 
-The world has two faces. In light, it is timetable paper: a white ground, near-black ink, hairline rules and a platform-navy band across the top. In dark, it is the station departure board: a deep navy ground, white type and board yellow as the accent. Both are flat, printed surfaces. Nothing floats, nothing glows, nothing eases in; state changes snap like a split-flap board turning over.
+Density is that of a working tool: 14px body, 32-36px controls, 16px gutters, hairline rules between rows rather than cards around them. Colour is semantic and scarce: red, amber, green and blue encode state, a ten-hue series palette encodes hosts or apps, and one violet belongs to the viewer alone. Motion is part of the material, authored and short, and steps aside under `prefers-reduced-motion`.
 
-The system is dense but not cramped, and built for long reading during an incident. It rejects the category default (a dark observability console with a grey histogram over undifferentiated rows), the SaaS dashboard (cards, giant KPIs, gradients) and the hacker costume (green on black, CRT, neon). Because the page ships inside the binary under a `default-src 'none'` policy, everything is system type, inline CSS and inline SVG; lightness is part of the look.
+The world is a match centre in structure, never in costume: no football words, cards or goals in the labels, no green-on-black hacker theme, no KPI tiles or decorative gradients. Everything ships inline under a strict CSP, so type is the system stack and every icon is inline SVG.
+
+Scope: the search page (`src/web/index.html`) is the redesigned surface and the reference for this system, with tokens in `src/web/theme.css`. `src/web/pages.html` (board, host, admin, compare) inherits these tokens but still carries the retired world's component styling (navy header band, timetable rows); it is scheduled for redesign and is not a source for this document. New work on those views follows this file, not their current markup.
 
 **Key Characteristics:**
-- The pinned hour band: the hour stated once in large bold figures, the band sticking under the header while its hour scrolls past.
-- Bold tabular minutes:seconds leading each line, the hour prefix in grey.
-- Helvetica-family system stack for everything, monospace reserved for message text.
-- Colour only for meaning: red for errors and the one primary action, amber for warnings, navy for notices and structure, purple for first-ever patterns, yellow as the board accent at night.
-- Flat surfaces, hairline rules, radii of 2px at most, no shadows, no easing.
+- Night-stadium dark by default, pitch-side white by day; theme auto/light/dark via `data-theme`.
+- Violet marks the viewer's focus and nothing else.
+- Signature: the momentum curve, volume above a baseline, errors mirrored below, incidents on a timeline beneath, a live "now" edge.
+- The host rail: pulse dot, five calibrated form pips, proportional volume bar.
+- Figures roll to new values; segments morph in height; live lines slide in lit and fade.
+- System sans with tabular figures everywhere; monospace for message bodies and code only.
 
 ## Colors
 
-Two printed palettes sharing one grammar: neutral ink and rules carry the structure, and a few signal colours carry meaning.
+A cool, near-neutral night palette where hue only appears to say something: state, series, or the viewer's focus.
 
 ### Primary
-- **Signal Red** (light `signal-red`, dark `board-red` for the button and `board-error` for text): errors (severity 0–3), error counts, the timestamp of an error line, the "silent" host badge, rising patterns, failed alerts, and the single primary action (Search). The deeper variants (`signal-red-deep`, `board-red-deep`) are the primary button's hover.
+- **Focus Violet** (dark `focus-violet`, day `focus-violet-day`): the viewer's attention. Focus rings, text selection, caret, active filter chips (tinted at 12-14%, 22-28% on hover), the brush range and its count on the curve, the keyboard-current stream line and context line, the hovered axis label, the "new since you left" divider, the new-lines pill, sort and link hovers. It never encodes a datum.
 
-### Secondary
-- **Platform Navy** (`platform-navy`): the header band in light, notices (severity 5), the light theme's accent and focus ring, and the bars of top values. Its paler companions `platform-lavender` (secondary text on the band) and `platform-rule` (field borders on the band) exist only inside the header.
-- **Board Yellow** (`board-yellow`): the dark theme's accent: focus ring, caret, hovered links, active host, chart selection, trace links, and the hour figures on the hour bands. It never appears in light.
+### Secondary (state)
+- **Live Red** (`live-red` / `live-red-day`): liveness only. The Live badge when on, its pulsing dot, the curve's "now" edge and pulse.
+- **Error Red** (`error-red` / `error-red-day`): errors and above. The mirrored lower half of the curve, error level pills (on a 10-14% tint), error timestamps, error counts, failing incident marks, the alert badge, the "hot" host pulse, error form pips.
+- **Warning Amber** (`warning-amber` / `warning-amber-day`): warnings, warning counts and pips, maintenance shading (diagonal hatch on a tint with a 2px top rule).
+- **Healthy Green** (`healthy-green` / `healthy-green-day`): a host that is talking normally (pulse dot), healthy form pips (at 70%), recovered incident marks, falling pattern trends.
+- **Notice Blue** (`notice-blue` / `notice-blue-day`): notice level, neutral incident marks, top-value bars, trace links.
+- **New Sky** (`new-sky` / `new-sky-day`): a pattern that is new in the window.
 
-### Tertiary
-- **Warning Amber** (`warning-amber` / `board-amber`): warnings (severity 4) and warning counts.
-- **First Purple** (`first-purple` / `board-purple`): a pattern seen for the first time ("new"). Nothing else.
-- **Clear Green** (`clear-green` / `board-green`): a host recovered, a pattern falling. Status of good news only, never decoration.
+### Tertiary (series)
+- **Series palette** (`--c0` to `--c9`, plus `--other`): ten distinct hues (blue, orange, green, pink, cyan, yellow, rose, brown, teal, lime) for stacking the curve by host or app; violet is deliberately absent. Info and debug volume use the quiet slates (`chart-info-slate`, `chart-debug-slate`, and their day pairs) so state colours stand out.
 
 ### Neutral
-- **Timetable Paper** (`timetable-paper`): the light ground, field and button fill.
-- **Ink** (`ink`): text, the rule under the chart and under each hour band.
-- **Pencil Grey** (`pencil-grey`): secondary text, the receding hour prefix, info and debug severities, counts.
-- **Hairline** (`hairline`): every row and section rule.
-- **Field Grey** (`field-grey`): borders of inputs, buttons, tags and the preferences panel.
-- **Band Grey** (`band-grey`): the hour band, the filter row, button hover.
-- **Notice Tint** (`notice-tint`, `notice-tint-strong`): the open context panel and its current line. **Selection Lavender** (`selection-lavender`) for text selection.
-- **Board Navy** (`board-navy`): the dark ground; `board-band` for bands and the filter row, `board-shell` (darker still) for the header band, `board-white` for text, `board-muted` for secondary text, `board-rule` for rules, `board-field` for field borders, `board-tint`/`board-tint-strong` for the context panel, `board-selection` for selection.
-- **Chart greys** (`chart-info-grey`, `chart-debug-grey`; dark `board-chart-info`, `board-chart-debug`): info and debug volume in the severity-stacked chart, recessive so errors and warnings dominate the silhouette, yet at 3:1 or more against the ground so the bars stay perceivable.
-- **Live highlight** (`live-highlight`; dark `board-live-highlight`): the ground of a line that just arrived through the live tail, for three seconds. Light is a pale timetable yellow; dark stays close to the board ground (error red keeps 4.6:1 on it), so the line's time also turns board yellow there.
-- **Series palette** (`series-0`…`series-9`, dark `board-series-0`…`board-series-9`, "other" in field grey or board muted): identity colours for hosts or apps only when the chart is stacked by host or app.
+- **Night Ground** / **Pitch White** (`night-ground` / `pitch-white`): page ground and the header shell (88% opaque with a 12px blur).
+- **Floodlit Surface** (`floodlit-surface` / `day-surface`): fields, buttons, popovers, tooltips, the line toolbar.
+- **Floodlit Surface Raised** (`floodlit-surface-raised` / `day-surface-raised`): button hover, `kbd` keys, the host-page shortcut.
+- **Rail Band** (`rail-band`; day uses `day-surface`): the host rail and the opened context block.
+- **Night Ink** / **Day Ink** (`night-ink` / `day-ink`): text, primary button fill, hour-band numerals.
+- **Terrace Muted** / **Day Muted** (`terrace-muted` / `day-muted`): secondary text, headers, host and app columns, axis labels.
+- **Hairline** (`night-hairline` / `day-hairline`): every rule and resting border; stream row dividers at 65%.
+- **Field Line** (`night-field-line` / `day-field-line`): hover borders, unchecked pulse rings, scrollbar.
+- Translucent tints: `--tint` (ink at 3.5%) for hover rows, `--quiet-tint` (5-6%) for neutral pills, `--mark` (yellow at 26-32%) for search-term highlights.
 
 ### Named Rules
-**The Meaning Rule.** Colour says something or it is ink. Red is an error or the primary action, amber a warning, navy a notice or structure, purple a first sighting, green a recovery. A coloured element with no such meaning is a defect.
+**The Viewer's Violet Rule.** Violet means "you are looking here": selection, active filter, brush, zoomed range, current line. If an element would still be violet with nobody using the page, it is wrong.
 
-**The One Red Button Rule.** Exactly one filled red control per screen: Search. Every other button is outlined in field grey on the ground.
+**The Two Reds Rule.** Live red says "this is happening now"; error red says "this failed". The Live badge and the now edge never borrow error red, and errors never pulse in live red.
 
-**The Two Boards Rule.** The light theme accent is navy; the dark theme accent is yellow. Never carry yellow into light, never carry navy accents into dark (the dark board is already navy).
+**The State-Only Hue Rule.** Red, amber, green and blue carry severity and health; series hues carry identity. Neither is used for decoration, and series never reuse violet.
 
 ## Typography
 
-**Display Font:** Helvetica Neue (with Helvetica, Arial, system-ui, sans-serif)
-**Body Font:** the same stack
-**Label/Mono Font:** ui-monospace (with SF Mono, Menlo, Consolas, monospace), for message text only
+**Display Font:** none. The system sans (`system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`) carries every role; the strict CSP forbids web fonts.
+**Body Font:** the same system sans, with `font-variant-numeric: tabular-nums` set on the body.
+**Label/Mono Font:** `ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace`, for message bodies, context lines, patterns, top values, syntax help and code.
 
-**Character:** One grotesque in two weights, set with tabular figures everywhere, like a timetable book; the monospace is the voice of the machine and appears only where the machine speaks.
+**Character:** a quiet, native sans at a real scale, with figures that never jitter as they roll; mono appears only where the text is the machine's own.
 
 ### Hierarchy
-- **Wordmark** (700, 20px, 32px line, −0.01em): "LogPit" on the header band.
-- **Hour** (700, 20px, line-height 1; 14px in compact density): the hour on each hour band, "14:00".
-- **Time** (700, 14px, tabular): minutes:seconds leading each line; the hour prefix beside it is 400 in pencil grey.
-- **Body** (400, 14px, 1.45, tabular figures on the whole page): hosts, apps, controls.
-- **Rail title** (700, 13px): section heads in the rail; their counts in 400 muted.
-- **Rail body** (400, 12.5px): rail content, chart bar, band counts.
-- **Label** (700 or 600, 12px): severity column, table headers, small buttons.
-- **Micro** (700, 11px, 16px line): badge, chart axis hours; tags use it at 400.
-- **Message** (400 mono, 12.5px, 1.45; compact 11.5px/1.3): message bodies, patterns, context lines.
-- **Fields** (400, 11.5px, keys 600): structured fields after a message, on its line: the first three (a trace id first), then an accent `+N` that opens them all on a row underneath.
+- **Headline** (700, 20px, -0.02em): the hour-band numeral of the stream (15px in compact density); the empty-state welcome heading goes to 22px. The largest type on the page.
+- **Title** (650, 15px, -0.01em): rail section headers. The brand wordmark is 17px / 700 / -0.02em.
+- **Body** (400, 14px/1.5): default text, the search field, legend figures (14px / 650).
+- **Body Dense** (13px): secondary filter row, host and app columns, stream timestamps (600).
+- **Label** (500-600, 11.5-12.5px): chart bar, table headers, counts, "seen" ages, tooltips, help.
+- **Pill** (600, 11px/19px, 0.02em): level pills, badges (10.5px), tags.
+- **Message** (mono 12.5px/1.55, 11.5px/1.35 compact): log message bodies, wrapped `pre-wrap` by default.
 
 ### Named Rules
-**The Tabular Rule.** All figures are tabular (`font-variant-numeric: tabular-nums` on the body). Times, counts and hours must line up in columns like a printed timetable.
+**The Tabular Figures Rule.** Every number on the page uses tabular figures, so counts can roll in place without shifting their neighbours.
 
-**The Receding Hour Rule.** On a line, the hour is grey and regular, minutes:seconds black and bold. On an error line the whole timestamp turns red, hour included.
+**The Mono Is Evidence Rule.** Monospace is reserved for what the machine wrote (messages, patterns, values, queries). Interface text is never mono.
 
 ## Layout
 
-A full-bleed working surface, no centred container. The header is sticky (static on phones): a navy band row with the wordmark, a flexible search (`flex: 1 1 280px`), level, range, Live, the red Search button and a right-aligned status; under it a band-grey row of secondary filters, saved views and the Settings popover (access token, display preferences, keyboard keys); under that, only when filters are active, a ground-coloured row of filter chips. Below 760px the second row folds behind a Filters toggle that shows the active filter count.
+A sticky command bar spans the top: brand, a flexible search field (basis 320px), help, level, range, the Live badge and Search, then the status, right-aligned. A second row holds secondary filters, page links, saved views and settings; active filters appear as removable chips below it. From 1000px the work area is a two-column grid: the host rail (330px, 360px from 1280px) sticky on the left with its own scroll, the chart bar, momentum curve, incident timeline, axis and stream on the right. Below 1000px the rail drops under the stream; below 760px the header stops sticking, filters collapse behind a toggle and stream rows reflow to a grid. Desktop is the target; the narrow layout is a fallback only.
 
-From 1000px the page is a two-column grid: a rail on the left (300px, 340px from 1280px) (sticky under the header, scrolling on its own) holding Hosts, Top values, Message patterns and Alerts as collapsible sections (Hosts starts open, the others closed; each remembers its state), and the main column holding the legend and export bar, a 72px volume chart with its hour axis, then the stream. The rail comes after the stream in the document, so the keyboard reaches the results first; below 1000px (a fallback, phones are not a target) it follows the stream.
+Rhythm: 16px outer gutter everywhere; 6-8px gaps between controls; 10-14px panel padding; stream cells 6px x 10px (2px vertical in compact). Separation comes from hairline rules and the rail band, never from card boxes.
 
-The stream is a table set to the page edge with a 16px gutter on the left. Each hour opens with a band that sticks under the header (`top: var(--hdr)`, measured at runtime; 0 on phones). Below 760px each entry becomes a small grid: time, level, host, app on one line, message across the full width under it.
-
-Spacing is tight and regular: 4px vertical cell padding, 10px horizontal cell padding, 8px gaps between controls, 16px gutters, 32px only around the empty state. Compact density cuts row padding to 1px and message type to 11.5px. On coarse pointers every control grows to a 44px minimum height (36px for small buttons). A skip link, shown on keyboard focus, jumps to the results; rail section titles are `h2` headings inside their summaries.
+**The Hairline Not Box Rule.** Rows, rail sections and the stream are separated by 1px rules; containers with borders and shadows are reserved for floating things (popovers, palette, tooltip, toolbar).
 
 ## Elevation & Depth
 
-None. The system is flat: no shadows anywhere, including the preferences popover, which is a bordered sheet in field grey. Depth is conveyed only by tone and rules: the navy header band above the band-grey filter row, band-grey hour bands ruled in ink, the tinted context panel opening under a line. Stacking order is handled by z-index alone (header 10, popover 20, hour band 1).
+Flat at rest, tonal in structure, lifted only when floating. Structure uses the ground / rail band / surface steps and hairlines. Two shadows exist, both soft and ambient, and only for elements above the page; the header and hour bands use translucency and backdrop blur instead.
+
+### Shadow Vocabulary
+- **Raise** (`--raise`; dark `0 1px 2px rgb(0 0 0 / .4), 0 10px 28px -8px rgb(0 0 0 / .6)`): chart tooltip, line toolbar, new-lines pill.
+- **Pop** (`--pop`; dark `0 2px 8px rgb(0 0 0 / .45), 0 28px 56px -12px rgb(0 0 0 / .7)`): range picker, help and settings panels, command palette (over a 45% black backdrop).
+- **Focus halo** (`0 0 0 3px` focus tint): focused inputs, with the border turning violet. Elsewhere, a 2px violet outline offset 2px.
 
 ### Named Rules
-**The Printed Sheet Rule.** Every surface lies on the same sheet of paper (or the same board). If something needs to stand out, give it a rule, a tint or a band, never a shadow or a blur.
-
-**The Hard Step Rule.** State changes are immediate: hover fills, open sections, chevrons, selections, the live highlight going on and off. No transitions, no animations, no easing.
+**The Float-Only Shadow Rule.** A shadow means the element floats above the page and will go away. Nothing anchored in the layout carries one.
 
 ## Shapes
 
-Rectangles with a barely softened corner. Controls, badges, tags and the popover take 2px (`rounded.sm`); rows, bands, the chart and the header take none. Borders are 1px: field grey around interactive things, hairline between rows, ink under the hour band, the chart baseline and axis ticks. Small marks are geometry, not glyphs: square 10px legend swatches, CSS-drawn chevrons (two border sides rotated) on rail sections, CSS triangles for sort direction, and one inline SVG for the Display control.
+Gently rounded and consistent, on a six-step scale: 2px for hairline marks (form pips, volume and top-value bars, legend swatches), 4px for small marks (curve columns and segment caps, incident marks, `kbd`, highlights, context lines), 6px for controls (`--radius-s`), 8px for the command bar's fields and buttons, tooltips and the line toolbar (`--radius`), 12px for popovers and the palette, and full pills (999px) for everything that is a status or a token: Live badge, filter chips, level pills, badges, tags, band counts, the new-lines pill. Dots (pulse, now edge) are circles. The curve's upper stack rounds its top corners, the mirrored error stack its bottom ones, so the baseline reads as one seam.
 
 ## Components
 
 ### Buttons
-Plain, outlined, bold-labelled, like the controls on a ticket machine.
-- **Shape:** 2px corners, 32px tall (24px small), 1px field-grey border.
-- **Default:** ground fill, ink text, 600 weight, 12px horizontal padding.
-- **Primary:** signal red fill and border, white text; deeper red on hover. One per screen (Search).
-- **Hover / Focus:** hover fills with band grey instantly; focus is a 2px outline in the accent (navy / yellow) with a 2px offset; on the header band the focus outline is white.
-- **On the header band:** transparent fill, white text, platform-rule border.
-- **Link button:** no border or padding; turns to the accent on hover. Used for the timestamp that opens context.
+Calm and solid, pressed rather than glowing.
+- **Shape:** 6px corners (8px and 36px tall in the command bar), 32px tall, 600 weight.
+- **Default:** surface fill, hairline border; hover raises to the raised surface with a field-line border; active presses down 1px and scales to 0.98.
+- **Primary (Search):** ink fill with ground text (inverts per theme), hover goes to full white in dark, `#2a2e37` in day.
+- **Small:** 26px, 12px text. **Link:** bare text, violet on hover.
+- **Transitions:** 160ms on the shared ease.
 
 ### Chips
-- **Silent badge:** signal red fill, ground-coloured text, micro type, 2px corners, after a host name.
-- **Tag:** outlined in field grey, pencil-grey micro text at 400; clickable to filter.
+- **Filter chips:** pills, 26px, focus tint background (stronger on hover), the key in violet, the value in mono, a close glyph in SVG. They enter with the `rise` animation. "Clear all" is a muted text button.
+- **Level pills:** fixed 44px minimum, state text on a state tint; info and debug have no tint.
+- **Band counts:** quiet pills in each hour band, with errors and warnings on their tints.
 
 ### Cards / Containers
-There are no cards. Containers are bands and sheets:
-- **Rail sections:** collapsible `details` separated by hairlines, 16px padding, bold title with a grey count.
-- **Context panel:** notice tint, indented 32px, monospace lines in a grid (time, level, host, message); the current line in the stronger tint and bold.
-- **Preferences popover:** ground fill, 1px field-grey border, 2px corners, 12px padding, no shadow.
+There are no cards. Floating panels (range picker, help, settings) use the surface, a hairline border, 12px corners, the Pop shadow, 14px padding, and open with `rise` (180ms) from their anchor corner.
 
 ### Inputs / Fields
-- **Style:** 32px tall, 8px horizontal padding, 1px field-grey border, 2px corners, ground fill; placeholder in muted at full opacity. On the header band fields are white (light) or board navy (dark) with platform-rule borders.
-- **Focus:** the global 2px accent outline.
-- **Checkboxes:** 16px (22px on coarse pointers, where the Live label also grows to 44px), tinted with the primary red.
-
-### Filter Chips
-- **Style:** one per active filter of the last search, as a small button: 26px tall, 1px field-grey border, 2px corners, the filter name in muted, the value in bold monospace, a drawn 10px cross. Clicking removes the filter and searches again; *Clear all* (muted text button) appears from two chips.
-- **Keys:** `kbd` labels in the Settings popover use bold 11px monospace in a 1px field-grey frame, 2px corners.
-- **Current line:** J/K or a click marks the current stream line with the tint ground; a line focused without a time button gets the 2px focus outline inset.
-
-### Hour Scale and New-Lines Pill
-- **Hour scale:** the graduation under the chart is a row of borderless buttons, one tab stop moved along with the arrow keys, Home and End (the clickable chart legend works the same way), (bold 11px tabular, a 1px ink tick on the left); hover turns them accent. A click scrolls the stream to that hour's band or zooms to it.
-- **New-lines pill:** while reading below the top in Live mode, a fixed pill under the pinned band, in the header navy with header ink ("8 new lines above"); notice-coloured on hover. It appears and disappears in one step.
-
-### Syntax Help, Line Actions and Empty State
-- **Syntax help:** a 32px square `?` toggle beside the search on the header band (white on navy, inverted when open) opening a ground-coloured popover: muted intro, bold 12px section titles, a two-column list of examples as small monospace buttons and muted explanations.
-- **Line actions:** one toolbar of three small buttons with a muted edge, so they keep 3:1 on the tinted current line (*copy*, *JSON*, *link*) moved to the hovered or current line, top-right of its message cell; hidden on other lines. Feedback is the label itself ("copied", "copy failed") for 1.5s, switched in one step.
-- **Empty state:** muted sentence, then the ways out as standard buttons (wider range, leave the zoom, remove or clear filters).
-- **Inline confirmations:** saving a view swaps *Save view* and *Delete* for a name field with a red *Save* and a *Cancel*; deleting swaps them for the question in semibold ink with a red *Delete* and a *Cancel*. No browser dialogs.
-
-### Highlights, Marks and Command Palette
-- **Search highlight:** matched words and regex matches in messages use `<mark>`: bold, on a deeper timetable yellow (`#ffe58f` light, `#5c4b00` dark), ink kept.
-- **Last-visit mark:** a full-width row with a 2px accent rule beneath and bold 12px accent text, between the lines that came since the previous visit and the older ones.
-- **Unread alerts:** the alarm-red badge after the Alerts title ("3 new"); the browser tab title takes the same count, plus error lines that arrived live while hidden.
-- **Custom range:** opened from the selector without taking the focus (another choice closes it); a ground-coloured popover under the range selector with two local date-time fields, a red *Apply*, a *Cancel* and an inline error in alarm red.
-- **Command palette:** a native modal `dialog`, 560px wide, 1px field-grey border, flat (a 30% black backdrop is its only depth); a borderless 44px input over a list whose rows show the group in muted 12px beside the label; the selected row takes the strong tint. Arrow keys move, Enter runs, Escape closes.
-
-### Alert Ticks and Maintenance Shading
-- **Alert ticks:** a 14px row under the chart; each alert of the window is a 6×12px button at its time, alarm red for problems, ok green for recoveries, notice otherwise; one tab stop walked with the arrow keys, a click zooms to the 20 minutes around it.
-- **Maintenance:** a window shades the chart over its span with the warning colour at 16% and a 2px warning rule on top, labelled in micro type ("maintenance: kernel upgrade"); not interactive.
-- **Trace bar:** in a trace panel, a 10em track (hairline ends and middle) where each line is a 3px mark in its severity colour, from the first entry to the last.
-- **Welcome:** on a server with no entries, the empty state becomes a 72ch column: a 20px heading, muted explanations, and each command in a band-grey monospace block with a *copy* button.
-
-### Other Views (board, host, admin, compare)
-- **Shared shell:** one page serves the four views; the header band carries the wordmark, links to Search, Board, Compare and Admin (the current one underlined 2px) and the status on the right. Content sits in a 16px gutter; sections open with a 14px bold heading over a 1px ink rule; data is in hairline-ruled tables with muted 12px column heads and tabular figures.
-- **Departure board:** dark board by default. Rows of 20px type, the host in 24px bold; states as words in their colour (*Disrupted* red, *Delayed* amber, *On time* green) and *Cancelled* as an alarm-red badge; the latest message in monospace, clipped; a 24px clock top right.
-- **Host page:** a 96px stacked volume chart by severity over 7 days with day marks, then a two-column grid of latest errors, apps (notice-blue meters), patterns and alerts.
-- **Admin and compare:** forms in one wrapping row of labelled fields ending with the red primary button (a row button such as *End* names its row for assistive technology); changes in compare read red for growth and green for decline, `=` muted when unchanged.
+- **Style:** surface fill, hairline border, 6px corners (8px in the command bar), 32px tall (30px in the filter row, 36px for search).
+- **Hover / Focus:** border to field line on hover; on focus the border turns violet with a 3px violet halo; no outline.
+- **Search:** inline SVG magnifier on the left, a `/` key hint on the right that hides on focus.
 
 ### Navigation
-There is no navigation in the site sense; the header band is the control strip. Wordmark left, search taking the remaining width, filters inline, status pushed right in lavender. Rail sections act as the secondary navigation, each opened or closed with a hard-turning chevron.
+The command bar is the navigation: a translucent sticky header (88% shell, 12px blur, hairline bottom). Board, Compare and Admin sit in a segmented group on the surface, muted text that inks on hover. `Ctrl/Cmd+K` opens a command palette (620px, 12px corners, 54px input, violet-tinted current option).
 
-### Hour Band (signature component)
-A full-width band at the top of each hour of the stream: band-grey fill, 1px ink rule beneath, the hour in Hour type (ink in light, board yellow in dark), the date in muted beside it, and right-floated counts ("32 entries · 4 errors · 3 warnings") with errors in red and warnings in amber. It sticks under the header while its hour scrolls. Lines beneath it carry only grey `HH:` and bold `MM:SS`.
+### Live Badge
+A pill with a dot. Off: field-grey dot on the shell field. On: error-tint fill, a 45% live-red border, live-red text, and the dot pulsing (`pulse`, 1.6s) as an expanding ring.
 
-### Stream Row
-Columns: time, level, host (600, ink), app (muted), message (monospace, pre-wrapped; one-line ellipsis when wrapping is off) with clickable `key=value` fields beneath. Hairline between rows. Level names are coloured by severity; error lines also turn their timestamp red. Every column but the message can be hidden from the Display preferences. A line that arrives through the live tail is lit on the live highlight for three seconds, then put out in one step, like a changed row on a departure board; error lines keep their red time.
+### Momentum Curve (signature component)
+The page's one big gesture. Per time bucket, a column of stacked segments: non-error volume rises above a hairline baseline (134px), errors mirror below it (56px) in error red; grouping by host or app stacks everything upward in the series palette. Columns are kept between renders and their segments morph in height (320ms). A live "now" edge (a 1px live-red line, a "now" label and a dot that pulses while the window ends now) marks where the next lines will land. Maintenance windows shade the curve with an amber hatch. Under it, the **incident timeline**: a hairline track with 8 x 14px marks at each alert's minute (blue neutral, red failing, green recovered; resolved alerts stay, marked recovered), each a button into its moment, scaling to 1.25 on hover or focus. Below, an axis of clickable time labels. Dragging brushes a violet range (focus tint with a 1px violet inset), dims stream lines outside it and counts what it holds live; releasing zooms every panel. The legend above shows rolling totals per series.
 
-### Volume Chart
-A 72px SVG histogram with an ink baseline and bold hour ticks on an axis beneath. Stacked by severity by default (red, amber, navy, then the two greys), or by host or app with the series palette. Hovering a bucket tints it with the accent at 18%; dragging selects a range at 30% with an accent stroke and zooms to it.
+### Host Rail
+One row per host, sortable by column: a **pulse dot** (8px; green and pulsing every 2.4s when talking, red and pulsing when hot, a hollow field-line ring when silent, a one-shot `ping` when a line arrives), the name, five **form pips** (6 x 14px, 2px gap; calibrated against the host's own error and warning rate so a host that always logs a few errors stays green and one that starts failing shows it), entries, errors and warnings in state colour, and the age since last seen. Under the name, a 3px **volume bar** (ink at 40%) proportional to the host's share, animating its width over 500ms. The active host gets a violet-tinted row and violet name. Collapsible rail sections (hosts, top values, patterns, alerts) open with `reveal`.
+
+### Stream
+Rows separated by 65% hairlines, sticky translucent hour bands (20px numeral, date, count pills). Timestamps 600 weight, error timestamps in red; host in ink 600, app muted, message in mono with fields trailing on the same line (a violet "+N" opens the rest). A single floating toolbar follows the hovered or keyboard-current line. A line that arrives live slides in (`arrive`, 420ms) lit by a faint wash that fades over 2.4s. Opened context sits on the rail band, prefetched on hover, the current line violet-tinted. A violet pill announces unseen new lines.
+
+### Motion
+One ease, `cubic-bezier(.22, 1, .36, 1)` (`--ease`), a fast-settling ease-out. Durations: 120-160ms for hover and state colour, 180-240ms for panels, chips and reveals, 320ms for segment morphs, 420ms for arrivals, 500ms for bar widths, 700ms (quartic ease-out) for rolling numbers. Loops are limited to liveness: the Live dot and now edge (1.6s) and host pulses (2.4s). `prefers-reduced-motion: reduce` collapses every animation and transition to near zero in CSS, and rolling numbers jump straight to their value in script.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** state the hour once, on a sticky hour band, and lead every line with bold tabular minutes:seconds with the hour prefix in grey.
-- **Do** keep every figure tabular so times and counts align in columns.
-- **Do** reserve red for errors and the single primary action; amber for warnings; navy for notices and structure; purple for first-seen patterns; green for recoveries.
-- **Do** use board yellow as the only accent in dark, and platform navy as the accent in light.
-- **Do** separate things with 1px rules (hairline between rows, ink under bands and the chart) and tints, not with boxes.
-- **Do** keep corners at 2px or square, and keep everything system type, inline CSS and inline SVG.
-- **Do** keep monospace for message text (messages, patterns, context lines).
+- **Do** keep violet for the viewer's focus: selection, active filters, brush, zoomed range, current line.
+- **Do** encode severity and health with the state hues only, each paired with its tint for fills.
+- **Do** let figures roll to their new value (700ms) and segments morph (320ms) instead of re-rendering.
+- **Do** use the one `--ease` curve and keep state transitions in the 120-240ms band.
+- **Do** honour `prefers-reduced-motion` for every new animation, in CSS and in script.
+- **Do** separate rows with hairlines and keep shadows for floating elements.
+- **Do** use pills (999px) for status and tokens, and the 2/4/6/8/12 scale for everything else.
+- **Do** set every number in tabular figures and every machine-written string in mono.
+- **Do** draw icons as inline SVG in `currentColor`.
 
 ### Don't:
-- **Don't** add shadows, blurs, gradients or glows; the world is a printed sheet or a departure board.
-- **Don't** add transitions or easing; state changes are hard steps.
-- **Don't** introduce cards, KPI tiles or dashboard chrome.
-- **Don't** use green-on-black terminal styling, CRT effects or neon.
-- **Don't** use colour decoratively or to "brighten" a section; if it does not mean something it is ink, grey or rule.
-- **Don't** add a second filled red button, or radii above 2px.
-- **Don't** load web fonts, icon fonts or any external resource; the CSP forbids it and lightness is the point.
+- **Don't** use violet for a datum, a series or a severity.
+- **Don't** use live red for errors or error red for liveness.
+- **Don't** pulse anything that is not live; a static state does not loop.
+- **Don't** add web fonts, external images or any external resource; the CSP forbids them.
+- **Don't** add KPI tiles, decorative gradients or cards around content.
+- **Don't** dress the match-centre world as a sports app: no football words, cards or goals in labels.
+- **Don't** fall into the hacker costume: no green-on-black, CRT or neon.
+- **Don't** copy component styling from `pages.html` until it has been redesigned.

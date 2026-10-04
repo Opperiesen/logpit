@@ -804,7 +804,7 @@ context panels and the alert list follow it too.
 ## Keyboard and active filters
 
 The page itself is served without its indentation and comments, and gzipped for browsers that accept
-it (about 27 KB instead of 110 KB).
+it (about 35 KB instead of 130 KB).
 
 
 Outside a text field, the web UI answers to a few keys (also listed under *Settings*):
@@ -816,18 +816,20 @@ Outside a text field, the web UI answers to a few keys (also listed under *Setti
 | `J` / `K` | move to the next or previous line |
 | `Enter` | open the context of the current line (on a line with a trace link, Tab reaches it) |
 | `Esc` | close *Settings*, leave a field, or close the panel under the current line |
-| `←` / `→`, `Home` / `End` | move along the hour scale under the chart, or along the chart legend (each one tab stop) |
+| `←` / `→`, `Home` / `End` | move along the time scale or the alert timeline under the chart, or along the chart legend (each one tab stop) |
 | `Ctrl`+`K` / `⌘`+`K` | command palette: saved views, hosts, ranges, levels, live, theme, density, export, settings |
 
 The filters of the last search (search words, host, app, tag, field, regex, level and a zoomed time
 window) show as chips under the header; a chip's cross removes that filter and searches again, and
 *Clear all* removes them all.
 
-The hour scale under the chart is clickable: an hour (or a day, over long windows) scrolls the list to
-its band without searching again, or zooms to it when those lines are not loaded yet.
+The time scale under the chart is clickable: a time (minutes to days, as fine as fits) scrolls the list to
+its lines without searching again, or zooms to it when those lines are not loaded yet.
 
-In Live mode, scrolling down to read keeps what you read in place while new lines arrive above; a
-*new lines above* pill counts them and brings you back to the top.
+In Live mode, new lines slide in lit and the light fades, and counts roll to their new value. Scrolling
+down to read keeps what you read in place while new lines arrive above; a *new lines above* pill counts
+them and brings you back to the top. The context of a line is fetched while the pointer rests on it, so
+it opens at once.
 
 The **?** button next to the search box lists the search, field-filter and regex syntax with examples;
 clicking an example searches with it. Hovering a line (or moving to it with `J`/`K`) shows *copy* (the
@@ -870,9 +872,14 @@ They use the same token as the main page, kept in the same browser, and the same
   message patterns that appeared, went away or at least doubled. The address keeps the windows, so a
   comparison can be shared.
 
-On the main page, the alerts of the chart's window appear as ticks under it (red for problems, green for
-recoveries; a tick zooms to the 20 minutes around it), and maintenance windows that cover the searched
-host (or all of them) shade the chart when the token has the admin scope. *Copy as CLI* copies the
+On the main page, the chart is a momentum curve: per bucket, what is not an error rises above the line
+and errors push below it (grouped by host or app, everything rises); it morphs to its new values instead
+of being redrawn, a tooltip tells the bucket under the pointer, and while the window slides with the clock
+its right end is marked *now*. Dragging across it dims the lines outside the range and counts what it
+holds, then zooms to it on release. The alerts of the chart's window appear as marks on a timeline under
+it (red for problems, green for recoveries; a mark zooms to the 20 minutes around it), and maintenance
+windows that cover the searched host (or all of them) are hatched over the curve when the token has the
+admin scope. *Copy as CLI* copies the
 current search as the equivalent `logpit search` command. A trace panel places each line on a bar
 between the first and the last entry of the trace. A server that has received nothing yet shows how to
 send logs to it, with its own address in the commands.
@@ -931,12 +938,18 @@ filters of `/api/logs`, `limit` (default 100) for the number of hosts, and `sort
 (`host`, `count`, `errors`, `warnings` or `last_ts`; default `count`) with `order` (`asc` or
 `desc`; default `asc` for `host`, `desc` otherwise). The limit applies after sorting, so
 `sort=last_ts&order=asc` lists the quietest hosts even when there are more hosts than `limit`.
+With `form=N` (1 to 24) and a `since`, each host also gets its recent `form`: the window, up to
+`until` or now, cut in N equal slices, oldest first, each with its `count`, `errors` and `warnings`.
 It needs the `read` scope. The web UI shows it in the collapsible *Hosts* panel (in the left rail on wide screens): it follows the
 current filters and time range, lists every host even when one is selected, refreshes with the
 chart in Live mode, and clicking a host filters the log table on it. It is sorted by errors by default, with
 the hosts that went silent listed first under that order. Click a column header to sort by it (again to reverse; Enter or Space works with the
 keyboard); the choice is remembered, and the server does the sorting, so the 200 hosts shown
-are the first 200 in that order.
+are the first 200 in that order. Each row has a dot that pulses while the host is talking (red when its
+latest slice has more errors than usual, hollow when it went silent, lit again by each line that arrives
+live), its recent form as five marks over the window (red or amber only for a slice that stands out from
+the host's own window), its counts and a bar for its share of the entries; the arrow on hover opens its
+page.
 
 ## Export and backup
 

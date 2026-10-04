@@ -1115,12 +1115,23 @@ async fn stats(
 
 /// `sort` (`host`, `count`, `errors`, `warnings`, `last_ts`) and `order` (`asc`, `desc`) on top
 /// of the search filters. Without `order`, text sorts ascending and numbers descending.
-fn parse_hosts(params: Vec<(String, String)>) -> Result<(Query, HostSort), String> {
+/// Most slices `form=` may ask for in the per-host summary.
+const MAX_FORM_SLICES: usize = 24;
+
+fn parse_hosts(params: Vec<(String, String)>) -> Result<(Query, HostSort, usize), String> {
     let mut sort = HostSort::default();
     let mut order = None;
+    let mut form = 0;
     for (k, v) in &params {
         match (k.as_str(), v.as_str()) {
-            ("sort", "") | ("order", "") => {}
+            ("sort", "") | ("order", "") | ("form", "") => {}
+            ("form", v) => {
+                form = v
+                    .parse()
+                    .ok()
+                    .filter(|n| (1..=MAX_FORM_SLICES).contains(n))
+                    .ok_or(format!("form must be between 1 and {MAX_FORM_SLICES}"))?;
+            }
             ("sort", v) => {
                 let key = match v {
                     "host" => HostSortKey::Host,
@@ -1141,18 +1152,19 @@ fn parse_hosts(params: Vec<(String, String)>) -> Result<(Query, HostSort), Strin
     if let Some(desc) = order {
         sort.desc = desc;
     }
-    Ok((parse_search(params)?, sort))
+    Ok((parse_search(params)?, sort, form))
 }
 
 /// Per-host totals (entries, errors, warnings, last activity, silence state) over the entries
 /// matching the search filters, ordered by `sort`/`order`. `limit` caps the number of hosts
-/// after sorting.
+/// after sorting. With `form=N` and a `since`, each host also gets its recent form: the window
+/// (up to `until`, or now) cut in N equal slices.
 async fn hosts(
     State(state): State<AppState>,
     Extension(who): Extension<Identity>,
     QueryParams(params): QueryParams<Vec<(String, String)>>,
 ) -> Response {
-    let (mut query, sort) = match parse_hosts(params) {
+    let (mut query, sort, form) = match parse_hosts(params) {
         Ok(r) => r,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
@@ -1160,8 +1172,23 @@ async fn hosts(
     if let Some(r) = resolve_tags(&state, &mut query) {
         return r;
     }
+    let window = query.since_ms.filter(|_| form > 0).map(|since| {
+        let until = query.until_ms.unwrap_or_else(crate::ingest::now_ms);
+        (since, until.max(since))
+    });
     match with_db(&state.db_path, "host summary", move |conn| {
-        store::host_summary(conn, &query, sort).map_err(anyhow::Error::from)
+        let mut rows = store::host_summary(conn, &query, sort)?;
+        if let Some((since, until)) = window {
+            let mut forms = store::host_form(conn, &query, since, until, form)?;
+            for r in &mut rows {
+                r.form = Some(
+                    forms
+                        .remove(&r.host)
+                        .unwrap_or_else(|| vec![store::FormSlice::default(); form]),
+                );
+            }
+        }
+        Ok::<_, anyhow::Error>(rows)
     })
     .await
     {
@@ -1706,7 +1733,7 @@ mod tests {
                 .count();
             assert_eq!(page.lines().count(), kept);
             // The theme went in: its tokens are on the served page.
-            assert!(page.contains("--ground:#fff;") && page.contains("</script>"));
+            assert!(page.contains("--ground:#ffffff;") && page.contains("</script>"));
             let unzipped = crate::inflate::gunzip(gzipped, 1 << 20).unwrap();
             assert_eq!(unzipped, page.as_bytes());
         }
@@ -1781,9 +1808,10 @@ mod tests {
                 .map(|(a, b)| (a.to_string(), b.to_string()))
                 .collect::<Vec<_>>()
         };
-        let (q, s) = parse_hosts(p(&[("limit", "5")])).unwrap();
+        let (q, s, form) = parse_hosts(p(&[("limit", "5")])).unwrap();
+        assert_eq!(form, 0);
         assert_eq!((q.limit, s), (5, HostSort::default()));
-        let (_, s) = parse_hosts(p(&[("sort", "host")])).unwrap();
+        let (_, s, _) = parse_hosts(p(&[("sort", "host")])).unwrap();
         assert_eq!(
             s,
             HostSort {
@@ -1791,7 +1819,7 @@ mod tests {
                 desc: false
             }
         );
-        let (_, s) = parse_hosts(p(&[("sort", "last_ts"), ("order", "asc")])).unwrap();
+        let (_, s, _) = parse_hosts(p(&[("sort", "last_ts"), ("order", "asc")])).unwrap();
         assert_eq!(
             s,
             HostSort {
@@ -1800,7 +1828,7 @@ mod tests {
             }
         );
         // `order` wins whichever side of `sort` it comes on.
-        let (_, s) = parse_hosts(p(&[("order", "desc"), ("sort", "host")])).unwrap();
+        let (_, s, _) = parse_hosts(p(&[("order", "desc"), ("sort", "host")])).unwrap();
         assert_eq!(
             s,
             HostSort {
@@ -1808,11 +1836,16 @@ mod tests {
                 desc: true
             }
         );
-        let (_, s) = parse_hosts(p(&[("sort", ""), ("order", "")])).unwrap();
+        let (_, s, _) = parse_hosts(p(&[("sort", ""), ("order", "")])).unwrap();
         assert_eq!(s, HostSort::default());
         assert!(parse_hosts(p(&[("sort", "message")])).is_err());
         assert!(parse_hosts(p(&[("order", "up")])).is_err());
         assert!(parse_hosts(p(&[("since", "x")])).is_err());
+        assert_eq!(parse_hosts(p(&[("form", "5")])).unwrap().2, 5);
+        assert_eq!(parse_hosts(p(&[("form", "")])).unwrap().2, 0);
+        for bad in ["0", "25", "-1", "five"] {
+            assert!(parse_hosts(p(&[("form", bad)])).is_err(), "{bad}");
+        }
     }
 
     // `{"short_message":"hello"}` compressed by Python's gzip and zlib modules.

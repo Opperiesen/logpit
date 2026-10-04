@@ -563,7 +563,7 @@ async fn the_board_host_admin_and_compare_views_are_served_like_the_main_page() 
             "{path}"
         );
         // The shared theme is put in, and the page keeps the main page's protections.
-        assert!(r.body.contains("--ground:#fff;"), "{path}");
+        assert!(r.body.contains("--ground:#ffffff;"), "{path}");
         let csp = r.header("content-security-policy").unwrap();
         assert!(csp.contains("default-src 'none'"), "{path}");
     }
