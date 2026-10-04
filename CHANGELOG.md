@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.1 - 2026-10-04
+
 - UniFi CEF events take their time from `UNIFIutcTime`, which is UTC with milliseconds, instead of
   the syslog stamp, which has neither: they are right whatever `syslog.timezone` says.
 
