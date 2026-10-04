@@ -1474,6 +1474,20 @@ one the configuration uses), and saving under an existing name replaces that rul
 stored. Each change rebuilds the stored rules, so their counts start again; a reload of the
 configuration (`SIGHUP`) leaves them alone.
 
+A pattern alert that keeps coming back while you fix the cause can be put on mute: *Mute 1 h* on its
+notification in the page or on its row under `/admin` (or `POST /api/mutes`, admin scope). While muted,
+its notifications are still logged and recorded in the alert history, marked *muted*, but the webhook and
+e-mail are not told. Mutes work for the configuration's rules too, live in memory until they end or
+LogPit restarts, and last at most a week:
+
+```sh
+curl -s -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -X POST \
+  http://localhost:8080/api/mutes -d '{"rule":"disk failing","minutes":60}'   # {"rule":"disk failing","until":…}
+curl -s -H "Authorization: Bearer $ADMIN" http://localhost:8080/api/mutes      # the live mutes
+curl -s -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -X POST \
+  http://localhost:8080/api/mutes -d '{"rule":"disk failing","minutes":0}'    # 204: unmuted
+```
+
 ## New-pattern alerts
 
 `[new_patterns]` notifies through the same webhook when a **message template never seen before**

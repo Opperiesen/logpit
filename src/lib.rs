@@ -30,6 +30,7 @@ pub mod mail;
 pub mod maintenance;
 pub mod metrics;
 pub mod model;
+pub mod mute;
 pub mod otlp;
 pub mod parsers;
 pub mod patterns;

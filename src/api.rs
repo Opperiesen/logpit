@@ -132,6 +132,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
             "/api/alert-rules/{id}",
             axum::routing::delete(alert_rule_delete),
         )
+        .route("/api/mutes", get(mute_list).post(mute_set))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Admin),
             require_scope,
@@ -1446,6 +1447,55 @@ async fn alert_rule_delete(
         Ok((false, _)) => (StatusCode::NOT_FOUND, "no such alert rule").into_response(),
         Err(e) => e.into_response(),
     }
+}
+
+/// Pattern alerts on mute (admin scope): `GET` lists the live mutes, `POST {"rule": …, "minutes": 60}`
+/// mutes a rule of the configuration or of the web UI for that long (replacing an earlier mute), and
+/// `"minutes": 0` ends its mute.
+async fn mute_list(State(state): State<AppState>) -> Response {
+    Json(state.settings.mutes.list(now_ms())).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MuteInput {
+    rule: String,
+    minutes: u32,
+}
+
+async fn mute_set(State(state): State<AppState>, Json(input): Json<MuteInput>) -> Response {
+    let s = &state.settings;
+    if !s.alerts.get().has(&input.rule) && !s.ui_alerts.get().has(&input.rule) {
+        return (StatusCode::NOT_FOUND, "no alert rule with that name").into_response();
+    }
+    if input.minutes > crate::mute::MAX_MINUTES {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("minutes must be at most {}", crate::mute::MAX_MINUTES),
+        )
+            .into_response();
+    }
+    let now = now_ms();
+    if input.minutes == 0 {
+        s.mutes.clear(&input.rule, now);
+        return StatusCode::NO_CONTENT.into_response();
+    }
+    let until = now + i64::from(input.minutes) * 60_000;
+    if !s.mutes.set(&input.rule, until, now) {
+        return (
+            StatusCode::CONFLICT,
+            format!(
+                "at most {} rules can be muted at once",
+                crate::mute::MAX_MUTES
+            ),
+        )
+            .into_response();
+    }
+    Json(crate::mute::Mute {
+        rule: input.rule,
+        until,
+    })
+    .into_response()
 }
 
 /// `field` (`host`, `app`, `severity`, a structured field name, or `field:<name>` for a field that

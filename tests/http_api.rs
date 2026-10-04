@@ -1118,3 +1118,50 @@ async fn alert_rules_are_created_listed_and_deleted_by_an_admin() {
     let metrics = call(s.addr, "GET", "/metrics", None, b"").await.body;
     assert!(!metrics.contains("disk failing"));
 }
+
+#[tokio::test]
+async fn alert_rules_are_muted_and_unmuted_by_an_admin() {
+    let s = start(&format!(
+        "{TOKENS}\n[[alerts]]\nname = \"disk\"\npattern = \"x\"\ncount = 1\nwindow_secs = 60\n"
+    ))
+    .await;
+    let (admin, reader) = (format!("Bearer {ADMIN}"), format!("Bearer {READER}"));
+    let post = |auth: String, body: &'static str| async move {
+        call(s.addr, "POST", "/api/mutes", Some(&auth), body.as_bytes()).await
+    };
+    assert_eq!(
+        post(reader.clone(), r#"{"rule":"disk","minutes":60}"#)
+            .await
+            .status,
+        403
+    );
+    assert_eq!(
+        post(admin.clone(), r#"{"rule":"nope","minutes":60}"#)
+            .await
+            .status,
+        404
+    );
+    assert_eq!(
+        post(admin.clone(), r#"{"rule":"disk","minutes":20000}"#)
+            .await
+            .status,
+        400
+    );
+    let muted = post(admin.clone(), r#"{"rule":"disk","minutes":60}"#).await;
+    assert_eq!(muted.status, 200, "{}", muted.body);
+    assert_eq!(muted.json()["rule"], "disk");
+    let list = call(s.addr, "GET", "/api/mutes", Some(&admin), b"")
+        .await
+        .json();
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(
+        post(admin.clone(), r#"{"rule":"disk","minutes":0}"#)
+            .await
+            .status,
+        204
+    );
+    let list = call(s.addr, "GET", "/api/mutes", Some(&admin), b"")
+        .await
+        .json();
+    assert!(list.as_array().unwrap().is_empty());
+}

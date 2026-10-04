@@ -151,12 +151,22 @@ pub fn dispatch(event: Event, live: &Arc<LiveSettings>, log: &Arc<AlertLog>) {
         Event::Silent { .. } => tracing::warn!("silence alert: {message}"),
         _ => tracing::warn!("{message}"),
     }
-    // A host under maintenance still gets its alert logged and recorded, but nobody is told.
-    let muted = event.payload()["host"]
-        .as_str()
-        .and_then(|host| live.maintenance.muting(host, ts));
+    // A host under maintenance, or a pattern alert put on mute, still gets its alert logged and
+    // recorded, but nobody is told.
+    let rule_muted = match &event {
+        Event::Pattern { rule, .. } => live.mutes.muting(rule, ts).map(|until| {
+            let end = chrono::DateTime::from_timestamp_millis(until).unwrap_or_default();
+            format!("rule muted until {}", end.format("%Y-%m-%d %H:%M UTC"))
+        }),
+        _ => None,
+    };
+    let muted = rule_muted.or_else(|| {
+        event.payload()["host"]
+            .as_str()
+            .and_then(|host| live.maintenance.muting(host, ts))
+    });
     if let Some(reason) = muted {
-        tracing::info!("muted by maintenance ({reason}): {message}");
+        tracing::info!("muted ({reason}): {message}");
         let mut entry = AlertEntry::from_event(&event, ts, None);
         entry.details["muted"] = Value::String(reason);
         let log = log.clone();
@@ -292,6 +302,50 @@ mod tests {
         assert_eq!(q(&|q| q.since_ms = Some(210)).len(), 10);
         assert_eq!(q(&|q| q.until_ms = Some(30)).len(), 11);
         assert_eq!(q(&|q| q.limit = 3).len(), 3);
+    }
+
+    #[tokio::test]
+    async fn alerts_of_a_muted_rule_are_recorded_but_muted() {
+        let live = Arc::new(LiveSettings::default());
+        live.mutes.set("disk", now_ms() + 60_000, now_ms());
+        let log = Arc::new(AlertLog::new(None, 30));
+        let pattern = |rule: &str| Event::Pattern {
+            rule: rule.into(),
+            host: Some("nas".into()),
+            count: 3,
+            window_secs: 600,
+            sample: "unreadable sectors".into(),
+        };
+        dispatch(pattern("disk"), &live, &log);
+        dispatch(pattern("auth"), &live, &log);
+        let q = AlertQuery {
+            limit: 10,
+            ..Default::default()
+        };
+        for _ in 0..100 {
+            if log.search_memory(&q).len() == 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let entries = log.search_memory(&q);
+        assert_eq!(entries.len(), 2);
+        let rule = |e: &&AlertEntry| e.details["rule"].as_str().map(String::from);
+        let muted = entries
+            .iter()
+            .find(|e| rule(e).as_deref() == Some("disk"))
+            .unwrap();
+        assert!(
+            muted.details["muted"]
+                .as_str()
+                .unwrap()
+                .starts_with("rule muted until ")
+        );
+        let other = entries
+            .iter()
+            .find(|e| rule(e).as_deref() == Some("auth"))
+            .unwrap();
+        assert!(other.details.get("muted").is_none());
     }
 
     #[tokio::test]

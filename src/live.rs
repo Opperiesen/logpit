@@ -89,6 +89,8 @@ pub struct LiveSettings {
     /// Alert rules created from the web UI or the API, stored in the database: a reload of the
     /// configuration leaves them alone; the API replaces them when one is saved or deleted.
     pub ui_alerts: Reloadable<AlertRules>,
+    /// Pattern alerts on mute for a while (in memory; a reload leaves them alone).
+    pub mutes: crate::mute::Mutes,
     /// Counters derived from the logs.
     pub metrics: Reloadable<LogMetrics>,
     /// Regex parsers.
@@ -155,6 +157,7 @@ impl LiveSettings {
             rules: Reloadable::new(Rules::from_config(&cfg.ingest.rules)?),
             alerts: Reloadable::new(AlertRules::from_config(&cfg.alerts)?),
             ui_alerts: Reloadable::default(),
+            mutes: Default::default(),
             metrics: Reloadable::new(LogMetrics::from_config(
                 &cfg.metrics,
                 &crate::tags::Tags::from_config(&cfg.tags)?,

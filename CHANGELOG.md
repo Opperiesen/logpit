@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Pattern alerts can be put on mute: *Mute 1 h* on a notification in the page or on a rule under
+  `/admin`, or `GET`/`POST /api/mutes` (admin scope). A muted rule's alerts are still logged and recorded,
+  marked *muted*, without telling the webhook or e-mail; mutes live in memory, at most a week.
+
 - Web UI admin: an alert rule can be edited in place (name, lines, window, quiet period, per host),
   keeping its pattern and other conditions.
 

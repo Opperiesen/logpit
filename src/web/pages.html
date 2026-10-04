@@ -337,11 +337,13 @@ async function admin() {
   const box = h('div');
   $('view').replaceChildren(h('h1', null, 'Administration'), box);
   try {
-    const [windows, tokens, metrics, rules] = await Promise.all([
+    const [windows, tokens, metrics, rules, mutes] = await Promise.all([
       api('/api/maintenance'), api('/api/tokens'),
       fetch('/metrics').then(r => r.ok ? r.text() : '').catch(() => ''),
       api('/api/alert-rules').catch(() => []),
+      api('/api/mutes').catch(() => []),
     ]);
+    const mutedUntil = Object.fromEntries(mutes.map(m => [m.rule, m.until]));
     // Alert rules made from the search page's patterns (or the API); those of the configuration are not listed.
     const fired = {};
     for (const m of metrics.matchAll(/^logpit_alerts_fired_total\{rule="([^"]*)"\} (\d+)/gm)) fired[m[1]] = Number(m[2]);
@@ -351,7 +353,9 @@ async function admin() {
       const tr = h('tr', null,
         h('td', null, r.name), h('td', 'muted', ruleText(r), r.pattern ? h('span', 'mono', ' /' + r.pattern + '/') : null),
         h('td', 'n' + (fired[r.name] ? ' e' : ' muted'), (fired[r.name] || 0).toLocaleString()), h('td', 'muted nw', fmtTime(r.created_ts)),
-        h('td', 'nw',
+        h('td', 'nw', mutedUntil[r.name] ? h('span', 'w', 'muted until ' + fmtTime(mutedUntil[r.name]) + ' ') : null,
+          Object.assign(h('button', { type: 'button', class: 'small', 'aria-label': (mutedUntil[r.name] ? 'Unmute' : 'Mute for an hour') + ' the alert rule ' + r.name }, mutedUntil[r.name] ? 'Unmute' : 'Mute 1 h'),
+            { onclick: () => muteRule(r.name, mutedUntil[r.name] ? 0 : 60) }), ' ',
           Object.assign(h('button', { type: 'button', class: 'small', 'aria-label': 'Edit the alert rule ' + r.name }, 'Edit'), { onclick: () => editRule(tr, r) }), ' ',
           Object.assign(h('button', { type: 'button', class: 'small', 'aria-label': 'Delete the alert rule ' + r.name }, 'Delete'), { onclick: () => deleteRule(r.id) })));
       return tr;
@@ -434,6 +438,10 @@ function editRule(tr, r) {
   const cell = h('td', { colspan: '5' }, form);
   tr.replaceChildren(cell);
   form.querySelector('input').focus();
+}
+async function muteRule(rule, minutes) {
+  try { await api('/api/mutes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rule, minutes }) }); await admin(); say(minutes ? '"' + rule + '" muted for ' + minutes + ' minutes' : '"' + rule + '" unmuted'); }
+  catch (e) { say('could not change the mute: ' + e.message); }
 }
 async function deleteRule(id) {
   try { await api('/api/alert-rules/' + id, { method: 'DELETE' }); admin(); } catch (e) { say('could not delete the alert rule: ' + e.message); }

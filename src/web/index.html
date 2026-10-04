@@ -1645,6 +1645,23 @@ function toast(a) {
   const show = document.createElement('button'); show.type = 'button'; show.className = 'small'; show.textContent = 'Show';
   show.onclick = () => { box.remove(); zoomTo(a.ts - 600000, a.ts + 600000); };
   acts.append(show);
+  // A pattern alert that keeps coming back while you fix it can be put on mute for an hour.
+  const rule = a.details && a.details.rule;
+  if (rule) {
+    const mute = document.createElement('button'); mute.type = 'button'; mute.className = 'small'; mute.textContent = 'Mute 1 h';
+    mute.title = 'Record this alert without notifying anyone for an hour';
+    mute.onclick = async () => {
+      mute.disabled = true;
+      try {
+        const res = await fetch('/api/mutes', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ rule, minutes: 60 }) });
+        if (res.status === 401 || res.status === 403) throw new Error('muting needs the admin scope');
+        if (!res.ok) throw new Error((await res.text()).slice(0, 120) || 'HTTP ' + res.status);
+        const until = (await res.json()).until;
+        mute.textContent = 'muted until ' + new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      } catch (err) { mute.textContent = String(err.message || err); }
+    };
+    acts.append(mute);
+  }
   const x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.setAttribute('aria-label', 'Dismiss'); x.append(crossIcon());
   x.onclick = () => box.remove();
   box.append(dot, head, x, m, acts);
@@ -1699,8 +1716,9 @@ async function loadAlerts() {
       msg.className = 'm'; msg.textContent = a.message; msg.title = a.message;
       const sent = document.createElement('span');
       sent.className = 'd';
-      sent.textContent = (a.delivered === true ? 'sent' : a.delivered === false ? 'not sent' : 'no webhook') + (a.email === true ? ' · mail' : a.email === false ? ' · mail failed' : '');
-      sent.title = a.delivered === false ? 'The webhook did not accept this notification' : a.delivered === true ? 'Delivered to the webhook' : 'No webhook is configured';
+      const muted = a.details && a.details.muted;
+      sent.textContent = muted ? 'muted' : (a.delivered === true ? 'sent' : a.delivered === false ? 'not sent' : 'no webhook') + (a.email === true ? ' · mail' : a.email === false ? ' · mail failed' : '');
+      sent.title = muted ? 'Recorded but not notified: ' + muted : a.delivered === false ? 'The webhook did not accept this notification' : a.delivered === true ? 'Delivered to the webhook' : 'No webhook is configured';
       row.append(when, kind, host, msg, sent);
       return row;
     }));
