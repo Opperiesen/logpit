@@ -1532,7 +1532,9 @@ Messages that contain a CEF record (`CEF:0|Vendor|Product|…|key=value …`), w
 sent over syslog or HTTP, are parsed on ingestion: `app` becomes the product name,
 `message` becomes the event name (plus its `msg` text), and everything else is kept
 in `fields` (`cef_vendor`, `cef_name`, `src`, `act`, …). Field values are part of the
-full-text index.
+full-text index. UniFi's `UNIFIutcTime` (UTC, with milliseconds) becomes the entry's time, so
+UniFi events need no [`syslog.timezone`](#rfc-3164-timestamps); a value that does not parse
+leaves the syslog one.
 
 JSON ingestion accepts the same thing through an optional `"fields": {"key": "value"}`
 object. Keys are limited to letters, digits, `_`, `.` and `-`.

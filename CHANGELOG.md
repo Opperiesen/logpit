@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- UniFi CEF events take their time from `UNIFIutcTime`, which is UTC with milliseconds, instead of
+  the syslog stamp, which has neither: they are right whatever `syslog.timezone` says.
+
 ## 0.16.0 - 2026-10-04
 
 - `syslog.timezone` accepts a zone name such as `Europe/Paris`, read from `/usr/share/zoneinfo` (mount

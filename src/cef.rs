@@ -129,7 +129,9 @@ pub fn parse(text: &str) -> Option<Cef> {
 }
 
 /// If the entry carries a CEF record, replaces its message with a readable summary
-/// and moves the structured data into `fields`. Other entries are left untouched.
+/// and moves the structured data into `fields`. UniFi's `UNIFIutcTime` (UTC, with
+/// milliseconds) replaces the syslog stamp, which has neither zone nor milliseconds.
+/// Other entries are left untouched.
 pub fn enrich(entry: &mut LogEntry) {
     // A syslog 3164 parser reads the leading `CEF` of `CEF:0|…` as the program tag.
     let raw = if entry.app == "CEF" {
@@ -176,6 +178,12 @@ pub fn enrich(entry: &mut LogEntry) {
     };
     if !cef.product.is_empty() {
         entry.app = cef.product.clone();
+    }
+    if let Some(ts) = fields
+        .get("UNIFIutcTime")
+        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+    {
+        entry.ts = ts.timestamp_millis();
     }
     entry.fields = fields;
 }
@@ -296,6 +304,26 @@ mod tests {
             e.fields.get("src").map(String::as_str),
             Some("192.168.1.241")
         );
+    }
+
+    #[test]
+    fn enrich_takes_the_unifi_utc_time() {
+        let record = |time: &str| LogEntry {
+            ts: 42,
+            message: format!(
+                "CEF:0|Ubiquiti|UniFi Network|10|400|WiFi Client Connected|1|UNIFIutcTime={time} msg=hi"
+            ),
+            ..Default::default()
+        };
+        let mut e = record("2026-10-04T21:45:56.877Z");
+        enrich(&mut e);
+        assert_eq!(e.ts, 1_791_150_356_877);
+        // A time that does not parse keeps the syslog one.
+        for junk in ["yesterday", "2026-10-04 21:45:56", ""] {
+            let mut e = record(junk);
+            enrich(&mut e);
+            assert_eq!(e.ts, 42, "{junk:?}");
+        }
     }
 
     #[test]
