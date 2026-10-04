@@ -385,8 +385,9 @@
     <span id="status" role="status"></span>
   </div>
   <div class="row2" id="filters">
-    <input id="host" type="search" placeholder="Host" aria-label="Host" size="12">
-    <input id="app" type="search" placeholder="App" aria-label="App" size="12">
+    <input id="host" type="search" placeholder="Host" aria-label="Host" size="12" list="hostList" autocomplete="off">
+    <input id="app" type="search" placeholder="App" aria-label="App" size="12" list="appList" autocomplete="off">
+    <datalist id="hostList"></datalist><datalist id="appList"></datalist>
     <select id="tag" hidden aria-label="Host tag" title="Only the hosts that have this tag (see [[tags]] in the configuration)"><option value="">All tags</option></select>
     <input id="f" type="search" placeholder="field:value" aria-label="Field filter" size="14" title="Filter on a structured field: act:blocked (exact), status>=500 (also &gt;, &lt;, &lt;=, numbers only), act!=block, src~^10\. (regular expression). The field must be present.">
     <input id="re" type="search" placeholder="Regex on message" aria-label="Regular expression on message" size="18" title="Keep messages matching a regular expression, e.g. timeout|refused or (?i)error [0-9]+. It scans the entries left by the other filters, so narrow the time range first.">
@@ -2106,6 +2107,32 @@ async function load() {
 }
 
 $('go').onclick = load;
+// Host and app suggest the names of the current window, fetched the first time the field is focused after
+// a search (without its own filter, so the alternatives stay listed). Picking one searches.
+let suggested = { host: null, app: null };
+async function suggest(field) {
+  if (!snap || suggested[field] === snap) return;
+  suggested[field] = snap;
+  try {
+    let names;
+    if (field === 'host') {
+      const p = chartParams(); p.delete('host'); p.set('limit', '200'); p.set('sort', 'host'); p.set('order', 'asc');
+      const res = await fetch('/api/hosts?' + p, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      names = (await res.json()).map(h => h.host);
+    } else {
+      const p = topParams('app'); p.set('field', 'app'); p.set('limit', '100');
+      const res = await fetch('/api/top?' + p, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      names = (await res.json()).values.map(v => v.value).filter(Boolean).sort();
+    }
+    $(field + 'List').replaceChildren(...names.map(n => { const o = document.createElement('option'); o.value = n; return o; }));
+  } catch { suggested[field] = null; }
+}
+for (const id of ['host', 'app']) {
+  $(id).addEventListener('focus', () => suggest(id));
+  $(id).addEventListener('input', e => { if (e.inputType === 'insertReplacementText' || e.inputType === undefined) load(); });
+}
 $('token').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 for (const id of ['q', 'host', 'app', 'f', 're']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 $('level').onchange = load;

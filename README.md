@@ -819,6 +819,7 @@ Outside a text field, the web UI answers to a few keys (also listed under *Setti
 | `←` / `→`, `Home` / `End` | move along the time scale or the alert timeline under the chart, or along the chart legend (each one tab stop) |
 | `Ctrl`+`K` / `⌘`+`K` | command palette: saved views, hosts, ranges, levels, live, theme, density, export, settings |
 
+The *Host* and *App* fields suggest the names found in the current time window (picking one searches).
 The filters of the last search (search words, host, app, tag, field, regex, level and a zoomed time
 window) show as chips under the header; a chip's cross removes that filter and searches again, and
 *Clear all* removes them all.

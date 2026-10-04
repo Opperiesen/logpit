@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Web UI: the *Host* and *App* filters suggest the names of the current time window; picking one
+  searches.
+
 - Web UI board: the states read *Silent*, *Failing*, *Degraded* and *Healthy* (formerly *Cancelled*,
   *Disrupted*, *Delayed* and *On time*), and the command palette names it *Board of the hosts*.
 
