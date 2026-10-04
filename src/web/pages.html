@@ -118,7 +118,13 @@ function fmtTime(ms) {
   const d = new Date(ms);
   if (prefs.time === 'utc') return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   if (prefs.time === 'iso') return d.toISOString();
-  return d.toLocaleString();
+  // Local time reads like the search page: the time alone today, then yesterday, then the day.
+  const time = d.toLocaleTimeString([], { hour12: false }), now = new Date();
+  const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const back = Math.round((day(now) - day(d)) / 86400000);
+  if (back === 0) return time;
+  if (back === 1) return 'yesterday ' + time;
+  return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) }) + ' ' + time;
 }
 function ago(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));

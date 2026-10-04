@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Web UI views: in local time, times read `01:08:02` today, `yesterday 01:09:02`, then `Fri, Oct 2
+  01:09:02` (with the year when it differs), instead of a full date on every line.
+
 - Web UI: the *Host* and *App* filters suggest the names of the current time window; picking one
   searches.
 
