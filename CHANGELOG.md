@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Web UI: structured fields follow the message on its line instead of taking a line of their own,
+  nearly twice as many entries per screen; past the first three, a `+N` shows them all. The Hosts
+  panel starts open on a wide screen, and stays closed once closed.
+
 ## 0.16.1 - 2026-10-04
 
 - UniFi CEF events take their time from `UNIFIutcTime`, which is UTC with milliseconds, instead of

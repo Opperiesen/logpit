@@ -284,7 +284,7 @@ Two printed palettes sharing one grammar: neutral ink and rules carry the struct
 - **Label** (700 or 600, 12px): severity column, table headers, small buttons.
 - **Micro** (700, 11px, 16px line): badge, chart axis hours; tags use it at 400.
 - **Message** (400 mono, 12.5px, 1.45; compact 11.5px/1.3): message bodies, patterns, context lines.
-- **Fields** (400, 11.5px, keys 600): structured fields under a message.
+- **Fields** (400, 11.5px, keys 600): structured fields after a message, on its line: the first three (a trace id first), then an accent `+N` that opens them all on a row underneath.
 
 ### Named Rules
 **The Tabular Rule.** All figures are tabular (`font-variant-numeric: tabular-nums` on the body). Times, counts and hours must line up in columns like a printed timetable.
@@ -295,7 +295,7 @@ Two printed palettes sharing one grammar: neutral ink and rules carry the struct
 
 A full-bleed working surface, no centred container. The header is sticky (static on phones): a navy band row with the wordmark, a flexible search (`flex: 1 1 280px`), level, range, Live, the red Search button and a right-aligned status; under it a band-grey row of secondary filters, saved views and the Settings popover (access token, display preferences, keyboard keys); under that, only when filters are active, a ground-coloured row of filter chips. Below 760px the second row folds behind a Filters toggle that shows the active filter count.
 
-From 1000px the page is a two-column grid: a rail on the left (300px, 340px from 1280px) (sticky under the header, scrolling on its own) holding Hosts, Top values, Message patterns and Alerts as collapsible sections, and the main column holding the legend and export bar, a 72px volume chart with its hour axis, then the stream. The rail comes after the stream in the document, so the keyboard reaches the results first; below 1000px (a fallback, phones are not a target) it follows the stream.
+From 1000px the page is a two-column grid: a rail on the left (300px, 340px from 1280px) (sticky under the header, scrolling on its own) holding Hosts, Top values, Message patterns and Alerts as collapsible sections (Hosts starts open, the others closed; each remembers its state), and the main column holding the legend and export bar, a 72px volume chart with its hour axis, then the stream. The rail comes after the stream in the document, so the keyboard reaches the results first; below 1000px (a fallback, phones are not a target) it follows the stream.
 
 The stream is a table set to the page edge with a 16px gutter on the left. Each hour opens with a band that sticks under the header (`top: var(--hdr)`, measured at runtime; 0 on phones). Below 760px each entry becomes a small grid: time, level, host, app on one line, message across the full width under it.
 

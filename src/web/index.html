@@ -200,7 +200,13 @@
   .band .c .e { color:var(--err); font-weight:700; } .band .c .w { color:var(--warn); font-weight:700; }
   .sev { font-weight:700; }
   .s0, .s1, .s2, .s3 { color:var(--err); } .s4 { color:var(--warn); } .s5 { color:var(--notice); } .s6, .s7 { color:var(--muted); }
-  .fields { margin-top:3px; display:flex; flex-wrap:wrap; gap:2px 10px; color:var(--muted); font-size:11.5px; }
+  /* Fields follow the message on its line; past the first few, a +N opens them all underneath. */
+  .fields { margin-left:12px; color:var(--muted); font-size:11.5px; white-space:normal; }
+  .fields > span { margin-right:10px; }
+  .fields:not(.all) > .more { display:none; }
+  .fields.all { display:flex; flex-wrap:wrap; gap:2px 10px; margin:3px 0 0; }
+  .fields.all > span { margin-right:0; }
+  .fields .morebtn { color:var(--accent); font-weight:600; }
   .fields b { font-weight:600; }
   .fields .tracebtn { color:var(--accent); font-weight:600; text-decoration:underline; text-underline-offset:3px; }
   body.compact #stream td { padding-top:1px; padding-bottom:1px; } body.compact #stream { font-size:12px; } body.compact #stream td.msg { font-size:11.5px; line-height:1.3; }
@@ -408,15 +414,19 @@ function clickable(el, fn, title) {
 }
 
 // Message cell: the message plus its structured fields (click a field to filter on it).
+// The first INLINE_FIELDS stay on the message's line, a trace id first; +N shows the rest.
+const INLINE_FIELDS = 3;
 function msgCell(r, tr) {
   const c = td('msg', '');
   c.append(marked(r.message));
   const keys = Object.keys(r.fields || {}).filter(k => !k.startsWith('cef_') && k !== 'msg');
+  keys.sort((a, b) => (b === 'trace_id') - (a === 'trace_id'));
   if (keys.length) {
-    const box = document.createElement('div');
+    const box = document.createElement('span');
     box.className = 'fields';
-    for (const k of keys) {
+    for (const [i, k] of keys.entries()) {
       const s = document.createElement('span');
+      if (i >= INLINE_FIELDS) s.className = 'more';
       const b = document.createElement('b');
       b.textContent = k + '=';
       s.append(b, document.createTextNode(r.fields[k]));
@@ -434,6 +444,18 @@ function msgCell(r, tr) {
         clickable(t, () => togglePanel(tr, 'trace', box => fillTrace(box, r)), 'Show every entry of this trace');
         box.append(t);
       }
+    }
+    const hidden = keys.length - INLINE_FIELDS;
+    if (hidden > 0) {
+      const m = document.createElement('span');
+      m.className = 'morebtn';
+      m.textContent = '+' + hidden;
+      clickable(m, () => {
+        const all = box.classList.toggle('all');
+        m.textContent = all ? 'fewer' : '+' + hidden;
+        box.append(m); // stays last either way
+      }, 'Show every field of this entry');
+      box.append(m);
     }
     c.append(box);
   }
@@ -1568,7 +1590,10 @@ async function loadHosts() {
   } catch {}
 }
 markSort();
-try { $('hosts').open = !NARROW && localStorage.getItem('logpit-hosts-open') === '1'; } catch {}
+// Hosts is the rail's first answer, so it starts open on a wide screen until it is closed once.
+let hostsPref = null;
+try { hostsPref = localStorage.getItem('logpit-hosts-open'); } catch {}
+$('hosts').open = !NARROW && hostsPref !== '0';
 $('hosts').addEventListener('toggle', () => {
   try { localStorage.setItem('logpit-hosts-open', $('hosts').open ? '1' : '0'); } catch {}
   loadHosts();

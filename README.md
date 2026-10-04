@@ -794,7 +794,7 @@ both kept in this browser (`localStorage`); the preferences are applied before t
 | Times | local time (default), UTC (`2026-10-03 18:56:01.888 UTC`), ISO 8601 (`2026-10-03T18:56:01.888Z`) |
 | Density | comfortable (default), compact |
 | Long messages | wrap (default), one line (cut with an ellipsis) |
-| Columns | time, level, host, app, and the structured fields under each message |
+| Columns | time, level, host, app, and the structured fields after each message |
 
 They change how the page looks and never what is asked of the server: links, saved views, exports and
 the API are not affected, and times in the API stay Unix milliseconds. *Reset display* restores the defaults.
