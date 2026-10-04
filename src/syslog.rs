@@ -20,10 +20,13 @@ pub enum Rfc3164Zone {
     Local,
     /// The sender's clock is a fixed offset from UTC, in seconds east.
     Fixed(i32),
+    /// The sender's clock follows a zone's rule, DST included (`Europe/Paris`, or a POSIX rule).
+    Rule(crate::tz::Rule),
 }
 
 impl Rfc3164Zone {
-    /// `reception`, `utc`, `local`, or an offset such as `+02:00`, `-0500` or `+1`.
+    /// `reception`, `utc`, `local`, an offset such as `+02:00`, `-0500` or `+1`, a zone name
+    /// such as `Europe/Paris`, or a POSIX rule such as `CET-1CEST,M3.5.0,M10.5.0/3`.
     pub fn parse(text: &str) -> Result<Self, String> {
         let t = text.trim().to_ascii_lowercase();
         match t.as_str() {
@@ -32,11 +35,23 @@ impl Rfc3164Zone {
             "local" => return Ok(Self::Local),
             _ => {}
         }
-        let bad = || format!("{text:?} is not reception, utc, local or an offset like +02:00");
+        let bad = || {
+            format!(
+                "{text:?} is not reception, utc, local, an offset like +02:00, a zone name like \
+                 Europe/Paris or a POSIX rule"
+            )
+        };
         let sign = match t.chars().next() {
             Some('+') => 1,
             Some('-') => -1,
-            _ => return Err(bad()),
+            _ if text.contains(['/', ',']) => {
+                return crate::tz::Rule::parse(text.trim()).map(Self::Rule);
+            }
+            _ => {
+                return crate::tz::Rule::parse(text.trim())
+                    .map(Self::Rule)
+                    .map_err(|_| bad());
+            }
         };
         let digits: String = t[1..].chars().filter(|c| *c != ':').collect();
         let (h, m) = match digits.len() {
@@ -59,6 +74,7 @@ impl Rfc3164Zone {
             Self::Reception => None,
             Self::Utc => Some(naive.and_utc().timestamp_millis()),
             Self::Fixed(secs) => Some(naive.and_utc().timestamp_millis() - i64::from(secs) * 1000),
+            Self::Rule(rule) => rule.to_ms(naive),
             Self::Local => chrono::Local
                 .from_local_datetime(&naive)
                 .earliest()
@@ -392,8 +408,23 @@ mod tests {
         ] {
             assert_eq!(Rfc3164Zone::parse(text), Ok(zone), "{text:?}");
         }
+        if std::path::Path::new("/usr/share/zoneinfo/Europe/Paris").exists() {
+            assert!(matches!(
+                Rfc3164Zone::parse(" Europe/Paris "),
+                Ok(Rfc3164Zone::Rule(_))
+            ));
+        }
+        let paris = Rfc3164Zone::parse("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
+        // Summer in Paris is UTC+2: 14:00 there is noon UTC.
+        assert_eq!(ts("<13>Oct  3 14:00:00 h a: m", OCT3, paris), OCT3);
+        assert!(
+            Rfc3164Zone::parse("Nowhere/Atlantis")
+                .unwrap_err()
+                .contains("not found")
+        );
         for bad in [
-            "Europe/Paris",
+            "Nowhere/Atlantis",
+            "CET-1CEST,M3.5.0",
             "02:00",
             "+15:00",
             "+02:60",

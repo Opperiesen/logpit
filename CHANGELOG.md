@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `syslog.timezone` accepts a zone name such as `Europe/Paris`, read from `/usr/share/zoneinfo` (mount
+  it into the `scratch` image), or the POSIX rule it stands for (`CET-1CEST,M3.5.0,M10.5.0/3`), which
+  needs no file: RFC 3164 stamps then follow daylight saving time, which a fixed offset cannot.
+
 - GELF over UDP accepts chunked messages, which Docker's GELF driver sends for anything over
   about 1.4 KB once compressed and which were refused until now. Chunks are reassembled in any order
   within five seconds, with at most 8 MiB held by incomplete messages; what is given up is counted as

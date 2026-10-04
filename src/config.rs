@@ -1273,13 +1273,20 @@ mod tests {
     #[test]
     fn syslog_timezone_config() {
         assert_eq!(Config::parse("").unwrap().syslog.timezone, "reception");
-        for ok in ["utc", "local", "+02:00", "-0530", "reception"] {
+        for ok in [
+            "utc",
+            "local",
+            "+02:00",
+            "-0530",
+            "reception",
+            "CET-1CEST,M3.5.0,M10.5.0/3",
+        ] {
             assert!(
                 Config::parse(&format!("[syslog]\ntimezone = \"{ok}\"")).is_ok(),
                 "{ok}"
             );
         }
-        for bad in ["Europe/Paris", "+25:00", "gmt"] {
+        for bad in ["Nowhere/Atlantis", "+25:00", "CET-1CEST,M3.5.0"] {
             assert!(
                 Config::parse(&format!("[syslog]\ntimezone = \"{bad}\"")).is_err(),
                 "{bad}"

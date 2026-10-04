@@ -37,7 +37,8 @@ max_db_size_mb = 0           # soft cap: beyond it the oldest entries are evicte
 # (ports below 1024 need root or CAP_NET_BIND_SERVICE).
 udp_listen = "127.0.0.1:5514"
 tcp_listen = "127.0.0.1:5514"
-# timezone = "reception"     # how RFC 3164 stamps (no year, no zone) are read: reception, utc, local, +02:00
+# timezone = "reception"     # how RFC 3164 stamps (no year, no zone) are read: reception, utc, local, +02:00,
+#                            # Europe/Paris (needs /usr/share/zoneinfo) or CET-1CEST,M3.5.0,M10.5.0/3
 
 [http]
 listen = "127.0.0.1:8080"

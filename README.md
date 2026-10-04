@@ -109,7 +109,7 @@ Environment variables win over the config file. All are optional.
 | `LOGPIT_SYSLOG_UDP_LISTEN` | `0.0.0.0:5514` | Empty string disables UDP syslog |
 | `LOGPIT_SYSLOG_TCP_LISTEN` | `0.0.0.0:5514` | Empty string disables TCP syslog |
 | `LOGPIT_GELF_UDP_LISTEN`, `LOGPIT_GELF_TCP_LISTEN` | *(off)* | GELF listeners, e.g. `0.0.0.0:12201` (see [Loki and GELF](#loki-and-gelf)) |
-| `LOGPIT_SYSLOG_TIMEZONE` | `reception` | How RFC 3164 timestamps are read: `reception`, `utc`, `local` or an offset like `+02:00` (see [RFC 3164 timestamps](#rfc-3164-timestamps)) |
+| `LOGPIT_SYSLOG_TIMEZONE` | `reception` | How RFC 3164 timestamps are read: `reception`, `utc`, `local`, an offset like `+02:00`, a zone like `Europe/Paris` or a POSIX rule (see [RFC 3164 timestamps](#rfc-3164-timestamps)) |
 | `LOGPIT_SYSLOG_TLS_LISTEN` | *(off)* | Address of the syslog-over-TLS listener, e.g. `0.0.0.0:6514`; needs the next two |
 | `LOGPIT_SYSLOG_TLS_CERT`, `LOGPIT_SYSLOG_TLS_KEY` | | PEM certificate chain and private key for the TLS listener |
 | `LOGPIT_SYSLOG_TLS_CLIENT_CA` | | PEM CA file: clients must then present a certificate issued by it |
@@ -438,13 +438,20 @@ how to read the sender's clock:
 
 ```toml
 [syslog]
-timezone = "+02:00"     # or: reception (default), utc, local; env LOGPIT_SYSLOG_TIMEZONE
+timezone = "Europe/Paris"   # or: reception (default), utc, local, +02:00, a POSIX rule; env LOGPIT_SYSLOG_TIMEZONE
 ```
 
 - **`utc`** and **a fixed offset** (`+02:00`, `-0530`, `+2`) read the stamp as wall-clock time in that
   zone. **`local`** uses this machine's own zone, DST included, from `TZ` or the system (a minimal
-  container has no zone data and then means UTC; set `TZ` and mount `/usr/share/zoneinfo`, or use an
-  offset). Names such as `Europe/Paris` are not accepted: LogPit carries no zone database.
+  container has no zone data and then means UTC).
+- **A zone name** (`Europe/Paris`, `America/New_York`) follows that zone's DST rule. LogPit carries no
+  zone database: it reads `/usr/share/zoneinfo/<name>` when the setting is loaded, so the official
+  image (built `FROM scratch`) needs `-v /usr/share/zoneinfo:/usr/share/zoneinfo:ro`. Without the
+  mount, give the rule itself in POSIX form, as found at the end of the zone file
+  (`tail -n1 /usr/share/zoneinfo/Europe/Paris`): `CET-1CEST,M3.5.0,M10.5.0/3`. Only the zone's current
+  rule is used, which is right for any recent stamp. A POSIX rule must include its DST dates (`GMT+1`
+  is refused: POSIX counts hours west, so it means UTC−1; write `-01:00`). During the hour repeated
+  when DST ends, the earlier time is taken.
 - **The year** is the current one, or the previous one when that would make the message more than a
   day later than now (a message stamped `Dec 31` read in early January). A stamp that cannot exist
   (`Feb 30`, or `Feb 29` in a year that is not a leap year, a DST gap) falls back to the arrival time.
@@ -1835,7 +1842,8 @@ Without a config file the defaults listen on loopback only.
 ## Limitations
 
 - RFC 3164 timestamps carry no year or zone, so reception time is used unless `syslog.timezone` says how
-  to read them (see [RFC 3164 timestamps](#rfc-3164-timestamps)); named time zones are not supported.
+  to read them (see [RFC 3164 timestamps](#rfc-3164-timestamps)); a zone name needs the system's zone
+  database (`/usr/share/zoneinfo`), which the `scratch` image does not include.
 - Entries stored before CEF support keep their raw message; only new ones are parsed.
 - Single node, no user accounts (access is by token), and no built-in certificate management
   (use [HTTPS](#https) or a reverse proxy). Retention is by age and optionally by size; see
