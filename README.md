@@ -307,8 +307,8 @@ Labels become LogPit's fields: the first of `host`, `hostname`, `nodename`, `nod
 Loki's structured metadata, is kept as a filterable field. JSON or `key=value` inside a line is
 extracted too (see [structured fields](#structured-fields)), with labels winning on a clash. A
 missing host is `unknown`. Answers `204`. A body may be gzip-compressed (`Content-Encoding: gzip`, as
-Fluent Bit sends JSON). Tenants (`X-Scope-OrgID` is
-ignored) and Loki's query API are not supported: this is an input only.
+Fluent Bit sends JSON). Tenants are not supported (`X-Scope-OrgID` is ignored); to query
+LogPit from Grafana, see [Grafana and the Loki query API](#grafana-and-the-loki-query-api).
 
 **GELF** (Graylog's JSON format): `POST /gelf` on the HTTP port (needs the write token, answers
 `202`), plus optional listeners:
