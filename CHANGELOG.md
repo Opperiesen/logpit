@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Web UI: *Notify me of new alerts* under Settings. A new alert shows in the page with a *Show* button
+  that zooms to it, and, while the tab is in the background, as a system notification once the browser
+  allows it (over HTTPS or `localhost` only); alerts are then checked every minute even in the background.
+
 - Alerts from the web UI: a bell on each message pattern creates a pattern alert (so many lines like it
   within so many minutes, per host or overall) that runs at once beside the configuration's
   `[[alerts]]`; `/admin` lists and deletes them. They are kept in the database and managed through

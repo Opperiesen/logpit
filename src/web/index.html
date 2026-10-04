@@ -308,6 +308,14 @@
   .ctxline .m { white-space:pre-wrap; word-break:break-word; }
   .ctxline.cur { background:var(--focus-tint); font-weight:600; }
 
+  /* New alerts, told in the page (and by the system when the tab is hidden and that is allowed). */
+  #toasts { position:fixed; z-index:40; right:16px; bottom:16px; display:grid; gap:8px; width:min(380px, calc(100vw - 32px)); }
+  .toast { display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:4px 10px; align-items:start; padding:12px 12px 12px 14px; border:1px solid var(--rule); border-radius:12px; background:var(--surface); box-shadow:var(--pop); animation:rise .24s var(--ease); }
+  .toast .pulse { margin-top:6px; }
+  .toast b { font-weight:650; } .toast .m { grid-column:2; color:var(--muted); font-size:12.5px; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .toast .acts3 { grid-column:2; display:flex; gap:6px; margin-top:4px; }
+  .toast .x { grid-row:1; grid-column:3; width:24px; height:24px; padding:0; border-color:transparent; background:none; color:var(--muted); }
+  .prefs .panel .hint { margin:-4px 0 0; color:var(--muted); font-size:12px; max-width:30ch; }
   #morebar { text-align:center; padding:18px; }
   #unseen { position:fixed; z-index:15; top:calc(var(--hdr) + 56px); left:50%; transform:translateX(-50%); height:30px; padding:0 14px; border:0; border-radius:999px; background:var(--accent); color:var(--ground); box-shadow:var(--raise); animation:rise .24s var(--ease); }
   #unseen:hover { background:var(--accent); filter:brightness(1.08); }
@@ -418,6 +426,8 @@
         <label>Density <select id="prefDensity"><option value="normal">Comfortable</option><option value="compact">Compact</option></select></label>
         <label>Long messages <select id="prefWrap"><option value="wrap">Wrap</option><option value="nowrap">One line</option></select></label>
         <div class="cols" title="Columns of the table"><label><input type="checkbox" data-col="ts"> Time</label><label><input type="checkbox" data-col="sev"> Level</label><label><input type="checkbox" data-col="host"> Host</label><label><input type="checkbox" data-col="app"> App</label><label><input type="checkbox" data-col="fields"> Fields</label></div>
+        <label>Notify me of new alerts <input id="prefNotify" type="checkbox"></label>
+        <p class="hint" id="notifyHint" hidden></p>
         <button id="prefReset" type="button" class="small">Reset display</button>
         <p class="keys">Keys: <kbd>/</kbd> search · <kbd>L</kbd> live · <kbd>J</kbd> <kbd>K</kbd> next and previous line · <kbd>Enter</kbd> context · <kbd>Esc</kbd> close · <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> commands · Alt-click a field to exclude it</p>
       </div>
@@ -449,6 +459,7 @@
 </dialog>
 <main class="stream">
 <button id="unseen" type="button" hidden></button>
+<div id="toasts" role="status" aria-live="polite"></div>
 <table id="stream" tabindex="-1" aria-label="Log entries"><tbody id="rows"></tbody></table>
 <div id="morebar" hidden><button id="more" type="button">Load more</button></div>
 <div id="empty" hidden></div>
@@ -677,7 +688,7 @@ async function fillTrace(box, row) {
 
 // Display preferences, kept in this browser: theme, how times are written, density, wrapping and the
 // columns shown. They only change how the page looks, never what is asked of the server.
-const PREF_DEFAULTS = { theme: 'auto', time: 'local', density: 'normal', wrap: 'wrap', hide: [] };
+const PREF_DEFAULTS = { theme: 'auto', time: 'local', density: 'normal', wrap: 'wrap', hide: [], notify: false };
 let prefs = { ...PREF_DEFAULTS };
 try { prefs = { ...PREF_DEFAULTS, ...JSON.parse(localStorage.getItem('logpit-prefs') || '{}') }; } catch {}
 if (!Array.isArray(prefs.hide)) prefs.hide = [];
@@ -698,6 +709,7 @@ function savePrefs() { try { localStorage.setItem('logpit-prefs', JSON.stringify
 function syncPrefControls() {
   $('prefTheme').value = prefs.theme; $('prefTime').value = prefs.time;
   $('prefDensity').value = prefs.density; $('prefWrap').value = prefs.wrap;
+  $('prefNotify').checked = !!prefs.notify; notifyHintText();
   for (const c of document.querySelectorAll('#prefs [data-col]')) c.checked = !prefs.hide.includes(c.dataset.col);
 }
 for (const [id, key] of [['prefTheme', 'theme'], ['prefTime', 'time'], ['prefDensity', 'density'], ['prefWrap', 'wrap']]) {
@@ -1586,12 +1598,74 @@ async function checkAlerts() {
     if (!res.ok) return;
     const list = await res.json();
     const newest = list.length ? Math.max(...list.map(a => a.ts)) : 0;
+    tellAlerts(list);
     if (!alertsSeen) markAlertsSeen(newest || Date.now());
     else if ($('alerts').open && !document.hidden) { if (newest) markAlertsSeen(newest); }
     else showAlertBadge(list.length);
   } catch {}
 }
-setInterval(() => { if (!document.hidden && snap) checkAlerts(); }, 60000);
+// With notifications on, alerts are also checked while the tab is hidden (browsers slow that to a minute).
+setInterval(() => { if (snap && (!document.hidden || prefs.notify)) checkAlerts(); }, 60000);
+
+// New alerts: a toast while the page is in view, a system notification while it is hidden (that needs
+// HTTPS or localhost, and the browser's permission). The newest alert told is remembered, so a reload
+// or another tab does not tell it again.
+let notifiedUpTo = 0;
+try { notifiedUpTo = Number(localStorage.getItem('logpit-notified')) || 0; } catch {}
+const systemNotes = () => 'Notification' in window && window.isSecureContext;
+function notifyHintText() {
+  const hint = $('notifyHint');
+  if (!prefs.notify) { hint.hidden = true; return; }
+  hint.textContent = !systemNotes() ? 'Alerts show in this page. System notifications need LogPit over HTTPS.'
+    : Notification.permission === 'denied' ? 'The browser blocks notifications for this site; alerts show in this page.'
+    : Notification.permission === 'granted' ? 'Alerts show in this page, and as system notifications while the tab is hidden.'
+    : 'Alerts show in this page.';
+  hint.hidden = false;
+}
+$('prefNotify').onchange = async () => {
+  prefs.notify = $('prefNotify').checked;
+  savePrefs();
+  if (prefs.notify && systemNotes() && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} }
+  if (prefs.notify && !notifiedUpTo) markNotified(Date.now());
+  notifyHintText();
+};
+function markNotified(ts) {
+  notifiedUpTo = Math.max(notifiedUpTo, ts);
+  try { localStorage.setItem('logpit-notified', String(notifiedUpTo)); } catch {}
+}
+function toast(a) {
+  const box = document.createElement('div');
+  box.className = 'toast';
+  const dot = document.createElement('span'); dot.className = 'pulse ' + (ALERT_GOOD.includes(a.kind) ? 'on' : 'hot');
+  const head = document.createElement('div');
+  const kind = document.createElement('b'); kind.textContent = a.kind === 'host_recovered' ? 'recovered' : a.kind.replace(/_/g, ' ');
+  head.append(kind, a.host ? ' · ' + a.host : '', ' · ', agoEl(document.createElement('span'), a.ts));
+  const m = document.createElement('div'); m.className = 'm'; m.textContent = a.message; m.title = a.message;
+  const acts = document.createElement('div'); acts.className = 'acts3';
+  const show = document.createElement('button'); show.type = 'button'; show.className = 'small'; show.textContent = 'Show';
+  show.onclick = () => { box.remove(); zoomTo(a.ts - 600000, a.ts + 600000); };
+  acts.append(show);
+  const x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.setAttribute('aria-label', 'Dismiss'); x.append(crossIcon());
+  x.onclick = () => box.remove();
+  box.append(dot, head, x, m, acts);
+  $('toasts').append(box);
+  while ($('toasts').children.length > 4) $('toasts').firstElementChild.remove();
+  setTimeout(() => box.remove(), 12000);
+}
+function tellAlerts(list) {
+  if (!prefs.notify) return;
+  if (!notifiedUpTo) { markNotified(list.length ? Math.max(...list.map(a => a.ts)) : Date.now()); return; } // never replay the past
+  const fresh = list.filter(a => a.ts > notifiedUpTo).sort((a, b) => a.ts - b.ts);
+  if (!fresh.length) return;
+  markNotified(fresh[fresh.length - 1].ts);
+  if (document.hidden && systemNotes() && Notification.permission === 'granted') {
+    // A burst becomes one notification instead of a pile.
+    const a = fresh[fresh.length - 1];
+    const n = new Notification(fresh.length > 1 ? fresh.length + ' new alerts on LogPit' : 'LogPit: ' + a.kind.replace(/_/g, ' ') + (a.host ? ' on ' + a.host : ''),
+      { body: a.message, tag: 'logpit-alert' });
+    n.onclick = () => { window.focus(); n.close(); zoomTo(a.ts - 600000, a.ts + 600000); };
+  } else if (!document.hidden) fresh.slice(-3).forEach(toast);
+}
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   hiddenErrors = 0;

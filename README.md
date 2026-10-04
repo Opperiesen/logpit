@@ -795,6 +795,7 @@ both kept in this browser (`localStorage`); the preferences are applied before t
 | Density | comfortable (default), compact |
 | Long messages | wrap (default), one line (cut with an ellipsis) |
 | Columns | time, level, host, app, and the structured fields after each message |
+| Notify me of new alerts | off (default) or on: each new alert shows in the page with a *Show* button that zooms to it, and, while the tab is in the background, as a system notification (the browser asks first; it needs LogPit over [HTTPS](#https) or `localhost`) |
 
 They change how the page looks and never what is asked of the server: links, saved views, exports and
 the API are not affected, and times in the API stay Unix milliseconds. *Reset display* restores the defaults.
