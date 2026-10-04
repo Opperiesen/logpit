@@ -67,6 +67,13 @@
   .form { display:inline-flex; gap:3px; vertical-align:middle; }
   .form i { width:8px; height:20px; border-radius:2px; background:var(--quiet-tint); }
   .form i.ok { background:color-mix(in srgb, var(--ok) 70%, transparent); } .form i.warn { background:var(--warn); } .form i.err { background:var(--err); }
+  /* The host's live lines: the newest on top, sliding in as they arrive. */
+  @keyframes arrive { from { opacity:0; transform:translateY(-6px); } }
+  .livehead { display:flex; align-items:center; gap:12px; }
+  .livehead h2 { margin-right:auto; }
+  .lvp { display:inline-block; min-width:44px; padding:0 7px; border-radius:999px; font:600 11px/19px var(--sans); text-align:center; }
+  .lvp.s0, .lvp.s1, .lvp.s2, .lvp.s3 { background:var(--err-tint); } .lvp.s4 { background:var(--warn-tint); } .lvp.s5 { background:var(--notice-tint); }
+  tr.fresh { animation:arrive .42s var(--ease); } tr.fresh td { background:var(--fresh); }
   .pill { display:inline-flex; align-items:center; gap:8px; padding:2px 12px 2px 10px; border-radius:999px; font-weight:600; }
   .pill.cancelled { background:var(--quiet-tint); color:var(--muted); } .pill.disrupted { background:var(--err-tint); color:var(--err); }
   .pill.delayed { background:var(--warn-tint); color:var(--warn); } .pill.ontime { background:var(--ok-tint); color:var(--ok); }
@@ -320,7 +327,7 @@ async function hostPage() {
     const appRows = apps.values.length ? apps.values.map(v => h('tr', null, h('td', 'mono', v.value), h('td', { style: 'width:50%' }, Object.assign(h('div', 'meter'), { style: 'width:' + (100 * v.count / maxApp) + '%' })), h('td', 'n', v.count.toLocaleString()))) : [empty(3, 'No logs in the last 24 hours.')];
     const patRows = pats.patterns.length ? pats.patterns.map(p => h('tr', null, h('td', 'n', p.count.toLocaleString()), h('td', 'mono clip', p.pattern || '(empty)'))) : [empty(2, 'No logs in the last 24 hours.')];
     const alRows = alerts.length ? alerts.map(a => h('tr', null, h('td', 'muted', ago(a.ts)), h('td', a.kind === 'host_recovered' ? 'ok' : 'e', a.kind.replace(/_/g, ' ')), h('td', 'clip', a.message))) : [empty(3, 'No notifications about this host.')];
-    $('view').replaceChildren(head,
+    $('view').replaceChildren(head, ...liveLines(name),
       h('h2', null, 'Volume, last 7 days'), ...volume(stats),
       h('div', 'grid',
         h('section', null, h('h2', null, 'Latest errors'), h('table', null, h('tbody', null, ...errRows))),
@@ -329,6 +336,65 @@ async function hostPage() {
         h('section', null, h('h2', null, 'Alerts'), h('table', null, h('tbody', null, ...alRows)))));
     say('');
   } catch (e) { failed(e, 'read'); }
+}
+
+// The host's latest lines, then those that arrive (the live tail over fetch, since EventSource cannot
+// send the token), newest on top, at most LIVE_ROWS. Pause stops the stream; leaving the page ends it.
+const LIVE_ROWS = 12;
+function liveLines(name) {
+  const body = h('tbody'), state = h('span', 'muted', 'connecting…');
+  const dot = h('span', { class: 'pulse', 'aria-hidden': 'true' });
+  const toggle = h('button', { type: 'button', class: 'small' }, 'Pause');
+  let ctl = null;
+  const row = (r, fresh) => h('tr', fresh ? 'fresh' : null,
+    h('td', 'muted nw', fmtTime(r.ts)), h('td', null, h('span', 'lvp s' + r.severity, LEVELS[r.severity] || String(r.severity))),
+    h('td', 'muted nw', r.app), h('td', 'mono clip', r.message));
+  const put = (rows, fresh) => {
+    for (const td of body.querySelectorAll('td[colspan]')) td.closest('tr').remove();
+    body.prepend(...rows.map(r => row(r, fresh)));
+    while (body.children.length > LIVE_ROWS) body.lastElementChild.remove();
+    if (fresh) setTimeout(() => body.querySelectorAll('tr.fresh').forEach(tr => tr.classList.remove('fresh')), 3000);
+  };
+  async function stream() {
+    const mine = ctl = new AbortController();
+    while (ctl === mine) {
+      try {
+        const res = await fetch('/api/tail?' + q({ host: name }), { headers: token ? { Authorization: 'Bearer ' + token } : {}, signal: mine.signal });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        dot.className = 'pulse on'; state.textContent = 'live';
+        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+        let buf = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += value.replace(/\r\n/g, '\n');
+          let i, batch = [];
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const ev = buf.slice(0, i); buf = buf.slice(i + 2);
+            const data = ev.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trimStart()).join('');
+            if (data && !ev.includes('event: lagged')) try { batch.push(JSON.parse(data)); } catch {}
+          }
+          if (batch.length) put(batch.reverse(), true);
+        }
+      } catch (e) {
+        if (mine.signal.aborted) return;
+        dot.className = 'pulse'; state.textContent = 'reconnecting (' + e.message + ')';
+      }
+      if (ctl !== mine) return;
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  toggle.onclick = () => {
+    if (ctl) { ctl.abort(); ctl = null; dot.className = 'pulse'; state.textContent = 'paused'; toggle.textContent = 'Resume'; }
+    else { toggle.textContent = 'Pause'; state.textContent = 'connecting…'; stream(); }
+  };
+  window.addEventListener('pagehide', () => { if (ctl) ctl.abort(); });
+  api('/api/logs?' + q({ host: name, limit: LIVE_ROWS })).then(rows => {
+    put(rows, false);
+    if (!rows.length) body.append(empty(4, 'Nothing yet; lines appear here as they arrive.'));
+  }).catch(() => {});
+  stream();
+  return [h('div', 'livehead', h('h2', null, 'Latest lines'), dot, state, toggle), h('table', null, body)];
 }
 
 // ---------- Admin ----------

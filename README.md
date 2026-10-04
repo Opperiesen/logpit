@@ -864,7 +864,8 @@ They use the same token as the main page, kept in the same browser, and the same
   its recent form (five slices of the window, red or amber only when one stands out), its last log and its
   counts, worst first; a dot pulses while the host is talking. It refreshes every 30 seconds and is dark unless the light
   theme is chosen under Settings.
-- **`/host/<name>`**: everything about one host: its volume over 7 days by severity, latest errors, apps
+- **`/host/<name>`**: everything about one host: its latest lines, which arrive live (*Pause* stops
+  them), its volume over 7 days by severity, latest errors, apps
   and message patterns over 24 hours, its alerts, tags and state, and a link to search its logs. The
   Hosts panel links each host to its page.
 - **`/admin`** (admin scope): the storage (the database's size, entries, oldest entry and last day's

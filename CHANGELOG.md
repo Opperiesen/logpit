@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Web UI host page: its latest twelve lines on top, which arrive live through the tail, with *Pause*.
+
 - Web UI admin: a *Storage* section with the database's size (and its cap), entries, oldest entry and
   last day's arrivals, where its size is heading at that pace, and each host's share of the entries;
   `GET /api/storage` (admin scope) gives the figures.
