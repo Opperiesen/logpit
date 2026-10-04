@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.0 - 2026-10-04
+
 - `syslog.timezone` accepts a zone name such as `Europe/Paris`, read from `/usr/share/zoneinfo` (mount
   it into the `scratch` image), or the POSIX rule it stands for (`CET-1CEST,M3.5.0,M10.5.0/3`), which
   needs no file: RFC 3164 stamps then follow daylight saving time, which a fixed offset cannot.
