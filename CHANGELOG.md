@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- GELF over UDP accepts chunked messages, which Docker's GELF driver sends for anything over
+  about 1.4 KB once compressed and which were refused until now. Chunks are reassembled in any order
+  within five seconds, with at most 8 MiB held by incomplete messages; what is given up is counted as
+  rejected.
+
 - Statistics: `bucket` accepts the same durations as the Loki API (`1h30m`, `1.5h`, `1w`),
   still at least one second.
 

@@ -1,10 +1,14 @@
 //! GELF (Graylog Extended Log Format) input: one JSON object per message, over UDP, TCP
 //! (messages separated by a NUL byte or a newline) or `POST /gelf`.
 //!
-//! Messages may be gzip- or zlib-compressed (the usual default of GELF senders). Chunked UDP
-//! messages are not supported.
+//! Messages may be gzip- or zlib-compressed (the usual default of GELF senders). Over UDP, a
+//! message too large for one datagram arrives in chunks that [`Chunks`] puts back together, with
+//! bounded memory: incomplete messages are given up after a few seconds.
 
+use std::collections::HashMap;
 use std::io;
+use std::net::IpAddr;
+use std::time::{Duration, Instant};
 
 use bytes::BytesMut;
 use serde_json::Value;
@@ -44,7 +48,7 @@ fn number(v: &Value) -> Option<f64> {
 pub fn parse(data: &[u8], now_ms: i64) -> Result<LogEntry, &'static str> {
     let data = data.trim_ascii();
     if data.starts_with(&[0x1e, 0x0f]) {
-        return Err("chunked GELF is not supported; send each message in one datagram");
+        return Err("chunked GELF is only accepted over UDP");
     }
     // gzip and zlib (what Docker's GELF driver and most libraries use by default) are undone first.
     let inflated;
@@ -130,6 +134,103 @@ pub fn parse(data: &[u8], now_ms: i64) -> Result<LogEntry, &'static str> {
         }
     }
     Ok(e)
+}
+
+/// Starts a chunk: magic bytes, an 8-byte message id, the sequence number and the chunk count.
+const CHUNK_MAGIC: [u8; 2] = [0x1e, 0x0f];
+const CHUNK_HEADER: usize = 12;
+/// The GELF specification's limits: at most 128 chunks, and a message is dropped when its chunks
+/// have not all arrived within five seconds.
+const MAX_CHUNKS: u8 = 128;
+const CHUNK_TIMEOUT: Duration = Duration::from_secs(5);
+/// Bytes held by all incomplete messages together; a chunk that would go past it is refused.
+const MAX_PENDING_BYTES: usize = 8 << 20;
+
+pub fn is_chunk(datagram: &[u8]) -> bool {
+    datagram.starts_with(&CHUNK_MAGIC)
+}
+
+struct Pending {
+    started: Instant,
+    parts: Vec<Option<Vec<u8>>>,
+    missing: usize,
+    bytes: usize,
+}
+
+/// Reassembles chunked GELF datagrams. Messages are keyed by sender and id, so one sender
+/// cannot complete or spoil another's.
+#[derive(Default)]
+pub struct Chunks {
+    pending: HashMap<(IpAddr, [u8; 8]), Pending>,
+    bytes: usize,
+}
+
+impl Chunks {
+    /// Adds one chunk; returns the whole message once its last chunk arrives.
+    pub fn add(
+        &mut self,
+        peer: IpAddr,
+        datagram: &[u8],
+        now: Instant,
+    ) -> Result<Option<Vec<u8>>, &'static str> {
+        let (Some(header), Some(payload)) =
+            (datagram.get(..CHUNK_HEADER), datagram.get(CHUNK_HEADER..))
+        else {
+            return Err("invalid GELF chunk: truncated header");
+        };
+        let mut id = [0u8; 8];
+        id.copy_from_slice(&header[2..10]);
+        let (seq, count) = (header[10], header[11]);
+        if count == 0 || count > MAX_CHUNKS || seq >= count {
+            return Err("invalid GELF chunk: bad sequence number or count");
+        }
+        if self.bytes + payload.len() > MAX_PENDING_BYTES {
+            return Err("too many incomplete chunked GELF messages");
+        }
+        let key = (peer, id);
+        let p = self.pending.entry(key).or_insert_with(|| Pending {
+            started: now,
+            parts: vec![None; usize::from(count)],
+            missing: usize::from(count),
+            bytes: 0,
+        });
+        if p.parts.len() != usize::from(count) {
+            return Err("invalid GELF chunk: count differs between chunks");
+        }
+        if p.bytes + payload.len() > MAX_MESSAGE_BYTES {
+            self.bytes -= p.bytes;
+            self.pending.remove(&key);
+            return Err("chunked GELF message too large");
+        }
+        let slot = &mut p.parts[usize::from(seq)];
+        if slot.is_some() {
+            return Ok(None); // a repeated chunk changes nothing
+        }
+        *slot = Some(payload.to_vec());
+        p.missing -= 1;
+        p.bytes += payload.len();
+        self.bytes += payload.len();
+        if p.missing > 0 {
+            return Ok(None);
+        }
+        let p = self.pending.remove(&key).expect("just updated");
+        self.bytes -= p.bytes;
+        Ok(Some(p.parts.into_iter().flatten().flatten().collect()))
+    }
+
+    /// Drops the messages whose chunks did not all arrive in time; returns how many.
+    pub fn expire(&mut self, now: Instant) -> usize {
+        let before = self.pending.len();
+        let bytes = &mut self.bytes;
+        self.pending.retain(|_, p| {
+            let keep = now.duration_since(p.started) < CHUNK_TIMEOUT;
+            if !keep {
+                *bytes -= p.bytes;
+            }
+            keep
+        });
+        before - self.pending.len()
+    }
 }
 
 /// Splits a TCP stream into GELF messages: each ends at a NUL byte or a newline.
@@ -273,7 +374,7 @@ mod tests {
             (b"[1,2]", "not a JSON object"),
             (b"\x1f\x8b\x08\x00....", "compressed"),
             (b"x\x9c\x4b\xcb", "compressed"),
-            (b"\x1e\x0fchunk", "chunked"),
+            (b"\x1e\x0fchunk", "only accepted over UDP"),
             (b"", "not JSON"),
         ] {
             let err = parse(input, 0).unwrap_err();
@@ -377,5 +478,78 @@ mod tests {
                 .decode(&mut BytesMut::from(&b"0123456789"[..]))
                 .is_err()
         );
+    }
+
+    fn chunk(id: u8, seq: u8, count: u8, payload: &[u8]) -> Vec<u8> {
+        let mut c = vec![0x1e, 0x0f, id, 0, 0, 0, 0, 0, 0, 0, seq, count];
+        c.extend_from_slice(payload);
+        c
+    }
+
+    #[test]
+    fn chunks_are_reassembled_in_any_order() {
+        let peer: IpAddr = [10, 0, 0, 1].into();
+        let other: IpAddr = [10, 0, 0, 2].into();
+        let t = Instant::now();
+        let mut chunks = Chunks::default();
+        // Docker compresses then chunks: the gzipped message split in three, out of order.
+        let (a, rest) = GZIPPED.split_at(40);
+        let (b, c) = rest.split_at(40);
+        assert!(is_chunk(&chunk(1, 2, 3, c)));
+        assert_eq!(chunks.add(peer, &chunk(1, 2, 3, c), t), Ok(None));
+        assert_eq!(chunks.add(peer, &chunk(1, 0, 3, a), t), Ok(None));
+        assert_eq!(chunks.add(peer, &chunk(1, 0, 3, a), t), Ok(None), "repeat");
+        // The same id from another sender is another message.
+        assert_eq!(chunks.add(other, &chunk(1, 1, 3, b), t), Ok(None));
+        let whole = chunks.add(peer, &chunk(1, 1, 3, b), t).unwrap().unwrap();
+        assert_eq!(parse(&whole, 0).unwrap().message, "compressed hello");
+        // One chunk is a whole message; the other sender's part expires and frees its bytes.
+        let one = chunks.add(peer, &chunk(2, 0, 1, b"{\"short_message\":\"x\"}"), t);
+        assert_eq!(parse(&one.unwrap().unwrap(), 0).unwrap().message, "x");
+        assert_eq!(chunks.expire(t + Duration::from_secs(4)), 0);
+        assert_eq!(chunks.expire(t + CHUNK_TIMEOUT), 1);
+        assert_eq!((chunks.pending.len(), chunks.bytes), (0, 0));
+    }
+
+    #[test]
+    fn bad_chunks_are_refused_and_memory_stays_bounded() {
+        let peer: IpAddr = [10, 0, 0, 1].into();
+        let t = Instant::now();
+        let mut chunks = Chunks::default();
+        for (bad, expect) in [
+            (vec![0x1e, 0x0f, 1, 2], "truncated"),
+            (chunk(1, 0, 0, b"x"), "count"),
+            (chunk(1, 3, 3, b"x"), "count"),
+            (chunk(1, 0, 129, b"x"), "count"),
+        ] {
+            assert!(chunks.add(peer, &bad, t).unwrap_err().contains(expect));
+        }
+        chunks.add(peer, &chunk(1, 0, 3, b"x"), t).unwrap();
+        assert!(
+            chunks
+                .add(peer, &chunk(1, 1, 2, b"x"), t)
+                .unwrap_err()
+                .contains("differs")
+        );
+        // A message may not grow past the message limit, nor all of them past the pending one.
+        let big = vec![b'z'; 60_000];
+        let mut err = Ok(None);
+        for seq in 0..20 {
+            err = chunks.add(peer, &chunk(2, seq, 100, &big), t);
+            if err.is_err() {
+                break;
+            }
+        }
+        assert_eq!(err, Err("chunked GELF message too large"));
+        assert_eq!(chunks.bytes, 1, "the dropped message freed its bytes");
+        let mut refused = false;
+        for id in 3..=255 {
+            for seq in 0..16 {
+                if chunks.add(peer, &chunk(id, seq, 100, &big), t).is_err() {
+                    refused = true;
+                }
+            }
+        }
+        assert!(refused && chunks.bytes <= MAX_PENDING_BYTES);
     }
 }

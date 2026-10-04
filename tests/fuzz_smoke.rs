@@ -164,6 +164,23 @@ fn gelf_messages() {
 }
 
 #[test]
+fn gelf_chunks() {
+    let seeds: &[&[u8]] = &[
+        b"\x1e\x0f\x01\x02\x03\x04\x05\x06\x07\x08\x00\x02{\"short_message\":",
+        b"\x1e\x0f\x01\x02\x03\x04\x05\x06\x07\x08\x01\x02\"m\"}",
+    ];
+    let chunks = std::cell::RefCell::new(logpit::gelf::Chunks::default());
+    let start = std::time::Instant::now();
+    fuzz("gelf::Chunks", seeds, |b| {
+        let mut chunks = chunks.borrow_mut();
+        if let Ok(Some(message)) = chunks.add([127, 0, 0, 1].into(), b, start) {
+            let _ = logpit::gelf::parse(&message, 0);
+        }
+        chunks.expire(start);
+    });
+}
+
+#[test]
 fn decompressors() {
     const GZ_HELLO: &[u8] = &[
         0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xab, 0x56, 0x2a, 0xce, 0xc8,

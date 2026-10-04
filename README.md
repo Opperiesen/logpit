@@ -322,9 +322,12 @@ docker run --log-driver gelf --log-opt gelf-address=udp://logpit-host:12201 …
 `full_message` (appended on a new line) map to the entry, `_app`/`_facility`… name the app, and
 other `_custom` fields become fields (`_id` is reserved). TCP messages end with a NUL byte or a
 newline. Messages may be gzip- or zlib-compressed, which is what Docker's GELF driver and most
-libraries do by default (over HTTP use `Content-Encoding: gzip` or `deflate`). **Chunked UDP messages
-are not supported**: they are refused (logged once, counted in `logpit_rejected_total`), so keep each
-message in one datagram. The UDP and TCP listeners are unauthenticated like syslog; keep them on a
+libraries do by default (over HTTP use `Content-Encoding: gzip` or `deflate`). Over UDP, a message
+too large for one datagram may come in chunks (Docker's GELF driver chunks anything over about 1.4 KB
+once compressed): they are put back together, in any order, if all of them arrive within five
+seconds. An incomplete message is then dropped and counted in `logpit_rejected_total`, as is a chunk
+that would make incomplete messages hold more than 8 MiB together. The UDP and TCP listeners are
+unauthenticated like syslog; keep them on a
 trusted network, or use `POST /gelf` with a token.
 
 **OpenTelemetry (OTLP/HTTP and gRPC)**: `POST /v1/logs` accepts the protobuf (`application/x-protobuf`) and

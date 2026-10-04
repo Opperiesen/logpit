@@ -258,16 +258,33 @@ pub async fn run_udp(addr: SocketAddr, sink: Sink) -> anyhow::Result<()> {
     }
 }
 
-/// GELF over UDP: one message per datagram.
+/// GELF over UDP: one message per datagram, or a message in chunks.
 pub async fn run_gelf_udp(addr: SocketAddr, sink: Sink) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(addr).await?;
     tracing::info!("GELF UDP listening on {addr}");
     let mut buf = vec![0u8; 65_536];
+    let mut chunks = crate::gelf::Chunks::default();
     let mut warned = false;
     loop {
         match socket.recv_from(&mut buf).await {
             Ok((n, peer)) => {
-                if let Err(e) = sink.push_gelf(&buf[..n]) {
+                let now = std::time::Instant::now();
+                let expired = chunks.expire(now);
+                Metrics::inc(&sink.metrics.rejected, expired as u64);
+                let datagram = &buf[..n];
+                let result = if crate::gelf::is_chunk(datagram) {
+                    match chunks.add(peer.ip(), datagram, now) {
+                        Ok(Some(message)) => sink.push_gelf(&message),
+                        Ok(None) => Ok(()),
+                        Err(e) => {
+                            Metrics::inc(&sink.metrics.rejected, 1);
+                            Err(e)
+                        }
+                    }
+                } else {
+                    sink.push_gelf(datagram)
+                };
+                if let Err(e) = result {
                     // A sender using compression would otherwise fail silently: say so once.
                     if !warned {
                         warned = true;
