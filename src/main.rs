@@ -97,6 +97,12 @@ async fn retention_loop(
         n += 1;
         let now = now_ms();
         let cutoffs = retention_days.map(|d| (d > 0).then(|| now - i64::from(d) * 86_400_000));
+        // Spans are kept as long as the longest-kept logs, so a trace outlives none of its lines.
+        let span_cutoff = cutoffs
+            .iter()
+            .all(Option::is_some)
+            .then(|| cutoffs.iter().flatten().min().copied())
+            .flatten();
         let rules: Vec<store::PurgeRule> = rules
             .iter()
             .map(|(r, d)| store::PurgeRule {
@@ -125,6 +131,9 @@ async fn retention_loop(
             };
             let hook: Option<store::ArchiveHook<'_>> = archiver.is_some().then_some(&write);
             let aged = if purge_by_age {
+                if let Some(cutoff) = span_cutoff {
+                    store::purge_spans(&conn, cutoff)?;
+                }
                 store::purge_rules(&conn, &rules, &cutoffs, hook)?
             } else {
                 0
@@ -134,6 +143,12 @@ async fn retention_loop(
             } else {
                 0
             };
+            // The size cap drops the oldest logs; the spans older than what is left go with them.
+            if evicted > 0
+                && let Some(oldest) = store::min_ts(&conn)?
+            {
+                store::purge_spans(&conn, oldest)?;
+            }
             Ok((aged, evicted, store::used_bytes(&conn)?))
         })
         .await;

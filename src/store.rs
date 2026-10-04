@@ -109,7 +109,25 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
     // Saved views live in an extra table that does not change the schema version, so an older
     // LogPit can still open the database (it simply ignores the table).
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS alert_rules (
+        "CREATE TABLE IF NOT EXISTS spans (
+            id             INTEGER PRIMARY KEY,
+            trace_id       TEXT NOT NULL,
+            span_id        TEXT NOT NULL,
+            parent_id      TEXT NOT NULL,
+            name           TEXT NOT NULL,
+            kind           INTEGER NOT NULL,
+            service        TEXT NOT NULL,
+            host           TEXT NOT NULL,
+            start_us       INTEGER NOT NULL,
+            duration_us    INTEGER NOT NULL,
+            status         INTEGER NOT NULL,
+            status_message TEXT NOT NULL,
+            attributes     TEXT NOT NULL,
+            events         TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS spans_id ON spans (trace_id, span_id);
+        CREATE INDEX IF NOT EXISTS spans_start ON spans (start_us);
+        CREATE TABLE IF NOT EXISTS alert_rules (
             id         INTEGER PRIMARY KEY,
             name       TEXT NOT NULL UNIQUE,
             rule       TEXT NOT NULL,
@@ -1161,6 +1179,57 @@ pub fn save_alert_rule(
 /// Deletes an alert rule; false when there was none with that id.
 pub fn delete_alert_rule(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
     Ok(conn.execute("DELETE FROM alert_rules WHERE id = ?1", [id])? > 0)
+}
+
+/// Stores spans in one transaction; a span already stored (same trace and span id, as an exporter
+/// retrying sends) is left as it is. Returns how many were new.
+pub fn insert_spans(
+    conn: &mut Connection,
+    spans: &[crate::spans::Span],
+) -> rusqlite::Result<usize> {
+    let tx = conn.transaction()?;
+    let mut added = 0;
+    {
+        let mut stmt = tx.prepare_cached(
+            "INSERT OR IGNORE INTO spans (trace_id, span_id, parent_id, name, kind, service, host,
+             start_us, duration_us, status, status_message, attributes, events)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        )?;
+        for s in spans {
+            added += stmt.execute(params![
+                s.trace_id,
+                s.span_id,
+                s.parent_id,
+                s.name,
+                s.kind,
+                s.service,
+                s.host,
+                s.start_us,
+                s.duration_us,
+                s.status,
+                s.status_message,
+                serde_json::Value::Object(s.attributes.clone()).to_string(),
+                serde_json::to_string(&s.events).unwrap_or_else(|_| "[]".into()),
+            ])?;
+        }
+    }
+    tx.commit()?;
+    Ok(added)
+}
+
+/// Deletes the spans that started before `cutoff_ms`, a chunk at a time; returns how many.
+pub fn purge_spans(conn: &Connection, cutoff_ms: i64) -> rusqlite::Result<usize> {
+    let mut total = 0;
+    loop {
+        let n = conn.execute(
+            "DELETE FROM spans WHERE id IN (SELECT id FROM spans WHERE start_us < ?1 LIMIT 5000)",
+            [cutoff_ms.saturating_mul(1000)],
+        )?;
+        total += n;
+        if n < 5000 {
+            return Ok(total);
+        }
+    }
 }
 
 /// What the database holds, for the administration page: its size, its entries and their span, and
@@ -3274,6 +3343,38 @@ mod tests {
             .unwrap()
             .is_empty()
         );
+    }
+
+    #[test]
+    fn spans_are_stored_once_and_purged_by_age() {
+        let mut conn = mem();
+        let span = |id: &str, start_us| crate::spans::Span {
+            trace_id: "ab".repeat(16),
+            span_id: id.into(),
+            name: "GET /".into(),
+            service: "web".into(),
+            host: "pve".into(),
+            start_us,
+            duration_us: 10,
+            ..Default::default()
+        };
+        let batch = [
+            span("1111111111111111", 1_000),
+            span("2222222222222222", 5_000_000),
+        ];
+        assert_eq!(insert_spans(&mut conn, &batch).unwrap(), 2);
+        assert_eq!(
+            insert_spans(&mut conn, &batch).unwrap(),
+            0,
+            "a retry adds nothing"
+        );
+        let count = |c: &Connection| {
+            c.query_row("SELECT COUNT(*) FROM spans", [], |r| r.get::<_, i64>(0))
+                .unwrap()
+        };
+        assert_eq!(count(&conn), 2);
+        assert_eq!(purge_spans(&conn, 2_000).unwrap(), 1, "older than 2 s");
+        assert_eq!(count(&conn), 1);
     }
 
     #[test]

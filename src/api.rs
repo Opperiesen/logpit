@@ -73,6 +73,8 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/gelf", post(gelf_ingest))
         .route("/v1/logs", post(otlp_logs))
         .route(crate::grpc::LOGS_EXPORT_PATH, post(otlp_grpc))
+        .route("/v1/traces", post(otlp_traces))
+        .route(crate::grpc::TRACES_EXPORT_PATH, post(otlp_grpc_traces))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Write),
             require_scope,
@@ -655,6 +657,60 @@ async fn otlp_grpc(
     body: Bytes,
 ) -> Response {
     crate::grpc::export_logs(state.sink.clone(), charge, headers, body).await
+}
+
+async fn otlp_grpc_traces(
+    State(state): State<AppState>,
+    Extension(charge): Extension<crate::quota::Charge>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let metrics = state.sink.metrics_arc();
+    crate::grpc::export_traces(state.db_path.clone(), metrics, charge, headers, body).await
+}
+
+/// OTLP/HTTP traces (`POST /v1/traces`), protobuf or JSON like `/v1/logs`; the spans are stored
+/// at once (see [`crate::spans`]).
+async fn otlp_traces(
+    State(state): State<AppState>,
+    Extension(charge): Extension<crate::quota::Charge>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let body = match decompress_request(&headers, body, false) {
+        Ok(b) => b,
+        Err((status, msg)) => return (status, msg).into_response(),
+    };
+    let is_json = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|t| t.to_ascii_lowercase().contains("json"));
+    let (db, metrics) = (state.db_path.clone(), state.sink.metrics_arc());
+    let result = tokio::task::spawn_blocking(move || {
+        crate::spans::store_spans(&db, &metrics, &body, is_json)
+    })
+    .await;
+    match result {
+        Ok(Ok(count)) => {
+            charge.add(count);
+            if is_json {
+                ([(header::CONTENT_TYPE, "application/json")], "{}").into_response()
+            } else {
+                ([(header::CONTENT_TYPE, "application/x-protobuf")], "").into_response()
+            }
+        }
+        Ok(Err(msg)) if msg == crate::spans::STORE_FAILED => {
+            (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+        }
+        Ok(Err(msg)) => {
+            Metrics::inc(&state.sink.metrics().spans_rejected, 1);
+            (StatusCode::BAD_REQUEST, msg).into_response()
+        }
+        Err(e) => {
+            tracing::error!("otlp traces task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "export failed").into_response()
+        }
+    }
 }
 
 async fn otlp_logs(

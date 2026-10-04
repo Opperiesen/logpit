@@ -731,12 +731,31 @@ async fn grpc(
     extra: &[(&str, &str)],
     body: Vec<u8>,
 ) -> GrpcReply {
+    grpc_to(
+        addr,
+        logpit::grpc::LOGS_EXPORT_PATH,
+        content_type,
+        auth,
+        extra,
+        body,
+    )
+    .await
+}
+
+async fn grpc_to(
+    addr: SocketAddr,
+    path: &str,
+    content_type: &str,
+    auth: Option<&str>,
+    extra: &[(&str, &str)],
+    body: Vec<u8>,
+) -> GrpcReply {
     let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
     let (mut client, connection) = h2::client::handshake(tcp).await.unwrap();
     tokio::spawn(connection);
     let mut req = http::Request::builder()
         .method("POST")
-        .uri(format!("http://{addr}{}", logpit::grpc::LOGS_EXPORT_PATH))
+        .uri(format!("http://{addr}{path}"))
         .header("content-type", content_type)
         .header("te", "trailers");
     if let Some(a) = auth {
@@ -1180,4 +1199,62 @@ async fn the_storage_summary_is_for_admins() {
         (Some(7), Some(0))
     );
     assert_eq!(get(s.addr, "/api/storage", READER).await.status, 403);
+}
+
+fn span_count(s: &Server) -> i64 {
+    let conn = logpit::store::open(&s.dir.join("t.db")).unwrap();
+    conn.query_row("SELECT COUNT(*) FROM spans", [], |r| r.get(0))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn otlp_traces_are_stored_over_http_and_grpc() {
+    let s = start(TOKENS).await;
+    let write = bearer(WRITER);
+    let json = br#"{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"shop"}}]},
+      "scopeSpans":[{"spans":[
+        {"traceId":"0af7651916cd43dd8448eb211c80319c","spanId":"b7ad6b7169203331","name":"GET /",
+         "startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000000020000000"},
+        {"traceId":"0af7651916cd43dd8448eb211c80319c","spanId":"00f067aa0ba902b7","parentSpanId":"b7ad6b7169203331",
+         "name":"SELECT","startTimeUnixNano":"1700000000005000000","endTimeUnixNano":"1700000000015000000"}]}]}]}"#;
+    // `call` sends JSON and copes with a refusal that resets the connection before the body is read.
+    let post = |auth: String, body: &'static [u8]| async move {
+        call(s.addr, "POST", "/v1/traces", Some(&auth), body)
+            .await
+            .status
+    };
+    assert_eq!(post(bearer(READER), json).await, 403);
+    assert_eq!(post(write.clone(), json).await, 200);
+    assert_eq!(span_count(&s), 2);
+    // Sent again (an exporter retrying): nothing is stored twice.
+    post(write.clone(), json).await;
+    assert_eq!(span_count(&s), 2);
+    assert_eq!(post(write.clone(), b"{").await, 400);
+
+    // ExportTraceServiceRequest { resource_spans { scope_spans { spans { trace_id, span_id, name } } } }
+    let mut span = vec![0x0a, 16];
+    span.extend_from_slice(&[0x5a; 16]);
+    span.extend_from_slice(&[0x12, 8]);
+    span.extend_from_slice(&[0x5b; 8]);
+    span.extend_from_slice(&[0x2a, 4]);
+    span.extend_from_slice(b"grpc");
+    let mut scope = vec![0x12, span.len() as u8];
+    scope.extend_from_slice(&span);
+    let mut resource = vec![0x12, scope.len() as u8];
+    resource.extend_from_slice(&scope);
+    let mut request = vec![0x0a, resource.len() as u8];
+    request.extend_from_slice(&resource);
+    let r = grpc_to(
+        s.addr,
+        logpit::grpc::TRACES_EXPORT_PATH,
+        "application/grpc",
+        Some(&write),
+        &[],
+        grpc_frame(&request),
+    )
+    .await;
+    assert_eq!(r.status().as_deref(), Some("0"), "{:?}", r.trailers);
+    assert_eq!(span_count(&s), 3);
+    let metrics = call(s.addr, "GET", "/metrics", None, b"").await.body;
+    assert!(metrics.contains("logpit_spans_stored_total 3"), "{metrics}");
 }

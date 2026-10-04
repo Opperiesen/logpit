@@ -7,7 +7,7 @@ lightweight alternative to Graylog or ELK for homelabs and small servers
 
 ## Features
 
-- **Ingestion**: OpenTelemetry (OTLP over HTTP and gRPC), the Loki push API (Promtail, Alloy…), GELF, syslog over UDP, TCP and TLS (RFC 5424 and RFC 3164, newline or octet-counted
+- **Ingestion**: OpenTelemetry logs and traces (OTLP over HTTP and gRPC), the Loki push API (Promtail, Alloy…), GELF, syslog over UDP, TCP and TLS (RFC 5424 and RFC 3164, newline or octet-counted
   framing, optional client certificates), and HTTP
   (`POST /ingest`) accepting NDJSON or a JSON array, including raw
   `journalctl -o json` output.
@@ -378,11 +378,29 @@ OTEL_EXPORTER_OTLP_LOGS_HEADERS="authorization=Bearer <write token>"
 - **What is served.** `opentelemetry.proto.collector.logs.v1.LogsService/Export` (unary), with the same
   mapping and write-token rules as OTLP/HTTP; the token goes in the `authorization` metadata. The
   `application/grpc` and `application/grpc+proto` content types are accepted, with `gzip` message
-  compression (other encodings answer `UNIMPLEMENTED`). Metrics and traces are not served.
+  compression (other encodings answer `UNIMPLEMENTED`). Traces are served too (see below); metrics are
+  not.
 - **Statuses.** A missing or wrong token is refused before the call with HTTP `401` or `403`, which gRPC
   clients report as `UNAUTHENTICATED` or `PERMISSION_DENIED`. A message that cannot be read answers
   `INVALID_ARGUMENT` with a reason, a message over 32 MiB `RESOURCE_EXHAUSTED`. On success the response is
   an empty `ExportLogsServiceResponse` and `grpc-status: 0` in the trailers.
+
+**OpenTelemetry traces** arrive the same ways: `POST /v1/traces` (protobuf or JSON, gzip optional) and
+gRPC `opentelemetry.proto.collector.trace.v1.TraceService/Export` on the HTTP port, with the write token.
+In the Collector, add a `traces` pipeline to the same exporter
+(`traces: { receivers: [otlp], exporters: [otlp/logpit] }`); an SDK takes
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` like the logs.
+
+- **What is kept.** Each span's trace, span and parent ids, name, kind, start and duration, status (with
+  its message), service and host (read from the resource like a log's app and host), its other resource
+  attributes and its own (at most 64, long values clipped), and its events (at most 32). A span whose trace
+  or span id is missing or all zeros is skipped and counted in `logpit_spans_rejected_total`.
+- **Stored once.** A span sent again (an exporter retrying) is not stored twice; `logpit_spans_stored_total`
+  counts the stored ones. Spans are written as they arrive, in a table of their own that does not change
+  the schema version (an older LogPit still opens the database and ignores it).
+- **Kept as long as the logs.** Spans are purged with the longest retention of the logs, so a trace never
+  outlives its lines, and with them when the size cap removes the oldest entries. Ingestion rules (drop,
+  mask) do not apply to spans.
 - **TLS.** With [HTTPS](#https) the same port negotiates HTTP/2 through ALPN, so gRPC over TLS works
   with an ordinary certificate (and `tls_client_ca` for mutual TLS). Without TLS the port speaks HTTP/2
   with prior knowledge (`h2c`), which is what an `insecure` gRPC channel does, next to HTTP/1.1.

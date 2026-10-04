@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- OpenTelemetry traces: `POST /v1/traces` (protobuf or JSON) and gRPC `TraceService/Export` store spans
+  (ids and parent, name, kind, timing, status, service, host, attributes and events, bounded), once each
+  even when sent again, purged with the logs' retention; `logpit_spans_stored_total` and
+  `logpit_spans_rejected_total` count them. The spans table does not change the schema version: an older
+  LogPit still opens the database and ignores it.
+
 ## 0.18.0 - 2026-10-05
 
 - Web UI host page: its latest twelve lines on top, which arrive live through the tail, with *Pause*.

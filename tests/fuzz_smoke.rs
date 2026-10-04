@@ -251,6 +251,29 @@ fn otlp_bodies() {
 }
 
 #[test]
+fn otlp_traces() {
+    let json = br#"{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"s"}}]},"scopeSpans":[{"spans":[{"traceId":"0af7651916cd43dd8448eb211c80319c","spanId":"b7ad6b7169203331","parentSpanId":"00f067aa0ba902b7","name":"n","kind":"SPAN_KIND_SERVER","startTimeUnixNano":"1","endTimeUnixNano":"2","events":[{"timeUnixNano":"1","name":"e"}],"status":{"code":2,"message":"m"}}]}]}]}"#;
+    // ExportTraceServiceRequest { resource_spans { scope_spans { spans { trace_id, span_id, name, status } } } }
+    let mut span = vec![0x0a, 16];
+    span.extend_from_slice(&[0x5a; 16]);
+    span.extend_from_slice(&[0x12, 8]);
+    span.extend_from_slice(&[0x5b; 8]);
+    span.extend_from_slice(&[0x2a, 1, b'n', 0x7a, 2, 0x18, 2]);
+    let mut scope = vec![0x12, span.len() as u8];
+    scope.extend_from_slice(&span);
+    let mut resource = vec![0x12, scope.len() as u8];
+    resource.extend_from_slice(&scope);
+    let mut request = vec![0x0a, resource.len() as u8];
+    request.extend_from_slice(&resource);
+    fuzz("spans::decode_protobuf", &[&request], |b| {
+        let _ = logpit::spans::decode_protobuf(b);
+    });
+    fuzz("spans::decode_json", &[json], |b| {
+        let _ = logpit::spans::decode_json(b);
+    });
+}
+
+#[test]
 fn message_level_parsers() {
     let seeds: &[&[u8]] = &[
         b"CEF:0|Ubiquiti|UniFi Network|9.0|400|Blocked|5|src=10.0.0.1 dst=1.1.1.1 msg=a\\=b c\\\\",

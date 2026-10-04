@@ -43,6 +43,7 @@ pub mod rules;
 pub mod shipper;
 pub mod silence;
 pub mod snappy;
+pub mod spans;
 pub mod stats;
 pub mod store;
 pub mod structured;

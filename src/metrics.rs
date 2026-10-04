@@ -12,6 +12,9 @@ pub struct Metrics {
     pub rejected: AtomicU64,
     /// Entries durably written to SQLite.
     pub stored: AtomicU64,
+    /// Spans stored (a span sent again is not counted twice), and spans refused or skipped.
+    pub spans_stored: AtomicU64,
+    pub spans_rejected: AtomicU64,
     /// Failed batch writes.
     pub write_errors: AtomicU64,
     /// Entries evicted to stay under `storage.max_db_size_mb`.
@@ -70,6 +73,16 @@ impl Metrics {
                 "logpit_write_errors_total",
                 "Failed storage batch writes",
                 &self.write_errors,
+            ),
+            (
+                "logpit_spans_stored_total",
+                "Trace spans written to storage",
+                &self.spans_stored,
+            ),
+            (
+                "logpit_spans_rejected_total",
+                "Trace spans refused or skipped for want of usable ids",
+                &self.spans_rejected,
             ),
             (
                 "logpit_config_reloads_total",

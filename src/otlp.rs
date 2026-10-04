@@ -9,22 +9,22 @@ use crate::proto::{Reader, utf8};
 use crate::structured::MAX_VALUE_BYTES;
 
 const MAX_FIELDS: usize = 64;
-const MAX_DEPTH: usize = 4;
+pub(crate) const MAX_DEPTH: usize = 4;
 
 /// Resource attributes checked, in order, for the host and the application.
-const HOST_KEYS: [&str; 4] = [
+pub(crate) const HOST_KEYS: [&str; 4] = [
     "host.name",
     "k8s.node.name",
     "k8s.pod.name",
     "service.instance.id",
 ];
-const APP_KEYS: [&str; 3] = [
+pub(crate) const APP_KEYS: [&str; 3] = [
     "service.name",
     "k8s.container.name",
     "process.executable.name",
 ];
 
-type Attrs = Vec<(String, Value)>;
+pub(crate) type Attrs = Vec<(String, Value)>;
 
 #[derive(Default)]
 struct Record {
@@ -40,12 +40,12 @@ struct Record {
 
 // ---- protobuf -----------------------------------------------------------------------------
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// `AnyValue`: one of string, bool, int, double, array, key/value list or bytes.
-fn any_value(buf: &[u8], depth: usize) -> Option<Value> {
+pub(crate) fn any_value(buf: &[u8], depth: usize) -> Option<Value> {
     if depth > MAX_DEPTH {
         return Some(Value::Null);
     }
@@ -96,7 +96,7 @@ fn any_value(buf: &[u8], depth: usize) -> Option<Value> {
 }
 
 /// `KeyValue { string key = 1; AnyValue value = 2; }`.
-fn key_value(buf: &[u8], depth: usize) -> Option<(String, Value)> {
+pub(crate) fn key_value(buf: &[u8], depth: usize) -> Option<(String, Value)> {
     let (mut key, mut value) = (String::new(), Value::Null);
     let mut r = Reader::new(buf);
     while !r.done() {
@@ -129,7 +129,7 @@ fn log_record(buf: &[u8]) -> Option<Record> {
 }
 
 /// `InstrumentationScope { string name = 1; string version = 2; … }`: the name.
-fn scope_name(buf: &[u8]) -> Option<String> {
+pub(crate) fn scope_name(buf: &[u8]) -> Option<String> {
     let mut name = String::new();
     let mut r = Reader::new(buf);
     while !r.done() {
@@ -196,7 +196,7 @@ pub fn decode_protobuf(buf: &[u8], now_ms: i64) -> Result<Vec<LogEntry>, &'stati
 // ---- JSON ---------------------------------------------------------------------------------
 
 /// JSON `AnyValue`: `{"stringValue": …}`, `{"intValue": "5"}`, `{"arrayValue": {"values": […]}}`…
-fn json_any(v: &Value, depth: usize) -> Value {
+pub(crate) fn json_any(v: &Value, depth: usize) -> Value {
     let Some(obj) = v.as_object().filter(|_| depth <= MAX_DEPTH) else {
         return Value::Null;
     };
@@ -237,7 +237,7 @@ fn json_any(v: &Value, depth: usize) -> Value {
     Value::Null
 }
 
-fn json_attrs(items: &[Value], depth: usize) -> Attrs {
+pub(crate) fn json_attrs(items: &[Value], depth: usize) -> Attrs {
     items
         .iter()
         .filter_map(|kv| {
@@ -250,7 +250,7 @@ fn json_attrs(items: &[Value], depth: usize) -> Attrs {
 }
 
 /// A nanosecond timestamp, which OTLP/JSON writes as a string (or, loosely, a number).
-fn json_nanos(v: Option<&Value>) -> u64 {
+pub(crate) fn json_nanos(v: Option<&Value>) -> u64 {
     match v {
         Some(Value::String(s)) => s.parse().unwrap_or(0),
         Some(Value::Number(n)) => n.as_u64().unwrap_or(0),
@@ -354,7 +354,7 @@ fn severity_of(number: u32, text: &str) -> u8 {
 }
 
 /// A value as field text; null, empty strings and unusable values give nothing.
-fn text(v: &Value) -> Option<String> {
+pub(crate) fn text(v: &Value) -> Option<String> {
     let mut s = match v {
         Value::String(s) if !s.is_empty() => s.clone(),
         Value::Number(n) => n.to_string(),

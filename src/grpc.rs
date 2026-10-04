@@ -13,6 +13,8 @@ use crate::metrics::Metrics;
 
 /// The path of the call.
 pub const LOGS_EXPORT_PATH: &str = "/opentelemetry.proto.collector.logs.v1.LogsService/Export";
+/// The same call for traces (`ExportTraceServiceRequest`).
+pub const TRACES_EXPORT_PATH: &str = "/opentelemetry.proto.collector.trace.v1.TraceService/Export";
 
 /// Largest message accepted once decompressed.
 const MAX_MESSAGE: usize = 32 * 1024 * 1024;
@@ -125,6 +127,52 @@ pub async fn export_logs(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let pushed = sink.clone();
+    export(
+        &sink.metrics().rejected,
+        charge,
+        headers,
+        body,
+        move |message| {
+            let entries = crate::otlp::decode_protobuf(&message, now_ms())?;
+            let count = entries.len();
+            for entry in entries {
+                pushed.push(entry);
+            }
+            Ok(count)
+        },
+    )
+    .await
+}
+
+/// Handles `TraceService/Export`: the spans are stored at once (see [`crate::spans`]).
+pub async fn export_traces(
+    db_path: std::path::PathBuf,
+    metrics: std::sync::Arc<Metrics>,
+    charge: crate::quota::Charge,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let counters = metrics.clone();
+    export(
+        &metrics.spans_rejected,
+        charge,
+        headers,
+        body,
+        move |message| crate::spans::store_spans(&db_path, &counters, &message, false),
+    )
+    .await
+}
+
+/// One unary export: checks the content type, reads the one message, and hands it to `handle`
+/// (on a blocking thread), which returns how many items it took or why it refused the message.
+async fn export(
+    rejected: &std::sync::atomic::AtomicU64,
+    charge: crate::quota::Charge,
+    headers: HeaderMap,
+    body: Bytes,
+    handle: impl FnOnce(Vec<u8>) -> Result<usize, &'static str> + Send + 'static,
+) -> Response {
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -145,27 +193,19 @@ pub async fn export_logs(
     let message = match read_message(&body, encoding) {
         Ok(m) => m,
         Err(Refusal(status, why)) => {
-            Metrics::inc(&sink.metrics().rejected, 1);
+            Metrics::inc(rejected, 1);
             return failure(status, why);
         }
     };
-    let pushed = sink.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let entries = crate::otlp::decode_protobuf(&message, now_ms())?;
-        let count = entries.len();
-        for entry in entries {
-            pushed.push(entry);
-        }
-        Ok::<_, &'static str>(count)
-    })
-    .await;
+    let result = tokio::task::spawn_blocking(move || handle(message)).await;
     match result {
         Ok(Ok(count)) => {
             charge.add(count);
             success()
         }
+        Ok(Err(why)) if why == crate::spans::STORE_FAILED => failure(code::INTERNAL, why),
         Ok(Err(why)) => {
-            Metrics::inc(&sink.metrics().rejected, 1);
+            Metrics::inc(rejected, 1);
             failure(code::INVALID_ARGUMENT, why)
         }
         Err(e) => {

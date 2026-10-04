@@ -125,6 +125,11 @@ impl Sink {
         &self.metrics
     }
 
+    /// The counters, to share with work done off the request (spans are stored there).
+    pub fn metrics_arc(&self) -> Arc<Metrics> {
+        self.metrics.clone()
+    }
+
     pub fn push(&self, mut entry: LogEntry) {
         let now = now_ms();
         truncate_utf8(&mut entry.host, MAX_NAME_BYTES);
