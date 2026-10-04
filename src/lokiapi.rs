@@ -32,41 +32,6 @@ const MAX_FIELD_LABELS: usize = 100;
 
 // ---- parameters ---------------------------------------------------------------------------
 
-fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => out.push(b' '),
-            b'%' if i + 2 < bytes.len() => {
-                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
-                match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
-                    Some(b) => {
-                        out.push(b);
-                        i += 2;
-                    }
-                    None => out.push(b'%'),
-                }
-            }
-            b => out.push(b),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// Decodes an `application/x-www-form-urlencoded` body.
-pub fn parse_form(body: &str) -> Vec<(String, String)> {
-    body.split('&')
-        .filter(|p| !p.is_empty())
-        .map(|p| {
-            let (k, v) = p.split_once('=').unwrap_or((p, ""));
-            (percent_decode(k), percent_decode(v))
-        })
-        .collect()
-}
-
 /// The query string's parameters plus those of a form-encoded POST body.
 fn all_params(
     mut params: Vec<(String, String)>,
@@ -77,8 +42,8 @@ fn all_params(
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.starts_with("application/x-www-form-urlencoded"));
-    if is_form && let Ok(text) = std::str::from_utf8(body) {
-        params.extend(parse_form(text));
+    if is_form {
+        params.extend(form_urlencoded::parse(body).into_owned());
     }
     params
 }
@@ -720,19 +685,27 @@ mod tests {
     }
 
     #[test]
-    fn form_bodies_are_decoded() {
+    fn form_bodies_add_to_the_query_parameters() {
+        let mut headers = HeaderMap::new();
+        let body = Bytes::from_static(b"query=%7Bhost%3D%22a%22%7D&x=a+b&y=%zz");
+        let query = vec![("limit".to_string(), "5".to_string())];
+        let pairs = |p: Vec<(String, String)>| {
+            p.into_iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+        };
         assert_eq!(
-            parse_form("query=%7Bhost%3D%22a%22%7D&limit=5&match%5B%5D=%7B%7D&x=a+b&y=%zz&z=%4"),
-            [
-                ("query".to_string(), "{host=\"a\"}".to_string()),
-                ("limit".to_string(), "5".to_string()),
-                ("match[]".to_string(), "{}".to_string()),
-                ("x".to_string(), "a b".to_string()),
-                ("y".to_string(), "%zz".to_string()),
-                ("z".to_string(), "%4".to_string()),
-            ]
+            pairs(all_params(query.clone(), &headers, &body)),
+            ["limit=5"]
         );
-        assert!(parse_form("").is_empty());
+        headers.insert(
+            header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded".parse().unwrap(),
+        );
+        assert_eq!(
+            pairs(all_params(query, &headers, &body)),
+            ["limit=5", "query={host=\"a\"}", "x=a b", "y=%zz"]
+        );
     }
 
     fn db(

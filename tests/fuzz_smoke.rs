@@ -285,7 +285,6 @@ fn query_languages() {
     fuzz("api parameters", seeds, |b| {
         let t = text(b);
         let _ = logpit::lokiapi::parse_time(&t);
-        let _ = logpit::lokiapi::parse_form(&t);
         let _ = logpit::stats::parse_bucket_ms(&t);
         let _ = logpit::tags::glob_match(&t, "web-01.example");
         let _ = logpit::tags::glob_match("w*b-?1*", &t);
