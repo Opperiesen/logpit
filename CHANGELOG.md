@@ -8,7 +8,11 @@
   below the line) that morphs between refreshes, with a tooltip, a *now* edge and an alert timeline;
   dragging across it dims the lines outside the range before zooming. Live lines slide in, counts roll
   to their new value, a line's context is prefetched on hover. New night-stadium dark and pitch-side
-  light themes, shared by the other views; violet is kept for your focus (selection, active filters).
+  light themes; violet is kept for your focus (selection, active filters).
+
+- Web UI: the board, host, admin and compare views join the same world: the command bar with a view
+  switcher, hairline tables, forms on a panel, the host's week as a momentum curve, and on the board a
+  pulse dot, the recent form and rolling counts per host, with each state as a tinted pill.
 
 - `GET /api/hosts` takes `form=N` (1 to 24): with a `since`, each host gets its `form`, the window cut in
   N slices with their entries, errors and warnings.

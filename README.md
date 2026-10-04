@@ -859,7 +859,8 @@ They use the same token as the main page, kept in the same browser, and the same
 - **`/board`**: a departure board of the hosts, made for a screen left on the wall. Each host is a row
   with its state over the last 15 minutes (`?minutes=60` for another window): *Cancelled* (silent),
   *Disrupted* (errors, with the latest error), *Delayed* (warnings, with the latest warning) or *On time*,
-  its last log and its counts, worst first. It refreshes every 30 seconds and is dark unless the light
+  its recent form (five slices of the window, red or amber only when one stands out), its last log and its
+  counts, worst first; a dot pulses while the host is talking. It refreshes every 30 seconds and is dark unless the light
   theme is chosen under Settings.
 - **`/host/<name>`**: everything about one host: its volume over 7 days by severity, latest errors, apps
   and message patterns over 24 hours, its alerts, tags and state, and a link to search its logs. The

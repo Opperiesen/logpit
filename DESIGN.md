@@ -36,6 +36,41 @@ colors:
   chart-info-day: "#94a3b8"
   chart-debug-day: "#cbd5e1"
 typography:
+  board-clock:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
+    fontSize: "28px"
+    fontWeight: 700
+    lineHeight: 1.2
+    letterSpacing: "-0.02em"
+    fontFeature: "tnum"
+  page-title:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
+    fontSize: "24px"
+    fontWeight: 700
+    lineHeight: 1.2
+    letterSpacing: "-0.02em"
+    fontFeature: "tnum"
+  board-figure:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
+    fontSize: "22px"
+    fontWeight: 650
+    lineHeight: 1.2
+    letterSpacing: "0"
+    fontFeature: "tnum"
+  board-row:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
+    fontSize: "18px"
+    fontWeight: 400
+    lineHeight: 1.4
+    letterSpacing: "0"
+    fontFeature: "tnum"
+  wordmark:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
+    fontSize: "17px"
+    fontWeight: 700
+    lineHeight: 32px
+    letterSpacing: "-0.02em"
+    fontFeature: "tnum"
   headline:
     fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
     fontSize: "20px"
@@ -178,7 +213,7 @@ Density is that of a working tool: 14px body, 32-36px controls, 16px gutters, ha
 
 The world is a match centre in structure, never in costume: no football words, cards or goals in the labels, no green-on-black hacker theme, no KPI tiles or decorative gradients. Everything ships inline under a strict CSP, so type is the system stack and every icon is inline SVG.
 
-Scope: the search page (`src/web/index.html`) is the redesigned surface and the reference for this system, with tokens in `src/web/theme.css`. `src/web/pages.html` (board, host, admin, compare) inherits these tokens but still carries the retired world's component styling (navy header band, timetable rows); it is scheduled for redesign and is not a source for this document. New work on those views follows this file, not their current markup.
+Scope: the search page (`src/web/index.html`) is the reference surface for this system, with tokens in `src/web/theme.css`. `src/web/pages.html` (board, host, admin, compare) is built in the same world: the same blurred command bar with a segmented view switcher, hairline tables with hover tint, forms as a 12px-radius surface panel, the host's week as the same momentum curve (errors mirrored below the line), and, on the board, the same pulse dots, calibrated form marks and rolling figures, with states as tinted pills. Links there are ink with a field-coloured underline, turning violet only on hover.
 
 **Key Characteristics:**
 - Night-stadium dark by default, pitch-side white by day; theme auto/light/dark via `data-theme`.
@@ -239,6 +274,7 @@ A cool, near-neutral night palette where hue only appears to say something: stat
 - **Body Dense** (13px): secondary filter row, host and app columns, stream timestamps (600).
 - **Label** (500-600, 11.5-12.5px): chart bar, table headers, counts, "seen" ages, tooltips, help.
 - **Pill** (600, 11px/19px, 0.02em): level pills, badges (10.5px), tags.
+- **Wordmark** (700, 17px) in every header. **Page title** (700, 24px) opens the board, host, admin and compare views. **Wall scale**, on the board only, for a screen read from across a room: rows 18px, figures 22px/650, host names 24px/700, the clock 28px/700.
 - **Message** (mono 12.5px/1.55, 11.5px/1.35 compact): log message bodies, wrapped `pre-wrap` by default.
 
 ### Named Rules
@@ -332,4 +368,3 @@ One ease, `cubic-bezier(.22, 1, .36, 1)` (`--ease`), a fast-settling ease-out. D
 - **Don't** add KPI tiles, decorative gradients or cards around content.
 - **Don't** dress the match-centre world as a sports app: no football words, cards or goals in labels.
 - **Don't** fall into the hacker costume: no green-on-black, CRT or neon.
-- **Don't** copy component styling from `pages.html` until it has been redesigned.

@@ -6,62 +6,86 @@
 <title>LogPit</title>
 <style>
 /*@theme*/
-  /* The other views share the main page's world: the navy band on top, timetable rows below. */
-  header.bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; padding:10px 16px; background:var(--shell); color:var(--shell-ink); }
-  header.bar a { color:var(--shell-ink); text-decoration:none; font-weight:600; }
-  header.bar a:hover { text-decoration:underline; text-underline-offset:3px; }
-  header.bar .brand { font-size:20px; font-weight:700; letter-spacing:-.01em; }
-  header.bar nav { display:flex; gap:16px; }
-  header.bar nav a[aria-current=page] { text-decoration:underline; text-decoration-thickness:2px; text-underline-offset:6px; }
-  header.bar :focus-visible { outline-color:var(--shell-ink); }
-  #status { margin-left:auto; color:var(--shell-muted); font-size:13px; }
-  main { padding:16px 16px 32px; }
-  h1 { margin:0 0 4px; font-size:20px; font-weight:700; }
-  h2 { margin:24px 0 8px; padding-bottom:4px; border-bottom:1px solid var(--ink); font-size:14px; font-weight:700; }
-  .sub { color:var(--muted); margin:0 0 8px; }
+  @keyframes pulse { 0% { transform:scale(1); opacity:.55; } 70%, 100% { transform:scale(2.6); opacity:0; } }
+  @keyframes reveal { from { opacity:0; transform:translateY(-3px); } }
+  /* The other views share the search page's world: the same command bar on top, hairline tables below. */
+  header.bar { position:sticky; top:0; z-index:10; display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; padding:10px 16px; background:color-mix(in srgb, var(--shell) 88%, transparent); color:var(--shell-ink); backdrop-filter:saturate(1.4) blur(12px); border-bottom:1px solid var(--rule); }
+  header.bar a { color:var(--shell-ink); text-decoration:none; }
+  header.bar .brand { display:flex; align-items:center; gap:8px; font-size:17px; line-height:32px; font-weight:700; letter-spacing:-.02em; }
+  header.bar nav { display:flex; gap:2px; padding:2px; border-radius:var(--radius); background:var(--surface); }
+  header.bar nav a { padding:4px 12px; border-radius:var(--radius-s); color:var(--muted); font-size:13px; font-weight:600; transition:background-color .16s var(--ease), color .16s var(--ease); }
+  header.bar nav a:hover { background:var(--surface-2); color:var(--ink); }
+  header.bar nav a[aria-current=page] { background:var(--surface-2); color:var(--ink); box-shadow:var(--raise); }
+  #status { margin-left:auto; color:var(--shell-muted); font-size:12.5px; }
+  main { padding:24px 24px 40px; animation:reveal .24s var(--ease); }
+  h1 { display:flex; align-items:center; gap:10px; margin:0 0 4px; font-size:24px; font-weight:700; letter-spacing:-.02em; }
+  h2 { margin:32px 0 10px; font-size:15px; font-weight:650; letter-spacing:-.01em; }
+  .sub { color:var(--muted); margin:0 0 12px; }
   .msg { padding:24px 0; color:var(--muted); }
-  a { color:var(--accent); text-underline-offset:3px; }
+  a { color:var(--ink); text-decoration-color:var(--field); text-underline-offset:3px; transition:color .16s var(--ease), text-decoration-color .16s var(--ease); }
+  a:hover { color:var(--accent); text-decoration-color:currentColor; }
   table { width:100%; border-collapse:collapse; }
-  th { text-align:left; font-size:12px; font-weight:600; color:var(--muted); padding:4px 12px 4px 0; border-bottom:1px solid var(--rule); white-space:nowrap; }
-  td { padding:5px 12px 5px 0; border-bottom:1px solid var(--rule); vertical-align:baseline; }
+  th { text-align:left; font-size:11.5px; font-weight:500; color:var(--muted); padding:6px 12px 6px 0; border-bottom:1px solid var(--rule); white-space:nowrap; }
+  td { padding:8px 12px 8px 0; border-bottom:1px solid color-mix(in srgb, var(--rule) 65%, transparent); vertical-align:baseline; }
+  tbody tr { transition:background-color .12s var(--ease); }
+  tbody tr:hover td { background:var(--tint); }
   td.n, th.n { text-align:right; }
   .mono { font-family:var(--mono); font-size:12.5px; }
   .clip { max-width:0; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .muted { color:var(--muted); }
   .nw { white-space:nowrap; }
-  .e { color:var(--err); font-weight:700; } .w { color:var(--warn); font-weight:700; } .ok { color:var(--ok); font-weight:700; }
-  .up { color:var(--err); font-weight:700; } .down { color:var(--ok); font-weight:700; }
-  .badge { display:inline-block; padding:0 6px; border-radius:2px; background:var(--err); color:var(--ground); font-weight:700; }
-  .tag { display:inline-block; margin-right:4px; padding:0 5px; border:1px solid var(--field); border-radius:2px; font-size:11px; color:var(--muted); }
-  .grid { display:grid; gap:0 32px; }
+  .e { color:var(--err); font-weight:600; } .w { color:var(--warn); font-weight:600; } .ok { color:var(--ok); font-weight:600; }
+  .up, .down { font-weight:600; } td.up, td.down { white-space:nowrap; }
+  .up b, .down b { display:inline-block; padding:0 8px; border-radius:999px; font-weight:600; }
+  .up b { color:var(--err); background:var(--err-tint); } .down b { color:var(--ok); background:var(--ok-tint); }
+  .badge { display:inline-block; padding:0 8px; border-radius:999px; background:var(--err); color:var(--ground); font:600 11px/19px var(--sans); }
+  .badge.silent { background:var(--quiet-tint); color:var(--muted); box-shadow:inset 0 0 0 1px var(--field); }
+  .tag { display:inline-block; margin-right:4px; padding:0 8px; border-radius:999px; background:var(--quiet-tint); font:500 11px/19px var(--sans); color:var(--muted); }
+  .grid { display:grid; gap:0 40px; }
   @media (min-width:1000px) { .grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
-  form.row { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:0 0 12px; }
-  form.row label { display:grid; gap:2px; font-size:12px; color:var(--muted); }
+  form.row { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin:0 0 14px; padding:14px; border:1px solid var(--rule); border-radius:12px; background:var(--surface); }
+  form.row label { display:grid; gap:4px; font-size:12px; color:var(--muted); }
+  form.row input, form.row select { background:var(--ground); }
   .s0, .s1, .s2, .s3 { color:var(--err); } .s4 { color:var(--warn); } .s5 { color:var(--notice); } .s6 { color:var(--chart-info); } .s7 { color:var(--chart-debug); }
-  svg.vol { display:block; width:100%; height:96px; border-bottom:1px solid var(--ink); }
-  svg.vol rect { fill:currentColor; }
-  .ticks { position:relative; height:18px; font-size:11px; font-weight:700; }
-  .ticks span { position:absolute; padding-left:3px; border-left:1px solid var(--ink); }
-  .meter { height:4px; background:var(--notice); }
+  .meter { height:5px; border-radius:999px; background:var(--notice); min-width:3px; transition:width .5s var(--ease); }
+  /* The host's week as a momentum curve: what is not an error above the line, errors below it. */
+  .vol { position:relative; display:flex; gap:2px; height:170px; }
+  .vol::before { content:''; position:absolute; left:0; right:0; top:120px; height:1px; background:var(--rule); }
+  .vol .col { flex:1 1 0; min-width:0; display:flex; flex-direction:column; border-radius:4px; }
+  .vol .col:hover { background:var(--tint); }
+  .vol .upz { height:120px; display:flex; flex-direction:column-reverse; }
+  .vol .dnz { height:50px; display:flex; flex-direction:column; padding-top:1px; }
+  .vol .seg { height:0; background:currentColor; transition:height .4s var(--ease); }
+  .vol .upz .seg:last-child { border-radius:4px 4px 0 0; } .vol .dnz .seg:last-child { border-radius:0 0 4px 4px; }
+  .ticks { position:relative; height:22px; margin-top:4px; font-size:11px; font-weight:500; color:var(--muted); }
+  .ticks span { position:absolute; translate:-50% 0; white-space:nowrap; }
+  /* Live state, as on the search page's host rail. */
+  .pulse { position:relative; display:inline-block; flex:none; width:10px; height:10px; border-radius:50%; background:var(--field); color:var(--field); }
+  .pulse.on { background:var(--ok); color:var(--ok); } .pulse.hot { background:var(--err); color:var(--err); } .pulse.warm { background:var(--warn); color:var(--warn); }
+  .pulse.on::after, .pulse.hot::after, .pulse.warm::after { content:''; position:absolute; inset:0; border-radius:50%; background:currentColor; animation:pulse 2.4s var(--ease) infinite; }
+  .pulse.off { background:transparent; box-shadow:inset 0 0 0 2px var(--field); }
+  .form { display:inline-flex; gap:3px; vertical-align:middle; }
+  .form i { width:8px; height:20px; border-radius:2px; background:var(--quiet-tint); }
+  .form i.ok { background:color-mix(in srgb, var(--ok) 70%, transparent); } .form i.warn { background:var(--warn); } .form i.err { background:var(--err); }
+  .pill { display:inline-flex; align-items:center; gap:8px; padding:2px 12px 2px 10px; border-radius:999px; font-weight:600; }
+  .pill.cancelled { background:var(--quiet-tint); color:var(--muted); } .pill.disrupted { background:var(--err-tint); color:var(--err); }
+  .pill.delayed { background:var(--warn-tint); color:var(--warn); } .pill.ontime { background:var(--ok-tint); color:var(--ok); }
 
-  /* The departure board: hosts as departures, in large type, for a screen left on the wall. */
-  .board h1 { font-size:24px; }
-  .board .clock { font-size:24px; font-weight:700; }
-  .board table td { padding:10px 16px 10px 0; font-size:20px; white-space:nowrap; }
-  .board table td.latest { white-space:nowrap; }
-  .board td.host { font-size:24px; font-weight:700; white-space:nowrap; }
-  .board td.host a { color:inherit; text-decoration:none; }
-  .board td.host a:hover { text-decoration:underline; }
-  .board td.state { font-weight:700; white-space:nowrap; }
-  .board td.latest { font-size:15px; }
+  /* The board: hosts as a squad, in large type, for a screen left on the wall. */
+  .board .head { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:8px; }
+  .board .clock { margin-left:auto; font-size:28px; font-weight:700; letter-spacing:-.02em; }
+  .board table td { padding:14px 20px 14px 0; font-size:18px; white-space:nowrap; vertical-align:middle; }
+  .board td.host { font-size:24px; font-weight:700; letter-spacing:-.02em; }
+  .board td.host a { display:inline-flex; align-items:center; gap:12px; color:inherit; text-decoration:none; }
+  .board td.host a:hover { color:var(--accent); }
+  .board td.latest { font-size:14px; color:var(--muted); }
+  .board td.n { font-size:22px; font-weight:650; }
   .board tr { cursor:pointer; }
-  .board tr:hover td { background:var(--tint); }
-  .state.cancelled .badge { font-size:18px; padding:2px 8px; }
 </style>
 </head>
 <body>
 <header class="bar">
-  <a class="brand" href="/">LogPit</a>
+  <a class="brand" href="/"><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect width="22" height="22" rx="6" fill="currentColor"/><path d="M5 13.5h2.2l1.8-5 2.6 9 2.2-6.5 1.2 2.5H17" fill="none" style="stroke:var(--ground)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>LogPit</a>
   <nav aria-label="Views"><a href="/">Search</a><a href="/board">Board</a><a href="/compare">Compare</a><a href="/admin">Admin</a></nav>
   <span id="status" role="status"></span>
 </header>
@@ -119,40 +143,87 @@ function failed(e, need) {
 }
 const empty = (cols, text) => h('tr', null, h('td', { colspan: String(cols), class: 'muted' }, text));
 
-// Stacked volume bars from /api/stats, by severity, with day or hour marks under them.
+// The volume from /api/stats as a momentum curve by severity: what is not an error rises above the line,
+// errors push below it; day marks under it. Heights are set a frame later, so the bars grow in.
 function volume(d) {
-  const NS = 'http://www.w3.org/2000/svg', n = d.buckets.length;
-  const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('class', 'vol'); svg.setAttribute('viewBox', '0 0 ' + Math.max(1, n) + ' 100'); svg.setAttribute('preserveAspectRatio', 'none');
-  svg.setAttribute('role', 'img');
-  const max = Math.max(1, ...d.buckets.map(b => b.total));
-  let total = 0;
-  d.buckets.forEach((b, i) => {
-    let y = 100;
+  const n = d.buckets.length, low = k => LEVELS.indexOf(k) <= 3;
+  let maxUp = 1, maxDn = 1, total = 0;
+  for (const b of d.buckets) {
+    let up = 0, dn = 0;
+    for (const k of LEVELS) { const v = (b.groups || {})[k] || 0; total += v; if (low(k)) dn += v; else up += v; }
+    maxUp = Math.max(maxUp, up); maxDn = Math.max(maxDn, dn);
+  }
+  const box = h('div', { class: 'vol', role: 'img', 'aria-label': total.toLocaleString() + ' entries in ' + n + ' buckets, errors below the line' });
+  const segs = [];
+  for (const b of d.buckets) {
+    const up = h('div', 'upz'), dn = h('div', 'dnz');
     for (const k of LEVELS) {
       const v = (b.groups || {})[k];
       if (!v) continue;
-      total += v;
-      const r = document.createElementNS(NS, 'rect'), hgt = 100 * v / max;
-      y -= hgt;
-      r.setAttribute('x', i + 0.1); r.setAttribute('width', 0.8); r.setAttribute('y', y); r.setAttribute('height', hgt);
-      r.setAttribute('class', 's' + LEVELS.indexOf(k));
-      svg.append(r);
+      const seg = h('div', 'seg s' + LEVELS.indexOf(k));
+      seg._h = Math.max(2, low(k) ? 48 * v / maxDn : 118 * v / maxUp);
+      (low(k) ? dn : up).append(seg);
+      segs.push(seg);
     }
-  });
-  svg.setAttribute('aria-label', total.toLocaleString() + ' entries in ' + n + ' buckets');
+    const col = h('div', 'col', up, dn);
+    col.title = fmtTime(b.ts) + ' · ' + b.total.toLocaleString() + ' entries' + LEVELS.filter(k => (b.groups || {})[k]).map(k => ', ' + k + ' ' + b.groups[k].toLocaleString()).join('');
+    box.append(col);
+  }
+  requestAnimationFrame(() => requestAnimationFrame(() => segs.forEach(seg => { seg.style.height = seg._h + 'px'; })));
   const ticks = h('div', 'ticks');
   let prev = null;
   d.buckets.forEach((b, i) => {
     const day = new Date(b.ts).toDateString();
-    if (prev !== null && day !== prev && i / n < 0.95) {
-      const s = h('span', null, new Date(b.ts).toLocaleDateString([], { weekday: 'short', day: 'numeric' }));
-      s.style.left = (100 * i / n) + '%';
-      ticks.append(s);
+    if (prev !== null && day !== prev && i / n < 0.97) {
+      const sp = h('span', null, new Date(b.ts).toLocaleDateString([], { weekday: 'short', day: 'numeric' }));
+      sp.style.left = (100 * i / n) + '%';
+      ticks.append(sp);
     }
     prev = day;
   });
-  return [svg, ticks];
+  return [box, ticks];
+}
+
+// Live state as on the search page: a dot that pulses while the host talks, and its recent form, a slice
+// reading red or amber only when it stands out from the host's own window.
+function formWords(form) {
+  const tot = form.reduce((a, f) => ({ n: a.n + f.count, e: a.e + f.errors, i: a.i + f.errors + f.warnings }), { n: 0, e: 0, i: 0 });
+  const errRate = tot.n ? tot.e / tot.n : 0, issueRate = tot.n ? tot.i / tot.n : 0;
+  return form.map(f => {
+    if (!f.count) return '';
+    if (f.errors >= 2 && f.errors / f.count >= Math.max(2 * errRate, 0.05)) return 'err';
+    const issues = f.errors + f.warnings;
+    if (issues >= 2 && issues / f.count >= Math.max(2 * issueRate, 0.1)) return 'warn';
+    return 'ok';
+  });
+}
+function formEl(form) {
+  const box = h('span', { class: 'form', role: 'img' });
+  if (!form) return box;
+  const words = formWords(form), said = { err: 0, warn: 0, ok: 0, '': 0 };
+  form.forEach((f, k) => {
+    said[words[k]]++;
+    box.append(h('i', { class: words[k], title: f.count.toLocaleString() + ' entries' + (f.errors ? ', ' + f.errors.toLocaleString() + ' errors' : '') + (f.warnings ? ', ' + f.warnings.toLocaleString() + ' warnings' : '') }));
+  });
+  box.setAttribute('aria-label', 'Recent form, oldest first: ' + [[said.err, 'with more errors than usual'], [said.warn, 'with more warnings than usual'], [said.ok, 'as usual'], [said[''], 'quiet']].filter(([n]) => n).map(([n, t]) => n + ' ' + t).join(', '));
+  return box;
+}
+// A number rolls from what it showed to its new value.
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
+function roll(el, to, from) {
+  const start = from === undefined ? to : from;
+  el.dataset.n = String(to);
+  if (start === to || document.hidden || REDUCED.matches) { el.textContent = to.toLocaleString(); return el; }
+  el.textContent = start.toLocaleString();
+  const t0 = performance.now();
+  const step = now => {
+    if (el.dataset.n !== String(to)) return;
+    const k = Math.min(1, (now - t0) / 700), e = 1 - Math.pow(1 - k, 4);
+    el.textContent = Math.round(start + (to - start) * e).toLocaleString();
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+  return el;
 }
 
 // ---------- Departure board ----------
@@ -164,11 +235,11 @@ async function board() {
   tick(); setInterval(tick, 1000);
   const body = h('tbody');
   $('view').replaceChildren(h('div', 'board',
-    h('div', { style: 'display:flex;align-items:baseline;gap:16px;flex-wrap:wrap' },
-      h('h1', null, 'Hosts'), h('span', 'sub', 'errors and warnings over the last ' + win + ' minutes'), h('span', { style: 'margin-left:auto' }, clock)),
+    h('div', 'head', h('h1', null, 'Hosts'), h('span', 'sub', 'errors and warnings over the last ' + win + ' minutes'), clock),
     h('table', null,
-      h('thead', null, h('tr', null, h('th', null, 'Host'), h('th', null, 'Status'), h('th', null, 'Last log'), h('th', 'n', 'Errors'), h('th', 'n', 'Warnings'), h('th', null, 'Latest'))),
+      h('thead', null, h('tr', null, h('th', null, 'Host'), h('th', null, 'Status'), h('th', { title: 'The window in five slices, oldest first' }, 'Form'), h('th', null, 'Last log'), h('th', 'n', 'Errors'), h('th', 'n', 'Warnings'), h('th', null, 'Latest'))),
       body)));
+  let shown = new Map(); // the figures of the last refresh, so they roll to the new ones
   async function refresh() {
     if (document.hidden) return;
     try {
@@ -176,13 +247,13 @@ async function board() {
       // Every known host (a week back, so silent ones are listed), then what each did in the window.
       const [known, recent] = await Promise.all([
         api('/api/hosts?' + q({ since: now - 7 * 86400000, limit: 200, sort: 'host', order: 'asc' })),
-        api('/api/hosts?' + q({ since: now - win * 60000, limit: 200, sort: 'errors', order: 'desc' })),
+        api('/api/hosts?' + q({ since: now - win * 60000, limit: 200, sort: 'errors', order: 'desc', form: 5 })),
       ]);
       const inWin = Object.fromEntries(recent.map(r => [r.host, r]));
       const rows = known.map(k => {
         const r = inWin[k.host] || { errors: 0, warnings: 0 };
         const state = k.silent ? 'cancelled' : r.errors ? 'disrupted' : r.warnings ? 'delayed' : 'ontime';
-        return { host: k.host, state, errors: r.errors, warnings: r.warnings, last: k.last_ts };
+        return { host: k.host, state, errors: r.errors, warnings: r.warnings, last: k.last_ts, form: r.form, silent: k.silent };
       }).sort((a, b) => STATES[a.state][1] - STATES[b.state][1] || b.errors - a.errors || a.host.localeCompare(b.host));
       // The latest error or warning of the hosts in trouble (a few requests, not one per host).
       const troubled = rows.filter(r => r.state === 'disrupted' || r.state === 'delayed').slice(0, 20);
@@ -195,16 +266,21 @@ async function board() {
       const focused = document.activeElement && document.activeElement.closest('td.host') ? document.activeElement.textContent : null;
       body.replaceChildren(...(rows.length ? rows.map(r => {
         const [label] = STATES[r.state];
+        const talking = Date.now() - r.last < 120000;
+        const dot = h('span', { class: 'pulse ' + (r.silent ? 'off' : !talking ? '' : r.state === 'disrupted' ? 'hot' : r.state === 'delayed' ? 'warm' : 'on'), 'aria-hidden': 'true' });
+        const was = shown.get(r.host) || {};
         const tr = h('tr', null,
-          h('td', 'host', h('a', { href: '/host/' + encodeURIComponent(r.host) }, r.host)),
-          h('td', 'state ' + r.state + ' ' + { disrupted: 'e', delayed: 'w', ontime: 'ok' }[r.state], r.state === 'cancelled' ? h('span', 'badge', label) : label),
+          h('td', 'host', h('a', { href: '/host/' + encodeURIComponent(r.host) }, dot, r.host)),
+          h('td', 'state', h('span', 'pill ' + r.state, label)),
+          h('td', null, formEl(r.form)),
           h('td', 'muted', ago(r.last)),
-          h('td', 'n' + (r.errors ? ' e' : ' muted'), r.errors.toLocaleString()),
-          h('td', 'n' + (r.warnings ? ' w' : ' muted'), r.warnings.toLocaleString()),
+          roll(h('td', 'n' + (r.errors ? ' e' : ' muted')), r.errors, was.errors),
+          roll(h('td', 'n' + (r.warnings ? ' w' : ' muted')), r.warnings, was.warnings),
           h('td', 'latest mono clip', latest[r.host] || ''));
         tr.onclick = () => { location.href = '/host/' + encodeURIComponent(r.host); };
         return tr;
-      }) : [empty(6, 'No host has sent logs in the last week.')]));
+      }) : [empty(7, 'No host has sent logs in the last week.')]));
+      shown = new Map(rows.map(r => [r.host, { errors: r.errors, warnings: r.warnings }]));
       if (focused) for (const a of body.querySelectorAll('td.host a')) if (a.textContent === focused) a.focus();
       say('updated ' + new Date().toLocaleTimeString([], { hour12: false }));
     } catch (e) { failed(e, 'read'); }
@@ -230,7 +306,7 @@ async function hostPage() {
     ]);
     const me = hosts.find(x => x.host === name);
     const head = h('div', null,
-      h('h1', null, name, ' ', me && me.silent ? h('span', 'badge', 'silent') : null),
+      h('h1', null, h('span', { class: 'pulse ' + (!me ? 'off' : me.silent ? 'off' : Date.now() - me.last_ts < 120000 ? 'on' : ''), 'aria-hidden': 'true' }), name, me && me.silent ? h('span', 'badge silent', 'silent') : null),
       h('p', 'sub', me ? 'Last log ' + ago(me.last_ts) + ' · ' + me.count.toLocaleString() + ' entries this week, ' + me.errors.toLocaleString() + ' errors, ' + me.warnings.toLocaleString() + ' warnings · ' : 'No logs this week · ',
         ...(me && me.tags || []).map(t => h('span', 'tag', t)), ' ', h('a', { href: '/?' + q({ host: name, range: 604800000 }) }, 'Search its logs')));
     const errRows = errors.length ? errors.map(r => h('tr', null, h('td', 'muted nw', fmtTime(r.ts)), h('td', 'muted nw', r.app), h('td', 'mono clip', r.message))) : [empty(3, 'No errors this week.')];
@@ -345,7 +421,7 @@ async function compare() {
     const delta = (a, b) => {
       if (a === b) return h('td', 'n muted', '=');
       const pct = a ? Math.round(100 * (b - a) / a) : null;
-      return h('td', 'n ' + (b > a ? 'up' : 'down'), (b > a ? '+' : '−') + Math.abs(b - a).toLocaleString() + (pct !== null ? ' (' + (pct > 0 ? '+' : '') + pct + '%)' : ''));
+      return h('td', 'n ' + (b > a ? 'up' : 'down'), h('b', null, (b > a ? '+' : '−') + Math.abs(b - a).toLocaleString() + (pct !== null ? ' (' + (pct > 0 ? '+' : '') + pct + '%)' : '')));
     };
     const totals = h('table', null,
       h('thead', null, h('tr', null, h('th', null, ''), h('th', 'n', 'Before'), h('th', 'n', 'After'), h('th', 'n', 'Change'))),
