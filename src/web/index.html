@@ -177,12 +177,23 @@
   .alrow .m { grid-column:1 / -1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
   .alrow .d { grid-row:1; grid-column:4; color:var(--muted); white-space:nowrap; font-size:11.5px; }
 
-  .patrow { display:grid; grid-template-columns:auto auto minmax(0, 1fr); gap:2px 10px; align-items:baseline; padding:8px 0; border-top:1px solid var(--rule); }
+  .patrow { display:grid; grid-template-columns:auto auto minmax(0, 1fr) auto; gap:2px 10px; align-items:baseline; padding:8px 0; border-top:1px solid var(--rule); }
   .patrow:first-child { border-top:0; }
   .patrow .n { font-weight:600; }
   .patrow .p { grid-column:1 / -1; grid-row:2; font:12px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .patrow .m { color:var(--muted); text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; }
   .patrow .t { white-space:nowrap; font-weight:600; font-size:11.5px; } .t.up { color:var(--err); } .t.new { color:var(--new); } .t.down { color:var(--ok); } .t.flat { color:var(--muted); }
+  .bell { display:inline-flex; align-items:center; justify-content:center; width:24px; height:22px; padding:0; border-color:transparent; background:none; color:var(--muted); align-self:center; }
+  .bell:hover { color:var(--ink); background:var(--surface-2); }
+  .bell[aria-expanded=true] { color:var(--accent); background:var(--focus-tint); }
+  /* Alerting on a pattern: a sentence with the figures to fill in, under its row. */
+  .alertform { display:grid; gap:8px; margin:0 0 6px; padding:10px 12px; border:1px solid var(--rule); border-radius:var(--radius); background:var(--surface); animation:reveal .2s var(--ease); }
+  .alertform .say { display:flex; flex-wrap:wrap; align-items:center; gap:6px; color:var(--muted); }
+  .alertform input[type=number] { width:4.5em; height:28px; padding:0 6px; }
+  .alertform input[type=text] { width:100%; height:28px; }
+  .alertform label { display:flex; align-items:center; gap:6px; color:var(--muted); }
+  .alertform .acts2 { display:flex; gap:6px; align-items:center; }
+  .alertform .msg { font-size:12px; color:var(--muted); } .alertform .msg.bad { color:var(--err); }
   #alertList:empty::after { content:'No notifications yet.'; color:var(--muted); }
   #patList:empty::after { content:'No entries in the current results.'; color:var(--muted); }
   #topList:empty::after { content:'No values for this field in the current results.'; color:var(--muted); }
@@ -1636,8 +1647,72 @@ function trendOf(prev, recent) {
   if (Math.abs(recent - prev) < 3 || Math.abs(pct) < 25) return { cls: 'flat', text: (pct > 0 ? '+' : '') + pct + '%' };
   return pct > 0 ? { cls: 'up', text: '+' + pct + '%' } : { cls: 'down', text: '−' + -pct + '%' };
 }
+// Alerting on a pattern: its template becomes the rule's regular expression (each <*> matches anything),
+// with a count and a window to fill in. Saved rules run at once and are listed under Admin.
+function bellIcon() {
+  const svg = document.createElementNS(NS_SVG, 'svg');
+  svg.setAttribute('width', '14'); svg.setAttribute('height', '14'); svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(NS_SVG, 'path');
+  path.setAttribute('d', 'M4 11.5V7a4 4 0 0 1 8 0v4.5l1.2 1.2H2.8L4 11.5zM6.5 14a1.6 1.6 0 0 0 3 0');
+  path.setAttribute('fill', 'none'); path.setAttribute('stroke', 'currentColor'); path.setAttribute('stroke-width', '1.4'); path.setAttribute('stroke-linejoin', 'round');
+  svg.append(path);
+  return svg;
+}
+const patternRegex = p => p.split('<*>').map(part => part.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).filter(Boolean).join('.+?');
+function bellButton(row, x) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'bell';
+  b.title = 'Notify me when this pattern piles up'; b.setAttribute('aria-label', b.title);
+  b.setAttribute('aria-expanded', 'false');
+  b.append(bellIcon());
+  b.onclick = () => {
+    const open = row.nextElementSibling && row.nextElementSibling.classList.contains('alertform');
+    if (open) { row.nextElementSibling.remove(); b.setAttribute('aria-expanded', 'false'); return; }
+    row.after(alertForm(x, b));
+    b.setAttribute('aria-expanded', 'true');
+  };
+  return b;
+}
+function alertForm(x, bell) {
+  const f = document.createElement('form');
+  f.className = 'alertform';
+  const num = (value, label, max) => { const i = document.createElement('input'); i.type = 'number'; i.min = '1'; i.max = String(max); i.value = String(value); i.required = true; i.setAttribute('aria-label', label); return i; };
+  const count = num(5, 'Number of matching lines', 10000), mins = num(10, 'Window in minutes', 10080);
+  const say = document.createElement('div'); say.className = 'say';
+  say.append('Notify after', count, 'lines like this within', mins, 'minutes');
+  const perHost = document.createElement('input'); perHost.type = 'checkbox'; perHost.checked = true;
+  const ph = document.createElement('label'); ph.append(perHost, 'counted per host');
+  const name = document.createElement('input'); name.type = 'text'; name.maxLength = 80; name.required = true;
+  name.value = x.pattern.replaceAll('<*>', '…').replace(/\s+/g, ' ').trim().slice(0, 60);
+  name.setAttribute('aria-label', 'Name of the alert');
+  const msg = document.createElement('span'); msg.className = 'msg'; msg.setAttribute('role', 'status');
+  const save = document.createElement('button'); save.className = 'primary small'; save.textContent = 'Create the alert';
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'small'; cancel.textContent = 'Cancel';
+  cancel.onclick = () => { f.remove(); bell.setAttribute('aria-expanded', 'false'); bell.focus(); };
+  f.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); cancel.click(); } });
+  const acts = document.createElement('div'); acts.className = 'acts2'; acts.append(save, cancel, msg);
+  f.append(say, ph, name, acts);
+  f.onsubmit = async e => {
+    e.preventDefault();
+    save.disabled = true; msg.className = 'msg'; msg.textContent = 'saving…';
+    try {
+      const res = await fetch('/api/alert-rules', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.value.trim(), pattern: patternRegex(x.pattern), count: Number(count.value), window_secs: 60 * Number(mins.value), per_host: perHost.checked }),
+      });
+      if (res.status === 401 || res.status === 403) throw new Error('creating alerts needs a token with the admin scope (Settings)');
+      if (!res.ok) throw new Error((await res.text()).slice(0, 160) || 'HTTP ' + res.status);
+      msg.textContent = 'Alert created. It runs now; see it under Admin.';
+      save.hidden = true; cancel.textContent = 'Close';
+    } catch (err) { msg.className = 'msg bad'; msg.textContent = String(err.message || err); save.disabled = false; }
+  };
+  setTimeout(() => count.focus(), 0);
+  return f;
+}
 async function loadPatterns() {
   if (!snap || !$('patterns').open) return;
+  if ($('patList').querySelector('.alertform')) return; // a refresh would wipe the alert being written
   const req = ++patReq;
   try {
     const p = chartParams();
@@ -1663,6 +1738,7 @@ async function loadPatterns() {
       const m = document.createElement('span'); m.className = 'm';
       m.append(x.severity + ' · ' + x.hosts + (x.hosts >= 100 ? '+' : '') + ' host' + (x.hosts === 1 ? '' : 's') + ' · ', agoEl(document.createElement('span'), x.last_ts));
       row.append(n, t, pat, m);
+      if (x.pattern && x.pattern.replaceAll('<*>', '').trim()) row.append(bellButton(row, x));
       return row;
     });
     if (d.other > 0) {

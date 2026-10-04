@@ -124,6 +124,14 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
             "/api/maintenance/{id}",
             axum::routing::delete(maintenance_remove),
         )
+        .route(
+            "/api/alert-rules",
+            get(alert_rules_list).post(alert_rule_save),
+        )
+        .route(
+            "/api/alert-rules/{id}",
+            axum::routing::delete(alert_rule_delete),
+        )
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Admin),
             require_scope,
@@ -516,7 +524,10 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         state.sink.metrics().render()
             + &state.sink.silence().render_metrics()
             + &state.sink.rules().render_metrics()
-            + &state.sink.alerts().render_metrics()
+            + &crate::alerts::AlertRules::render_all(&[
+                &state.sink.alerts(),
+                &state.sink.settings().ui_alerts.get(),
+            ])
             + &state.sink.settings().watch.render_metrics()
             + &state.sink.settings().metrics.get().render()
             + &state.sink.settings().parsers.get().render_metrics()
@@ -1338,6 +1349,101 @@ async fn delete_view(
     {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such view").into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// Alert rules created from the web UI or the API (admin scope), kept in the database beside the
+/// `[[alerts]]` of the configuration: `GET` lists them, `POST` saves one (an `[[alerts]]` rule as
+/// JSON, which must have a name; saving under an existing name replaces it), `DELETE` removes one.
+/// Each change rebuilds the running set, so their counts start again.
+const MAX_ALERT_NAME_CHARS: usize = 80;
+
+async fn alert_rules_list(State(state): State<AppState>) -> Response {
+    match with_db(&state.db_path, "listing the alert rules", |conn| {
+        store::list_alert_rules(conn).map_err(anyhow::Error::from)
+    })
+    .await
+    {
+        Ok(rules) => Json(rules).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// The running UI rules, rebuilt from what the database now holds.
+fn apply_ui_alerts(state: &AppState, rules: &[store::StoredAlertRule]) {
+    state
+        .settings
+        .ui_alerts
+        .set(Arc::new(crate::alerts::AlertRules::from_stored(rules)));
+}
+
+async fn alert_rule_save(
+    State(state): State<AppState>,
+    Json(mut rule): Json<crate::alerts::AlertConfig>,
+) -> Response {
+    let name = rule.name.as_deref().unwrap_or("").trim().to_string();
+    if name.is_empty()
+        || name.chars().count() > MAX_ALERT_NAME_CHARS
+        || name.chars().any(char::is_control)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("an alert rule needs a name of at most {MAX_ALERT_NAME_CHARS} characters"),
+        )
+            .into_response();
+    }
+    if state.settings.alerts.get().has(&name) {
+        return (
+            StatusCode::CONFLICT,
+            format!("the configuration already has an alert rule named {name:?}"),
+        )
+            .into_response();
+    }
+    rule.name = Some(name);
+    if let Err(e) = crate::alerts::AlertRules::from_config(std::slice::from_ref(&rule)) {
+        return (StatusCode::BAD_REQUEST, format!("{e:#}")).into_response();
+    }
+    match with_db(&state.db_path, "saving the alert rule", move |conn| {
+        let id = store::save_alert_rule(conn, &rule, now_ms())?;
+        Ok((id, store::list_alert_rules(conn)?))
+    })
+    .await
+    {
+        Ok((Some(id), rules)) => {
+            apply_ui_alerts(&state, &rules);
+            match rules.into_iter().find(|r| r.id == id) {
+                Some(saved) => (StatusCode::CREATED, Json(saved)).into_response(),
+                None => StatusCode::CREATED.into_response(),
+            }
+        }
+        Ok((None, _)) => (
+            StatusCode::CONFLICT,
+            format!(
+                "at most {} alert rules can be saved; delete one first",
+                store::MAX_ALERT_RULES
+            ),
+        )
+            .into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn alert_rule_delete(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    match with_db(&state.db_path, "deleting the alert rule", move |conn| {
+        let gone = store::delete_alert_rule(conn, id)?;
+        Ok((gone, store::list_alert_rules(conn)?))
+    })
+    .await
+    {
+        Ok((true, rules)) => {
+            apply_ui_alerts(&state, &rules);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok((false, _)) => (StatusCode::NOT_FOUND, "no such alert rule").into_response(),
         Err(e) => e.into_response(),
     }
 }

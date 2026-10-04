@@ -163,6 +163,9 @@ impl Sink {
             for event in self.settings.alerts.get().observe(&entry, now) {
                 let _ = tx.try_send(event);
             }
+            for event in self.settings.ui_alerts.get().observe(&entry, now) {
+                let _ = tx.try_send(event);
+            }
             for event in self.settings.watch.observe(&entry, now) {
                 let _ = tx.try_send(event);
             }

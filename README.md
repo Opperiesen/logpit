@@ -1448,6 +1448,30 @@ per_host = true
 - Mistakes (a bad regex, `count = 0`, a duplicate name…) stop LogPit at startup with the alert's
   name. `logpit_alerts_fired_total{rule="…"}` counts the notifications.
 
+### Alerts from the web UI
+
+On the search page, each message pattern has a bell: it asks how many lines like it within how many
+minutes (per host or overall) should notify you, and creates the rule, whose regular expression is the
+pattern's template (each `<*>` matches anything). The rule runs at once, beside the configuration's
+`[[alerts]]`, and behaves like them. The *Alert rules* section of `/admin` lists them, with how many times
+each fired since LogPit started, and deletes them.
+
+They are kept in the database (a table that does not change the schema version) and managed with the
+`admin` scope:
+
+```sh
+curl -s -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -X POST \
+  http://localhost:8080/api/alert-rules \
+  -d '{"name":"disk failing","pattern":"unreadable .* sectors","count":5,"window_secs":600,"per_host":true}'
+curl -s -H "Authorization: Bearer $ADMIN" http://localhost:8080/api/alert-rules          # the stored rules
+curl -s -H "Authorization: Bearer $ADMIN" -X DELETE http://localhost:8080/api/alert-rules/1   # 204
+```
+
+The body takes the fields of an `[[alerts]]` table; `name` is required (at most 80 characters, and not
+one the configuration uses), and saving under an existing name replaces that rule. At most 100 rules are
+stored. Each change rebuilds the stored rules, so their counts start again; a reload of the
+configuration (`SIGHUP`) leaves them alone.
+
 ## New-pattern alerts
 
 `[new_patterns]` notifies through the same webhook when a **message template never seen before**

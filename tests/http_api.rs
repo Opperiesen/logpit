@@ -1043,3 +1043,78 @@ async fn one_search_finds_a_trace_across_hosts_whatever_its_id_is_called() {
     .json();
     assert_eq!(web.as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn alert_rules_are_created_listed_and_deleted_by_an_admin() {
+    let s = start(&format!(
+        "{TOKENS}\n[[alerts]]\nname = \"from-config\"\npattern = \"x\"\ncount = 1\nwindow_secs = 60\n"
+    ))
+    .await;
+    let post = |token: &'static str, body: &'static str| async move {
+        let auth = format!("Bearer {token}");
+        call(
+            s.addr,
+            "POST",
+            "/api/alert-rules",
+            Some(&auth),
+            body.as_bytes(),
+        )
+        .await
+    };
+    let rule = r#"{"name":"disk failing","pattern":"unreadable .* sectors","count":5,"window_secs":600,"per_host":true}"#;
+    // Only the admin scope may change them.
+    assert_eq!(post(READER, rule).await.status, 403);
+    let saved = post(ADMIN, rule).await;
+    assert_eq!(saved.status, 201, "{}", saved.body);
+    let id = saved.json()["id"].as_i64().unwrap();
+    assert_eq!(saved.json()["pattern"], "unreadable .* sectors");
+    // Refused: no name, a bad regex, a count of zero, a name the configuration already uses.
+    for (body, want) in [
+        (r#"{"pattern":"x","count":1,"window_secs":60}"#, 400),
+        (
+            r#"{"name":"bad","pattern":"(","count":1,"window_secs":60}"#,
+            400,
+        ),
+        (
+            r#"{"name":"zero","pattern":"x","count":0,"window_secs":60}"#,
+            400,
+        ),
+        (
+            r#"{"name":"from-config","pattern":"x","count":1,"window_secs":60}"#,
+            409,
+        ),
+        (
+            r#"{"name":"odd","count":1,"window_secs":60,"color":"red"}"#,
+            422,
+        ),
+    ] {
+        assert_eq!(post(ADMIN, body).await.status, want, "{body}");
+    }
+    let list = get(s.addr, "/api/alert-rules", ADMIN).await;
+    assert_eq!(list.status, 200);
+    assert_eq!(list.json().as_array().unwrap().len(), 1);
+    // The rule runs at once, beside the configuration's, under one metric header.
+    let metrics = call(s.addr, "GET", "/metrics", None, b"").await.body;
+    assert!(metrics.contains("rule=\"disk failing\"} 0"), "{metrics}");
+    assert!(metrics.contains("rule=\"from-config\"} 0"));
+    assert_eq!(
+        metrics.matches("# TYPE logpit_alerts_fired_total").count(),
+        1
+    );
+    let path = format!("/api/alert-rules/{id}");
+    let admin = format!("Bearer {ADMIN}");
+    assert_eq!(
+        call(s.addr, "DELETE", &path, Some(&admin), b"")
+            .await
+            .status,
+        204
+    );
+    assert_eq!(
+        call(s.addr, "DELETE", &path, Some(&admin), b"")
+            .await
+            .status,
+        404
+    );
+    let metrics = call(s.addr, "GET", "/metrics", None, b"").await.body;
+    assert!(!metrics.contains("disk failing"));
+}

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Alerts from the web UI: a bell on each message pattern creates a pattern alert (so many lines like it
+  within so many minutes, per host or overall) that runs at once beside the configuration's
+  `[[alerts]]`; `/admin` lists and deletes them. They are kept in the database and managed through
+  `GET`/`POST /api/alert-rules` and `DELETE /api/alert-rules/<id>` (admin scope). The new table does not
+  change the schema version: an older LogPit still opens the database and ignores it.
+
 - Web UI views: in local time, times read `01:08:02` today, `yesterday 01:09:02`, then `Fri, Oct 2
   01:09:02` (with the year when it differs), instead of a full date on every line.
 

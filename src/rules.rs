@@ -26,7 +26,7 @@ pub enum Action {
 }
 
 /// A severity given as a name (`debug`, `err`, …) or a number (0-7).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum SeveritySpec {
     Number(i64),

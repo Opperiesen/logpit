@@ -337,10 +337,20 @@ async function admin() {
   const box = h('div');
   $('view').replaceChildren(h('h1', null, 'Administration'), box);
   try {
-    const [windows, tokens, metrics] = await Promise.all([
+    const [windows, tokens, metrics, rules] = await Promise.all([
       api('/api/maintenance'), api('/api/tokens'),
       fetch('/metrics').then(r => r.ok ? r.text() : '').catch(() => ''),
+      api('/api/alert-rules').catch(() => []),
     ]);
+    // Alert rules made from the search page's patterns (or the API); those of the configuration are not listed.
+    const fired = {};
+    for (const m of metrics.matchAll(/^logpit_alerts_fired_total\{rule="([^"]*)"\} (\d+)/gm)) fired[m[1]] = Number(m[2]);
+    const ruleText = r => r.count.toLocaleString() + ' lines' + (r.pattern ? ' matching ' : '') + (r.severity && r.severity.length ? ' at ' + r.severity.join(', ') : '') +
+      (r.host ? ' from ' + r.host : '') + (r.app ? ' in ' + r.app : '') + ' within ' + Math.round(r.window_secs / 60) + ' min' + (r.per_host ? ', per host' : '');
+    const ruleRows = rules.length ? rules.map(r => h('tr', null,
+      h('td', null, r.name), h('td', 'muted', ruleText(r), r.pattern ? h('span', 'mono', ' /' + r.pattern + '/') : null),
+      h('td', 'n' + (fired[r.name] ? ' e' : ' muted'), (fired[r.name] || 0).toLocaleString()), h('td', 'muted nw', fmtTime(r.created_ts)),
+      h('td', null, Object.assign(h('button', { type: 'button', class: 'small', 'aria-label': 'Delete the alert rule ' + r.name }, 'Delete'), { onclick: () => deleteRule(r.id) })))) : [empty(5, 'No alert rule yet: create one from a message pattern on the search page (the bell).')];
     // Refusals for quota, from the Prometheus text: logpit_quota_rejected_total{token="name"} 12
     const rejected = {};
     for (const m of metrics.matchAll(/^logpit_quota_rejected_total\{token="([^"]*)"\} (\d+)/gm)) rejected[m[1]] = Number(m[2]);
@@ -381,6 +391,8 @@ async function admin() {
     box.replaceChildren(
       h('h2', null, 'Maintenance windows'), form,
       h('table', null, h('thead', null, h('tr', null, h('th', null, 'Hosts'), h('th', null, 'Reason'), h('th', null, 'When'), h('th', null, 'State'), h('th', null, 'From'), h('th', null, ''))), h('tbody', null, ...winRows)),
+      h('h2', null, 'Alert rules'),
+      h('table', null, h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Condition'), h('th', 'n', 'Fired'), h('th', null, 'Created'), h('th', null, ''))), h('tbody', null, ...ruleRows)),
       h('h2', null, 'Tokens'),
       h('table', null, h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Scopes'), h('th', null, 'Reads'), h('th', null, 'Quota'), h('th', 'n', 'Refused for quota'))), h('tbody', null, ...tokRows)),
       h('h2', null, 'Audit trail'),
@@ -389,6 +401,9 @@ async function admin() {
     await loadAudit();
     say('');
   } catch (e) { failed(e, 'admin'); }
+}
+async function deleteRule(id) {
+  try { await api('/api/alert-rules/' + id, { method: 'DELETE' }); admin(); } catch (e) { say('could not delete the alert rule: ' + e.message); }
 }
 async function endWindow(id) {
   try { await api('/api/maintenance/' + id, { method: 'DELETE' }); admin(); } catch (e) { say('could not end the window: ' + e.message); }

@@ -109,7 +109,13 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
     // Saved views live in an extra table that does not change the schema version, so an older
     // LogPit can still open the database (it simply ignores the table).
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS views (
+        "CREATE TABLE IF NOT EXISTS alert_rules (
+            id         INTEGER PRIMARY KEY,
+            name       TEXT NOT NULL UNIQUE,
+            rule       TEXT NOT NULL,
+            created_ts INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS views (
             id         INTEGER PRIMARY KEY,
             name       TEXT NOT NULL UNIQUE,
             query      TEXT NOT NULL,
@@ -1085,6 +1091,76 @@ pub fn save_view(
 /// Deletes a view; false when there was none with that id.
 pub fn delete_view(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
     Ok(conn.execute("DELETE FROM views WHERE id = ?1", [id])? > 0)
+}
+
+/// An alert rule created from the web UI or the API, kept beside the views: the rule is stored as
+/// JSON, so a newer LogPit can add fields without a schema change.
+#[derive(Debug, Serialize)]
+pub struct StoredAlertRule {
+    pub id: i64,
+    pub created_ts: i64,
+    #[serde(flatten)]
+    pub rule: crate::alerts::AlertConfig,
+}
+
+/// At most this many alert rules are stored.
+pub const MAX_ALERT_RULES: usize = 100;
+
+/// The stored alert rules by name; a row whose JSON no longer reads as a rule is left out.
+pub fn list_alert_rules(conn: &Connection) -> rusqlite::Result<Vec<StoredAlertRule>> {
+    let mut stmt = conn
+        .prepare("SELECT id, rule, created_ts FROM alert_rules ORDER BY name COLLATE NOCASE, id")?;
+    let rows = stmt.query_map([], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get(2)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (id, rule, created_ts) = row?;
+        if let Ok(rule) = serde_json::from_str(&rule) {
+            out.push(StoredAlertRule {
+                id,
+                created_ts,
+                rule,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Saves `rule` under its name, replacing a rule with that name. `Ok(None)` when it would be a
+/// new rule beyond [`MAX_ALERT_RULES`]. The rule must have a name.
+pub fn save_alert_rule(
+    conn: &Connection,
+    rule: &crate::alerts::AlertConfig,
+    now: i64,
+) -> rusqlite::Result<Option<i64>> {
+    let name = rule.name.clone().unwrap_or_default();
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM alert_rules WHERE name = ?1)",
+        [&name],
+        |r| r.get(0),
+    )?;
+    if !exists {
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM alert_rules", [], |r| r.get(0))?;
+        if n as usize >= MAX_ALERT_RULES {
+            return Ok(None);
+        }
+    }
+    let json = serde_json::to_string(rule).unwrap_or_default();
+    conn.execute(
+        "INSERT INTO alert_rules (name, rule, created_ts) VALUES (?1, ?2, ?3)
+         ON CONFLICT(name) DO UPDATE SET rule = excluded.rule",
+        params![name, json, now],
+    )?;
+    conn.query_row("SELECT id FROM alert_rules WHERE name = ?1", [&name], |r| {
+        r.get(0)
+    })
+    .map(Some)
+}
+
+/// Deletes an alert rule; false when there was none with that id.
+pub fn delete_alert_rule(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
+    Ok(conn.execute("DELETE FROM alert_rules WHERE id = ?1", [id])? > 0)
 }
 
 /// Smallest timestamp in the database, if any.
@@ -3167,6 +3243,58 @@ mod tests {
             )
             .unwrap()
             .is_empty()
+        );
+    }
+
+    #[test]
+    fn alert_rules_are_saved_replaced_listed_and_deleted() {
+        let conn = mem();
+        let rule = |name: &str, count| crate::alerts::AlertConfig {
+            name: Some(name.into()),
+            pattern: Some("disk .* failed".into()),
+            host: None,
+            app: None,
+            severity: Vec::new(),
+            count,
+            window_secs: 600,
+            cooldown_secs: None,
+            per_host: true,
+        };
+        let id = save_alert_rule(&conn, &rule("disk", 5), 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            save_alert_rule(&conn, &rule("disk", 9), 2).unwrap(),
+            Some(id)
+        );
+        save_alert_rule(&conn, &rule("Auth", 3), 3).unwrap();
+        let list = list_alert_rules(&conn).unwrap();
+        assert_eq!(
+            list.iter()
+                .map(|r| (r.rule.name.as_deref().unwrap(), r.rule.count))
+                .collect::<Vec<_>>(),
+            [("Auth", 3), ("disk", 9)]
+        );
+        assert_eq!(list[1].created_ts, 1, "replacing keeps the creation time");
+        // A row that no longer reads as a rule is skipped, not an error.
+        conn.execute(
+            "INSERT INTO alert_rules (name, rule, created_ts) VALUES ('bad', '{\"x\":1}', 4)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(list_alert_rules(&conn).unwrap().len(), 2);
+        assert!(delete_alert_rule(&conn, id).unwrap());
+        assert!(!delete_alert_rule(&conn, id).unwrap());
+        for i in 0..MAX_ALERT_RULES {
+            save_alert_rule(&conn, &rule(&format!("r{i}"), 1), 5).unwrap();
+        }
+        assert_eq!(
+            save_alert_rule(&conn, &rule("one more", 1), 6).unwrap(),
+            None
+        );
+        assert!(
+            save_alert_rule(&conn, &rule("r0", 2), 6).unwrap().is_some(),
+            "replacing still works"
         );
     }
 

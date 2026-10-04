@@ -86,6 +86,9 @@ impl SilenceSettings {
 pub struct LiveSettings {
     pub rules: Reloadable<Rules>,
     pub alerts: Reloadable<AlertRules>,
+    /// Alert rules created from the web UI or the API, stored in the database: a reload of the
+    /// configuration leaves them alone; the API replaces them when one is saved or deleted.
+    pub ui_alerts: Reloadable<AlertRules>,
     /// Counters derived from the logs.
     pub metrics: Reloadable<LogMetrics>,
     /// Regex parsers.
@@ -151,6 +154,7 @@ impl LiveSettings {
         Ok(Self {
             rules: Reloadable::new(Rules::from_config(&cfg.ingest.rules)?),
             alerts: Reloadable::new(AlertRules::from_config(&cfg.alerts)?),
+            ui_alerts: Reloadable::default(),
             metrics: Reloadable::new(LogMetrics::from_config(
                 &cfg.metrics,
                 &crate::tags::Tags::from_config(&cfg.tags)?,

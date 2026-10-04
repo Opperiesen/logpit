@@ -26,7 +26,7 @@ const MAX_COUNT: usize = 10_000;
 const MAX_KEYS: usize = 1024;
 const MAX_WINDOW_SECS: u64 = 7 * 86_400;
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AlertConfig {
     /// Label in notifications and metrics; defaults to `alert-<position>`.
@@ -129,6 +129,24 @@ impl AlertRules {
         Ok(Self { alerts })
     }
 
+    /// The stored rules that still build (a rule that a newer or older LogPit wrote and this one
+    /// refuses is left out, with a warning), as one set.
+    pub fn from_stored(rules: &[crate::store::StoredAlertRule]) -> Self {
+        let mut ok = Vec::new();
+        for r in rules {
+            match Self::from_config(std::slice::from_ref(&r.rule)) {
+                Ok(_) => ok.push(r.rule.clone()),
+                Err(e) => tracing::warn!("stored alert rule {} left out: {e:#}", r.id),
+            }
+        }
+        Self::from_config(&ok).unwrap_or_default()
+    }
+
+    /// Whether a rule has this name.
+    pub fn has(&self, name: &str) -> bool {
+        self.alerts.iter().any(|a| a.name == name)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.alerts.is_empty()
     }
@@ -154,14 +172,19 @@ impl AlertRules {
 
     /// Prometheus text: how many times each alert fired.
     pub fn render_metrics(&self) -> String {
-        if self.alerts.is_empty() {
+        Self::render_all(&[self])
+    }
+
+    /// The counters of several sets (the configuration's and the web UI's) under one metric header.
+    pub fn render_all(sets: &[&Self]) -> String {
+        if sets.iter().all(|s| s.alerts.is_empty()) {
             return String::new();
         }
         let mut out = String::from(
             "# HELP logpit_alerts_fired_total Notifications sent by each pattern alert\n\
              # TYPE logpit_alerts_fired_total counter\n",
         );
-        for a in &self.alerts {
+        for a in sets.iter().flat_map(|s| &s.alerts) {
             let name = a
                 .name
                 .replace('\\', "\\\\")

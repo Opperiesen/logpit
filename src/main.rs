@@ -365,6 +365,11 @@ async fn main() -> anyhow::Result<()> {
 
     let db_path = cfg.storage.path.clone();
     let conn = store::open(&db_path)?;
+    settings
+        .ui_alerts
+        .set(Arc::new(logpit::alerts::AlertRules::from_stored(
+            &store::list_alert_rules(&conn)?,
+        )));
     let seed_conn = store::open(&db_path)?;
     let metrics = Arc::new(Metrics::default());
     let (tx, rx) = sync_channel(cfg.storage.queue_capacity);
