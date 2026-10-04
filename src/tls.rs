@@ -239,6 +239,23 @@ mod tests {
             .unwrap()
     }
 
+    /// Waits until the server has refused a handshake. That connection never reaches the sink, so
+    /// an empty channel afterwards is conclusive without waiting out a timeout.
+    async fn refused(metrics: &Metrics) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while metrics
+            .tls_failures
+            .load(std::sync::atomic::Ordering::Relaxed)
+            == 0
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the server never refused the handshake"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
     const MSG_A: &str = "<14>1 2026-10-03T12:00:00Z myhost app 1 - - first over tls";
     const MSG_B: &str = "<14>1 2026-10-03T12:00:01Z myhost app 1 - - second over tls";
 
@@ -270,16 +287,9 @@ mod tests {
                 .await
                 .is_err()
         );
-        let (got, _) = next(rx).await;
-        assert!(got.is_none());
-        // The failed handshake is counted on the server side.
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(
-            metrics
-                .tls_failures
-                .load(std::sync::atomic::Ordering::Relaxed)
-                >= 1
-        );
+        // The failed handshake is counted on the server side, and nothing was stored.
+        refused(&metrics).await;
+        assert!(rx.try_recv().is_err());
         std::fs::remove_dir_all(&pki.dir).ok();
     }
 
@@ -288,14 +298,17 @@ mod tests {
         let pki = pki("mtls");
         let acceptor =
             build_acceptor(&pki.server_cert, &pki.server_key, Some(&pki.ca_file)).unwrap();
-        let (port, rx, _) = start(acceptor).await;
+        let (port, rx, metrics) = start(acceptor).await;
         let line = format!("{MSG_A}\n");
 
         // Without a client certificate nothing gets through.
         let anonymous = connector(&pki.ca_pem, None);
         let _ = send(port, &anonymous, line.as_bytes()).await;
-        let (got, rx) = next(rx).await;
-        assert!(got.is_none(), "an anonymous client must be refused");
+        refused(&metrics).await;
+        assert!(
+            rx.try_recv().is_err(),
+            "an anonymous client must be refused"
+        );
 
         // With a certificate issued by the configured CA the message is accepted.
         let authenticated = connector(
