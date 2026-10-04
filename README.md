@@ -867,7 +867,9 @@ They use the same token as the main page, kept in the same browser, and the same
 - **`/host/<name>`**: everything about one host: its volume over 7 days by severity, latest errors, apps
   and message patterns over 24 hours, its alerts, tags and state, and a link to search its logs. The
   Hosts panel links each host to its page.
-- **`/admin`** (admin scope): the maintenance windows (start one for some hosts and minutes, end an API
+- **`/admin`** (admin scope): the storage (the database's size, entries, oldest entry and last day's
+  arrivals, where its size is heading at that pace with the retention and the size cap, and each host's
+  share of the entries; `GET /api/storage` gives the figures), the maintenance windows (start one for some hosts and minutes, end an API
   window), the tokens with their scopes, restrictions and quotas and how many requests each had refused
   for quota (from `/metrics`), and the audit trail, filterable by token and to refused requests.
 - **`/compare`**: two time windows side by side (by default the hour before and the last hour, with

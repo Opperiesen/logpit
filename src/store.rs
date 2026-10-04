@@ -1163,6 +1163,36 @@ pub fn delete_alert_rule(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
     Ok(conn.execute("DELETE FROM alert_rules WHERE id = ?1", [id])? > 0)
 }
 
+/// What the database holds, for the administration page: its size, its entries and their span, and
+/// how many arrived in the last day (the rate the size estimate is drawn from).
+#[derive(Debug, Serialize, PartialEq)]
+pub struct StorageSummary {
+    pub used_bytes: u64,
+    pub entries: u64,
+    pub entries_last_day: u64,
+    pub oldest_ts: Option<i64>,
+    pub newest_ts: Option<i64>,
+}
+
+pub fn storage_summary(conn: &Connection, now: i64) -> rusqlite::Result<StorageSummary> {
+    let (entries, oldest_ts, newest_ts) =
+        conn.query_row("SELECT COUNT(*), MIN(ts), MAX(ts) FROM logs", [], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get(1)?, r.get(2)?))
+        })?;
+    let last_day: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM logs WHERE ts > ?1",
+        [now - 86_400_000],
+        |r| r.get(0),
+    )?;
+    Ok(StorageSummary {
+        used_bytes: used_bytes(conn)?,
+        entries: entries as u64,
+        entries_last_day: last_day as u64,
+        oldest_ts,
+        newest_ts,
+    })
+}
+
 /// Smallest timestamp in the database, if any.
 pub fn min_ts(conn: &Connection) -> rusqlite::Result<Option<i64>> {
     conn.query_row("SELECT MIN(ts) FROM logs", [], |r| r.get(0))
@@ -3244,6 +3274,29 @@ mod tests {
             .unwrap()
             .is_empty()
         );
+    }
+
+    #[test]
+    fn storage_summary_counts_the_entries_and_the_last_day() {
+        let mut conn = mem();
+        let empty = storage_summary(&conn, 0).unwrap();
+        assert_eq!(
+            (empty.entries, empty.oldest_ts, empty.newest_ts),
+            (0, None, None)
+        );
+        let day = 86_400_000;
+        let batch = vec![
+            entry(10, "a", 6, "old"),
+            entry(2 * day, "a", 6, "recent"),
+            entry(2 * day + 5, "b", 3, "newest"),
+        ];
+        insert_batch(&mut conn, &batch).unwrap();
+        let s = storage_summary(&conn, 2 * day + 10).unwrap();
+        assert_eq!(
+            (s.entries, s.entries_last_day, s.oldest_ts, s.newest_ts),
+            (3, 2, Some(10), Some(2 * day + 5))
+        );
+        assert!(s.used_bytes > 0);
     }
 
     #[test]

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Web UI admin: a *Storage* section with the database's size (and its cap), entries, oldest entry and
+  last day's arrivals, where its size is heading at that pace, and each host's share of the entries;
+  `GET /api/storage` (admin scope) gives the figures.
+
 - Pattern alerts can be put on mute: *Mute 1 h* on a notification in the page or on a rule under
   `/admin`, or `GET`/`POST /api/mutes` (admin scope). A muted rule's alerts are still logged and recorded,
   marked *muted*, without telling the webhook or e-mail; mutes live in memory, at most a week.

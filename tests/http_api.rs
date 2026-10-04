@@ -1165,3 +1165,19 @@ async fn alert_rules_are_muted_and_unmuted_by_an_admin() {
         .json();
     assert!(list.as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn the_storage_summary_is_for_admins() {
+    // Lines before the first table header belong to [storage].
+    let s = start(&format!("retention_days = 7\n{TOKENS}")).await;
+    let admin = get(s.addr, "/api/storage", ADMIN).await;
+    assert_eq!(admin.status, 200, "{}", admin.body);
+    let v = admin.json();
+    assert_eq!(v["entries"], 0);
+    assert!(v["used_bytes"].as_u64().unwrap() > 0);
+    assert_eq!(
+        (v["retention_days"].as_u64(), v["max_db_size_mb"].as_u64()),
+        (Some(7), Some(0))
+    );
+    assert_eq!(get(s.addr, "/api/storage", READER).await.status, 403);
+}

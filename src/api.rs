@@ -133,6 +133,7 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
             axum::routing::delete(alert_rule_delete),
         )
         .route("/api/mutes", get(mute_list).post(mute_set))
+        .route("/api/storage", get(storage_info))
         .route_layer(middleware::from_fn_with_state(
             (state.clone(), Scope::Admin),
             require_scope,
@@ -1445,6 +1446,25 @@ async fn alert_rule_delete(
             StatusCode::NO_CONTENT.into_response()
         }
         Ok((false, _)) => (StatusCode::NOT_FOUND, "no such alert rule").into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// What the database holds (admin scope): its size, entries, their span and the last day's arrivals,
+/// with `retention_days` and `max_db_size_mb`, so the page can tell where the size is heading.
+async fn storage_info(State(state): State<AppState>) -> Response {
+    let (retention_days, max_db_size_mb) = state.settings.storage_limits;
+    match with_db(&state.db_path, "summarizing the storage", |conn| {
+        store::storage_summary(conn, now_ms()).map_err(anyhow::Error::from)
+    })
+    .await
+    {
+        Ok(s) => {
+            let mut v = serde_json::to_value(s).unwrap_or_default();
+            v["retention_days"] = retention_days.into();
+            v["max_db_size_mb"] = max_db_size_mb.into();
+            Json(v).into_response()
+        }
         Err(e) => e.into_response(),
     }
 }

@@ -337,11 +337,13 @@ async function admin() {
   const box = h('div');
   $('view').replaceChildren(h('h1', null, 'Administration'), box);
   try {
-    const [windows, tokens, metrics, rules, mutes] = await Promise.all([
+    const [windows, tokens, metrics, rules, mutes, storage, hostShare] = await Promise.all([
       api('/api/maintenance'), api('/api/tokens'),
       fetch('/metrics').then(r => r.ok ? r.text() : '').catch(() => ''),
       api('/api/alert-rules').catch(() => []),
       api('/api/mutes').catch(() => []),
+      api('/api/storage').catch(() => null),
+      api('/api/hosts?' + q({ limit: 200, sort: 'count', order: 'desc' })).catch(() => []),
     ]);
     const mutedUntil = Object.fromEntries(mutes.map(m => [m.rule, m.until]));
     // Alert rules made from the search page's patterns (or the API); those of the configuration are not listed.
@@ -398,6 +400,7 @@ async function admin() {
     }
     refusedOnly.onchange = loadAudit; who.onchange = loadAudit;
     box.replaceChildren(
+      ...storageSection(storage, hostShare),
       h('h2', null, 'Maintenance windows'), form,
       h('table', null, h('thead', null, h('tr', null, h('th', null, 'Hosts'), h('th', null, 'Reason'), h('th', null, 'When'), h('th', null, 'State'), h('th', null, 'From'), h('th', null, ''))), h('tbody', null, ...winRows)),
       h('h2', null, 'Alert rules'),
@@ -438,6 +441,45 @@ function editRule(tr, r) {
   const cell = h('td', { colspan: '5' }, form);
   tr.replaceChildren(cell);
   form.querySelector('input').focus();
+}
+// The database: its size, entries and span, where its size is heading at the last day's pace (with the
+// retention and the size cap), and each host's share of the entries.
+const mb = bytes => (bytes / 1e6).toLocaleString([], { maximumFractionDigits: bytes < 1e7 ? 1 : 0 }) + ' MB';
+function storageSection(s, hosts) {
+  if (!s) return [];
+  // The pace is the last day's entries, or, on a younger database, its entries over the time it covers.
+  const covered = s.oldest_ts ? Math.min(86400000, Date.now() - s.oldest_ts) : 0;
+  const cap = s.max_db_size_mb * 1e6, perEntry = s.entries ? s.used_bytes / s.entries : 0;
+  const perDay = covered >= 3600000 ? perEntry * s.entries_last_day * 86400000 / covered : 0;
+  const figures = h('table', null,
+    h('thead', null, h('tr', null, h('th', null, 'Size'), h('th', 'n', 'Entries'), h('th', null, 'Oldest entry'), h('th', 'n', 'Last 24 hours'), h('th', null, 'Kept'))),
+    h('tbody', null, h('tr', null,
+      h('td', null, mb(s.used_bytes), cap ? h('span', 'muted', ' of ' + mb(cap)) : null),
+      h('td', 'n', s.entries.toLocaleString()),
+      h('td', 'muted', s.oldest_ts ? fmtTime(s.oldest_ts) + ' (' + ago(s.oldest_ts).replace(' ago', '') + ')' : '—'),
+      h('td', 'n', '+' + s.entries_last_day.toLocaleString(), perDay ? h('span', 'muted', ' · ≈ ' + mb(perDay) + '/day') : null),
+      h('td', 'muted', (s.retention_days ? s.retention_days + ' days' : 'forever') + (cap ? ', at most ' + mb(cap) : '')))));
+  let outlook = 'Not enough recent entries to tell where the size is heading.';
+  if (perDay > 0) {
+    const settle = s.retention_days ? perDay * s.retention_days : Infinity;
+    if (cap && settle > cap) {
+      const days = Math.max(0, (cap - s.used_bytes) / perDay);
+      outlook = s.used_bytes >= cap * 0.9 ? 'At the size cap: the oldest entries are dropped to stay under ' + mb(cap) + '.'
+        : 'At this pace the ' + mb(cap) + ' cap is reached in about ' + (days < 1 ? 'a day' : Math.round(days) + ' days') + '; the oldest entries are then dropped to stay under it.';
+    } else if (Number.isFinite(settle)) outlook = 'At this pace the database settles around ' + mb(settle) + ', with ' + s.retention_days + ' days kept.';
+    else outlook = 'Nothing is purged by age: at this pace the database grows by about ' + mb(perDay * 30) + ' a month.';
+  }
+  const total = Math.max(1, hosts.reduce((a, x) => a + x.count, 0)), top = hosts.slice(0, 8);
+  const shareRows = top.map(x => h('tr', null,
+    h('td', null, h('a', { href: '/host/' + encodeURIComponent(x.host) }, x.host)),
+    h('td', { style: 'width:50%' }, Object.assign(h('div', 'meter'), { style: 'width:' + (100 * x.count / total) + '%' })),
+    h('td', 'n', x.count.toLocaleString()), h('td', 'n muted', (100 * x.count / total).toFixed(1) + '%')));
+  if (hosts.length > top.length) {
+    const rest = hosts.slice(top.length).reduce((a, x) => a + x.count, 0);
+    shareRows.push(h('tr', null, h('td', 'muted', (hosts.length - top.length) + ' other hosts'), h('td', null), h('td', 'n muted', rest.toLocaleString()), h('td', 'n muted', (100 * rest / total).toFixed(1) + '%')));
+  }
+  return [h('h2', null, 'Storage'), figures, h('p', 'sub', outlook),
+    h('table', null, h('thead', null, h('tr', null, h('th', null, 'Host'), h('th', null, 'Share of the entries'), h('th', 'n', 'Entries'), h('th', 'n', ''))), h('tbody', null, ...shareRows))];
 }
 async function muteRule(rule, minutes) {
   try { await api('/api/mutes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rule, minutes }) }); await admin(); say(minutes ? '"' + rule + '" muted for ' + minutes + ' minutes' : '"' + rule + '" unmuted'); }

@@ -91,6 +91,8 @@ pub struct LiveSettings {
     pub ui_alerts: Reloadable<AlertRules>,
     /// Pattern alerts on mute for a while (in memory; a reload leaves them alone).
     pub mutes: crate::mute::Mutes,
+    /// `storage.retention_days` and `storage.max_db_size_mb`, which only change with a restart.
+    pub storage_limits: (u32, u64),
     /// Counters derived from the logs.
     pub metrics: Reloadable<LogMetrics>,
     /// Regex parsers.
@@ -158,6 +160,7 @@ impl LiveSettings {
             alerts: Reloadable::new(AlertRules::from_config(&cfg.alerts)?),
             ui_alerts: Reloadable::default(),
             mutes: Default::default(),
+            storage_limits: (cfg.storage.retention_days, cfg.storage.max_db_size_mb),
             metrics: Reloadable::new(LogMetrics::from_config(
                 &cfg.metrics,
                 &crate::tags::Tags::from_config(&cfg.tags)?,
