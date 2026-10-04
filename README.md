@@ -69,7 +69,7 @@ podman run -d --name logpit --restart always \
   -p 514:5514/udp -p 514:5514/tcp -p 8080:8080 \
   -e LOGPIT_HTTP_TOKEN="$TOKEN" \
   -v logpit-data:/data \
-  ghcr.io/opperiesen/logpit:0.18.0
+  ghcr.io/opperiesen/logpit:0.19.0
 echo "$TOKEN"
 ```
 
@@ -387,9 +387,37 @@ OTEL_EXPORTER_OTLP_LOGS_HEADERS="authorization=Bearer <write token>"
 
 **OpenTelemetry traces** arrive the same ways: `POST /v1/traces` (protobuf or JSON, gzip optional) and
 gRPC `opentelemetry.proto.collector.trace.v1.TraceService/Export` on the HTTP port, with the write token.
-In the Collector, add a `traces` pipeline to the same exporter
-(`traces: { receivers: [otlp], exporters: [otlp/logpit] }`); an SDK takes
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` like the logs.
+Three common ways to send them from a homelab:
+
+```yaml
+# Traefik v3 (static configuration): a span for every request it routes
+tracing:
+  serviceName: traefik
+  otlp:
+    http:
+      endpoint: http://logpit-host:8080/v1/traces
+      headers:
+        Authorization: Bearer <write token>
+```
+
+```yaml
+# OpenTelemetry Collector: forward what your apps send it (logs and traces to the same exporter)
+service:
+  pipelines:
+    logs:   { receivers: [otlp], exporters: [otlp/logpit] }
+    traces: { receivers: [otlp], exporters: [otlp/logpit] }
+```
+
+```sh
+# An app instrumented with an OpenTelemetry SDK (any language): the standard variables
+OTEL_SERVICE_NAME=shop
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://logpit-host:8080/v1/traces
+OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Bearer <write token>"
+```
+
+When the app also sends its logs to LogPit through OpenTelemetry, each log line carries the trace and span
+it was written in, so the waterfall shows a span's lines beside it.
 
 - **What is kept.** Each span's trace, span and parent ids, name, kind, start and duration, status (with
   its message), service and host (read from the resource like a log's app and host), its other resource

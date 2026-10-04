@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.19.0 - 2026-10-05
+
 - Web UI: a *Traces* view (`/traces`): the spread of the traces' durations and the latest traces with
   their operation, service, duration, spans, errors and services, filtered by service, host, operation,
   minimum duration, range and errors; and each trace as a waterfall (`/traces/<id>`) of its spans on one
