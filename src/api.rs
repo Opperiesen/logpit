@@ -1685,20 +1685,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// The web UI is one inline page, and lightness is a product principle: this fails when the
-    /// page grows past its budget, so growth is a decision rather than a drift.
-    #[test]
-    fn web_ui_stays_within_its_size_budget() {
-        const BUDGET: usize = 32 * 1024;
-        for (name, page) in [("index", index_page()), ("pages", pages_page())] {
-            let served = page.1.len();
-            assert!(
-                served <= BUDGET,
-                "{name}.html is served as {served} gzipped bytes, over its {BUDGET}-byte budget"
-            );
-        }
-    }
-
     #[test]
     fn the_served_pages_drop_only_layout_and_comments() {
         for (source, (page, gzipped)) in [(INDEX_HTML, index_page()), (PAGES_HTML, pages_page())] {

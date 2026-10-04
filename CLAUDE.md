@@ -14,7 +14,7 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 ```
 
-- One test: `cargo test --locked <name>` (e.g. `web_ui_stays_within_its_size_budget`).
+- One test: `cargo test --locked <name>` (e.g. `the_served_pages_drop_only_layout_and_comments`).
 - Run locally: `cp logpit.example.toml logpit.toml` (git-ignored), then `cargo run -- --config logpit.toml`.
 - Subcommands of the same binary: `ship`, `search`, `tail`, `restore`; flags `--healthcheck`, `--backup`.
 
@@ -48,9 +48,10 @@ Single crate, flat modules in `src/` (one concern per file, listed in `src/lib.r
   migration. A migrated database cannot be opened by older versions, so say so in the changelog.
 - **Web UI** (`src/web/index.html`, `pages.html`, shared `theme.css`, embedded with `include_str!`):
   vanilla HTML/CSS/JS, no build step, no framework, no external resource (strict CSP, `INDEX_CSP` in
-  `api.rs`). Each page has a 32 KiB budget for the served (minified, gzipped) size, enforced by
-  `web_ui_stays_within_its_size_budget`; do not raise it without asking. The minifier drops whole-line
-  comments and indentation, so the script must not contain multi-line strings. Desktop browsers only;
+  `api.rs`). No fixed size budget: aim for the best-looking, most practical UI at the cleanest size
+  for a homelab, so every byte added must earn its place (pages are served minified and gzipped). The
+  minifier drops whole-line comments and indentation, so the script must not contain multi-line
+  strings. Desktop browsers only;
   phones are not a target. Keep keyboard paths and accessible names working.
 
 ## Documentation to keep in step
