@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Statistics: `bucket` accepts the same durations as the Loki API (`1h30m`, `1.5h`, `1w`),
+  still at least one second.
+
 ## 0.15.0 - 2026-10-04
 
 - Web UI views: a departure board of the hosts for a wall screen (`/board`), a page per host

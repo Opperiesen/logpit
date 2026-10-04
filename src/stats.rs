@@ -34,22 +34,15 @@ pub fn auto_bucket_ms(span_ms: i64) -> i64 {
         .unwrap_or(AUTO_SIZES_MS[AUTO_SIZES_MS.len() - 1])
 }
 
-/// Parses `90`, `90s`, `5m`, `1h` or `1d` (a bare number is seconds) into milliseconds.
+/// A bucket size in milliseconds, at least one second: a bare number of seconds (`90`) or a
+/// duration as LogQL writes them (`30s`, `5m`, `1h30m`, `1d`).
 pub fn parse_bucket_ms(s: &str) -> Option<i64> {
     let s = s.trim();
-    let (digits, unit) = match s.char_indices().find(|(_, c)| !c.is_ascii_digit()) {
-        Some((i, _)) => s.split_at(i),
-        None => (s, "s"),
+    let ms = if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) {
+        s.parse::<i64>().ok()?.checked_mul(1000)?
+    } else {
+        crate::logql::parse_duration_ms(s)?
     };
-    let n: i64 = digits.parse().ok()?;
-    let unit_ms = match unit {
-        "s" => 1000,
-        "m" => 60_000,
-        "h" => 3_600_000,
-        "d" => 86_400_000,
-        _ => return None,
-    };
-    let ms = n.checked_mul(unit_ms)?;
     (ms >= 1000).then_some(ms)
 }
 
@@ -155,6 +148,7 @@ mod tests {
         assert_eq!(parse_bucket_ms("5m"), Some(300_000));
         assert_eq!(parse_bucket_ms("2h"), Some(7_200_000));
         assert_eq!(parse_bucket_ms("1d"), Some(86_400_000));
+        assert_eq!(parse_bucket_ms("1h30m"), Some(5_400_000));
         for bad in [
             "",
             "0",
@@ -162,7 +156,8 @@ mod tests {
             "m",
             "5x",
             "-5m",
-            "1.5h",
+            "500ms",
+            "99999999999999999999",
             "99999999999999999999d",
         ] {
             assert_eq!(parse_bucket_ms(bad), None, "{bad:?}");

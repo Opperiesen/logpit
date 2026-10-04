@@ -897,7 +897,7 @@ It takes the filters of `/api/logs` (`q`, `host`, `app`, `level`, `f`, `since`, 
 
 | Parameter | Meaning |
 |---|---|
-| `bucket` | Bucket size: seconds, or `30s`, `5m`, `1h`, `1d` (at least 1 s). Default: a size giving about 120 buckets over the range |
+| `bucket` | Bucket size: seconds, or a duration such as `30s`, `5m`, `1h30m`, `1d` (at least 1 s). Default: a size giving about 120 buckets over the range |
 | `group_by` | Split each bucket by `host`, `app`, `severity` or `field:<key>` (e.g. `field:act`) |
 
 `until` defaults to now and `since` to the oldest entry. Buckets are aligned to the Unix epoch,
