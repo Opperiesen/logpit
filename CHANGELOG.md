@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Web UI: a *Traces* view (`/traces`): the spread of the traces' durations and the latest traces with
+  their operation, service, duration, spans, errors and services, filtered by service, host, operation,
+  minimum duration, range and errors; and each trace as a waterfall (`/traces/<id>`) of its spans on one
+  time line, by parent, coloured by service, failures in red, keyboard-navigable, with the selected span's
+  timing, status, attributes, events and log lines. The search page's *trace* panel links to it.
+
 - `GET /api/traces` lists the latest traces (root span, start, duration, span and error counts, services
   and hosts), filtered by window, service, host, a word of a span's name, minimum duration and errors;
   `GET /api/traces/<id>` gives a trace's spans. Tokens limited to some hosts or apps see only what they

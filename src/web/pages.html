@@ -78,6 +78,49 @@
   .pill.cancelled { background:var(--quiet-tint); color:var(--muted); } .pill.disrupted { background:var(--err-tint); color:var(--err); }
   .pill.delayed { background:var(--warn-tint); color:var(--warn); } .pill.ontime { background:var(--ok-tint); color:var(--ok); }
 
+  /* Traces: a list with the spread of durations, and each trace as a waterfall of its spans. */
+  .lat { display:flex; align-items:flex-end; gap:4px; height:110px; margin:4px 0 2px; }
+  .lat button { flex:1 1 0; min-width:0; height:100%; padding:0; border:0; border-radius:4px; background:none; display:flex; flex-direction:column-reverse; }
+  .lat button:hover { background:var(--tint); }
+  .lat i { display:block; border-radius:4px 4px 0 0; background:var(--notice); transition:height .4s var(--ease); }
+  .lat i.e { border-radius:0; background:var(--err); }
+  .latx { display:flex; gap:4px; font-size:11px; color:var(--muted); } .latx span { flex:1 1 0; text-align:center; white-space:nowrap; }
+  .durbar { display:inline-block; height:4px; margin-left:8px; border-radius:2px; background:var(--notice); vertical-align:middle; }
+  .durbar.e { background:var(--err); }
+  .svc { display:inline-flex; align-items:center; gap:6px; margin-right:10px; white-space:nowrap; }
+  .svc::before { content:''; width:8px; height:8px; border-radius:2px; background:var(--dot, var(--field)); }
+  .twrap { display:grid; gap:24px; align-items:start; }
+  @media (min-width:1100px) { .twrap { grid-template-columns:minmax(0, 1.6fr) minmax(320px, 1fr); } .tdetail { position:sticky; top:calc(var(--hdr, 0px) + 64px); } }
+  .tree { border:1px solid var(--rule); border-radius:12px; overflow:hidden; }
+  .taxis, .trow { display:grid; grid-template-columns:minmax(220px, 38%) minmax(0, 1fr); }
+  .taxis { position:relative; height:28px; border-bottom:1px solid var(--rule); background:var(--surface); font-size:11px; color:var(--muted); }
+  .taxis .tl { position:relative; } .taxis .tl span { position:absolute; top:7px; translate:-50% 0; white-space:nowrap; }
+  .taxis .tl span:first-child { translate:0 0; } .taxis .tl span:last-child { translate:-100% 0; }
+  .trow { min-height:32px; align-items:center; border-bottom:1px solid color-mix(in srgb, var(--rule) 65%, transparent); cursor:pointer; transition:background-color .12s var(--ease); }
+  .trow:last-child { border-bottom:0; }
+  .trow:hover { background:var(--tint); }
+  .trow[aria-selected=true] { background:var(--focus-tint); }
+  .trow:focus-visible { outline:2px solid var(--focus); outline-offset:-2px; }
+  .trow .tn { display:flex; align-items:center; gap:6px; min-width:0; padding:4px 10px; white-space:nowrap; }
+  .trow .tn b { font-weight:600; overflow:hidden; text-overflow:ellipsis; }
+  .trow .tn small { color:var(--muted); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; }
+  .trow .caret { flex:none; width:16px; height:16px; padding:0; border:0; background:none; color:var(--muted); }
+  .trow .caret svg { transition:transform .16s var(--ease); } .trow[aria-expanded=false] .caret svg { transform:rotate(-90deg); }
+  .trow .dot { flex:none; width:8px; height:8px; border-radius:2px; background:var(--dot); }
+  .trow .tb { position:relative; height:32px; margin-right:12px; }
+  .trow .bar { position:absolute; top:10px; height:12px; min-width:2px; border-radius:4px; background:var(--dot); opacity:.85; }
+  .trow.err .bar { background:var(--err); opacity:1; }
+  .trow .bar + span { position:absolute; top:7px; font-size:11px; color:var(--muted); white-space:nowrap; }
+  .trow .bar + span.in { top:9px; font-size:10.5px; line-height:14px; font-weight:600; color:var(--ground); }
+  .tdetail { border:1px solid var(--rule); border-radius:12px; padding:16px; background:var(--surface); }
+  .tdetail h2 { margin:0 0 4px; }
+  .tdetail dl { display:grid; grid-template-columns:max-content minmax(0, 1fr); gap:4px 12px; margin:12px 0 0; font-size:13px; }
+  .tdetail dt { color:var(--muted); } .tdetail dd { margin:0; overflow-wrap:anywhere; }
+  .tdetail h3 { margin:18px 0 6px; font-size:13px; font-weight:650; }
+  .tdetail table td { padding:4px 10px 4px 0; font-size:12.5px; }
+  .stat { display:inline-block; padding:0 8px; border-radius:999px; font:600 11px/19px var(--sans); }
+  .stat.ok { background:var(--ok-tint); color:var(--ok); } .stat.err { background:var(--err-tint); color:var(--err); } .stat.unset { background:var(--quiet-tint); color:var(--muted); }
+
   /* The board: hosts as a squad, in large type, for a screen left on the wall. */
   .board .head { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:8px; }
   .board .clock { margin-left:auto; font-size:28px; font-weight:700; letter-spacing:-.02em; }
@@ -93,7 +136,7 @@
 <body>
 <header class="bar">
   <a class="brand" href="/"><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect width="22" height="22" rx="6" fill="currentColor"/><path d="M5 13.5h2.2l1.8-5 2.6 9 2.2-6.5 1.2 2.5H17" fill="none" style="stroke:var(--ground)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>LogPit</a>
-  <nav aria-label="Views"><a href="/">Search</a><a href="/board">Board</a><a href="/compare">Compare</a><a href="/admin">Admin</a></nav>
+  <nav aria-label="Views"><a href="/">Search</a><a href="/traces">Traces</a><a href="/board">Board</a><a href="/compare">Compare</a><a href="/admin">Admin</a></nav>
   <span id="status" role="status"></span>
 </header>
 <main id="view"></main>
@@ -119,7 +162,7 @@ const theme = view === 'board' ? (prefs.theme === 'light' ? 'light' : 'dark') : 
 if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
 for (const a of document.querySelectorAll('header nav a')) if (a.getAttribute('href') === '/' + view) a.setAttribute('aria-current', 'page');
 // Each view names its tab (the host page names the host).
-document.title = ({ board: 'Board', admin: 'Administration', compare: 'Compare' }[view] || 'Board') + ' · LogPit';
+document.title = ({ board: 'Board', admin: 'Administration', compare: 'Compare', traces: 'Traces' }[view] || 'Board') + ' · LogPit';
 
 function fmtTime(ms) {
   const d = new Date(ms);
@@ -397,6 +440,215 @@ function liveLines(name) {
   return [h('div', 'livehead', h('h2', null, 'Latest lines'), dot, state, toggle), h('table', null, body)];
 }
 
+// ---------- Traces ----------
+// Durations as people read them: µs, ms or s.
+function fmtDur(us) {
+  if (us < 1000) return Math.round(us) + ' µs';
+  if (us < 1e6) return (us / 1000).toLocaleString([], { maximumFractionDigits: us < 1e4 ? 2 : 1 }) + ' ms';
+  return (us / 1e6).toLocaleString([], { maximumFractionDigits: 2 }) + ' s';
+}
+// A service keeps one colour across the page (the series palette, by name).
+function serviceColor(name) {
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.codePointAt(0)) >>> 0;
+  return 'var(--c' + (h % 10) + ')';
+}
+const svcEl = name => Object.assign(h('span', 'svc', name || '(no service)'), { style: '--dot:' + serviceColor(name || '') });
+const LAT_EDGES = [0, 1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6, 2e6, 5e6, 1e7];
+const RANGES = [['900000', 'Last 15 min'], ['3600000', 'Last hour'], ['86400000', 'Last 24 h'], ['604800000', 'Last 7 days']];
+
+async function traceList() {
+  const p = new URLSearchParams(location.search);
+  const range = RANGES.some(([v]) => v === p.get('range')) ? p.get('range') : '3600000';
+  const field = (name, label, attrs = {}) => h('label', null, label, h('input', { name, value: p.get(name) || '', size: '14', ...attrs }));
+  const form = h('form', 'row',
+    field('service', 'Service'), field('host', 'Host'), field('name', 'Operation contains'),
+    field('min', 'Slower than (ms)', { type: 'number', min: '0', step: 'any', style: 'width:8em' }),
+    h('label', null, 'Range', h('select', { name: 'range' }, ...RANGES.map(([v, t]) => h('option', { value: v, ...(v === range ? { selected: '' } : {}) }, t)))),
+    h('label', { style: 'display:flex;gap:6px;align-items:center' }, h('input', { name: 'errors', type: 'checkbox', ...(p.get('errors') ? { checked: '' } : {}) }), 'errors only'),
+    h('button', { class: 'primary' }, 'Search'));
+  form.onsubmit = e => {
+    e.preventDefault();
+    const f = new FormData(form);
+    history.replaceState(null, '', '/traces?' + q({ service: f.get('service'), host: f.get('host'), name: f.get('name'), min: f.get('min'), range: f.get('range'), errors: f.get('errors') ? '1' : '' }));
+    traceList();
+  };
+  const out = h('div');
+  $('view').replaceChildren(h('h1', null, 'Traces'), h('p', 'sub', 'Requests followed across your services, from OpenTelemetry spans sent to /v1/traces.'), form, out);
+  say('loading…');
+  try {
+    const now = Date.now();
+    const list = await api('/api/traces?' + q({ since: now - Number(range), until: now, service: p.get('service'), host: p.get('host'), name: p.get('name'), min_duration_ms: p.get('min'), errors: p.get('errors') ? 'true' : '', limit: 200 }));
+    say(list.length + (list.length === 200 ? '+' : '') + ' traces');
+    if (!list.length) {
+      out.replaceChildren(h('p', 'msg', 'No trace in this window. Send spans with OpenTelemetry (see Traces in the README), or widen the range.'));
+      return;
+    }
+    // The spread of durations, in log-scale buckets; the failing traces are the red part of each bar.
+    const counts = LAT_EDGES.map(() => ({ n: 0, e: 0 }));
+    for (const t of list) {
+      const i = Math.max(0, LAT_EDGES.findLastIndex(e => t.duration_us >= e));
+      counts[i].n++; if (t.errors) counts[i].e++;
+    }
+    const max = Math.max(1, ...counts.map(c => c.n));
+    const bars = h('div', { class: 'lat', role: 'group', 'aria-label': 'Traces by duration' });
+    const axis = h('div', 'latx');
+    counts.forEach((c, i) => {
+      const label = i === 0 ? '< 1 ms' : '≥ ' + fmtDur(LAT_EDGES[i]);
+      const b = h('button', { type: 'button', title: c.n + ' traces ' + label + (c.e ? ', ' + c.e + ' with errors' : '') + ' (click: show the slower ones)' },
+        Object.assign(h('i'), { style: 'height:0' }), Object.assign(h('i', 'e'), { style: 'height:0' }));
+      b.onclick = () => { form.elements.min.value = String(LAT_EDGES[i] / 1000); form.requestSubmit(); };
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        b.children[0].style.height = (100 * (c.n - c.e) / max) + '%';
+        b.children[1].style.height = (100 * c.e / max) + '%';
+      }));
+      bars.append(b);
+      axis.append(h('span', null, i % 2 ? '' : label.replace('≥ ', '')));
+    });
+    const longest = Math.max(1, ...list.map(t => t.duration_us));
+    const rows = list.map(t => {
+      const tr = h('tr', null,
+        h('td', 'muted nw', fmtTime(t.start_ms)),
+        h('td', null, h('a', { href: '/traces/' + t.trace_id }, t.root_name || '(unnamed)')),
+        h('td', null, svcEl(t.root_service)),
+        h('td', 'n nw', fmtDur(t.duration_us), Object.assign(h('span', 'durbar' + (t.errors ? ' e' : '')), { style: 'width:' + Math.max(2, 80 * t.duration_us / longest) + 'px' })),
+        h('td', 'n', t.spans.toLocaleString()),
+        h('td', 'n', t.errors ? h('span', 'stat err', t.errors + ' error' + (t.errors === 1 ? '' : 's')) : h('span', 'muted', '—')),
+        h('td', 'muted', ...t.services.filter(s => s !== t.root_service).slice(0, 4).map(svcEl)));
+      tr.style.cursor = 'pointer';
+      tr.onclick = e => { if (!e.target.closest('a')) location.href = '/traces/' + t.trace_id; };
+      return tr;
+    });
+    out.replaceChildren(h('h2', null, 'Durations'), bars, axis,
+      h('h2', null, 'Latest traces'),
+      h('table', null, h('thead', null, h('tr', null, h('th', null, 'Start'), h('th', null, 'Operation'), h('th', null, 'Service'), h('th', 'n', 'Duration'), h('th', 'n', 'Spans'), h('th', 'n', 'Errors'), h('th', null, 'Also through'))), h('tbody', null, ...rows)));
+  } catch (e) { failed(e, 'read'); }
+}
+
+const caretIcon = () => {
+  const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg'), path = document.createElementNS(NS, 'path');
+  svg.setAttribute('width', '10'); svg.setAttribute('height', '10'); svg.setAttribute('viewBox', '0 0 10 10'); svg.setAttribute('aria-hidden', 'true');
+  path.setAttribute('d', 'M2 3.5l3 3 3-3'); path.setAttribute('fill', 'none'); path.setAttribute('stroke', 'currentColor'); path.setAttribute('stroke-width', '1.5');
+  svg.append(path);
+  return svg;
+};
+
+// One trace as a waterfall: its spans as a tree on one time line (a row per span, indented under its
+// parent, its bar where and as long as it ran), and the selected span's details and log lines beside it.
+async function traceView(rawId) {
+  const id = decodeURIComponent(rawId).toLowerCase();
+  say('loading…');
+  try {
+    const [spans, logs] = await Promise.all([api('/api/traces/' + id), api('/api/logs?' + q({ trace: id, limit: 500 })).catch(() => [])]);
+    const byId = new Map(spans.map(s => [s.span_id, s])), kids = new Map();
+    for (const s of spans) {
+      const parent = byId.has(s.parent_id) ? s.parent_id : '';
+      if (!kids.has(parent)) kids.set(parent, []);
+      kids.get(parent).push(s);
+    }
+    const t0 = Math.min(...spans.map(s => s.start_us)), t1 = Math.max(...spans.map(s => s.start_us + s.duration_us));
+    const total = Math.max(1, t1 - t0);
+    const ordered = [];
+    const walk = (parent, depth) => { for (const s of (kids.get(parent) || []).sort((a, b) => a.start_us - b.start_us)) { ordered.push({ s, depth }); walk(s.span_id, depth + 1); } };
+    walk('', 0);
+    const root = ordered[0].s, errors = spans.filter(s => s.status === 2).length;
+    const services = [...new Set(spans.map(s => s.service))].sort();
+    document.title = (root.name || 'Trace') + ' · LogPit';
+
+    const copy = h('button', { type: 'button', class: 'small' }, 'copy id');
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(id); copy.textContent = 'copied'; } catch { copy.textContent = id; } };
+    const around = { since: Math.floor(t0 / 1000) - 60000, until: Math.ceil(t1 / 1000) + 60000 };
+    const head = h('div', null,
+      h('h1', null, root.name || '(unnamed)', errors ? h('span', 'stat err', errors + ' error' + (errors === 1 ? '' : 's')) : null),
+      h('p', 'sub', fmtTime(t0 / 1000) + ' · ' + fmtDur(total) + ' · ' + spans.length + ' spans · ', ...services.map(svcEl), ' ',
+        h('span', 'mono muted', id), ' ', copy, ' · ',
+        h('a', { href: '/?' + q({ f: 'trace_id:' + id, ...around }) }, 'Its ' + logs.length + (logs.length === 500 ? '+' : '') + ' log lines')));
+
+    // Time axis over the bars: start, quarters, end.
+    const ticks = h('div', 'tl', ...[0, 0.25, 0.5, 0.75, 1].map(f => Object.assign(h('span', null, fmtDur(total * f)), { style: 'left:' + (100 * f) + '%' })));
+    const tree = h('div', { class: 'tree', role: 'tree', 'aria-label': 'Spans of the trace' }, h('div', { class: 'taxis', 'aria-hidden': 'true' }, h('div', null), ticks));
+    const detail = h('aside', { class: 'tdetail', 'aria-live': 'polite' });
+    const rowOf = new Map(), collapsed = new Set();
+    let selected = null;
+    const descendants = sid => (kids.get(sid) || []).flatMap(c => [c.span_id, ...descendants(c.span_id)]);
+    const visible = () => [...tree.querySelectorAll('.trow')].filter(r => !r.hidden);
+    function refreshHidden() {
+      const hidden = new Set([...collapsed].flatMap(descendants));
+      for (const [sid, r] of rowOf) r.hidden = hidden.has(sid);
+    }
+    function select(s, focus) {
+      selected = s;
+      for (const [sid, r] of rowOf) r.setAttribute('aria-selected', String(sid === s.span_id));
+      const r = rowOf.get(s.span_id);
+      r.tabIndex = 0;
+      for (const [sid, other] of rowOf) if (sid !== s.span_id) other.tabIndex = -1;
+      if (focus) r.focus();
+      showDetail(s);
+    }
+    for (const { s, depth } of ordered) {
+      const hasKids = (kids.get(s.span_id) || []).length > 0;
+      const left = 100 * (s.start_us - t0) / total, width = 100 * s.duration_us / total;
+      const caret = hasKids ? h('button', { type: 'button', class: 'caret', tabindex: '-1', 'aria-hidden': 'true' }, caretIcon()) : h('span', { style: 'width:16px;flex:none' });
+      const bar = Object.assign(h('div', 'bar'), { style: 'left:' + left + '%;width:' + width + '%' });
+      // The duration sits after the bar; near the right edge it goes inside a long bar, or before a short one.
+      const end = left + width, inside = end > 82 && width > 18;
+      const label = Object.assign(h('span', inside ? 'in' : null, fmtDur(s.duration_us)), {
+        style: end <= 82 ? 'left:calc(' + end + '% + 6px)' : inside ? 'right:calc(' + (100 - end) + '% + 6px)' : 'right:calc(' + (100 - left) + '% + 6px)',
+      });
+      const row = h('div', { class: 'trow' + (s.status === 2 ? ' err' : ''), role: 'treeitem', 'aria-level': String(depth + 1), 'aria-selected': 'false', tabindex: '-1',
+        'aria-label': s.name + ', ' + (s.service || 'no service') + ', ' + fmtDur(s.duration_us) + (s.status === 2 ? ', error' : ''), ...(hasKids ? { 'aria-expanded': 'true' } : {}), style: '--dot:' + serviceColor(s.service) },
+        h('div', { class: 'tn', style: 'padding-left:' + (10 + 16 * depth) + 'px' }, caret, h('span', 'dot'), h('b', null, s.name || '(unnamed)'), h('small', null, s.service)),
+        h('div', 'tb', bar, label));
+      const toggle = () => {
+        if (!hasKids) return;
+        const open = collapsed.has(s.span_id);
+        open ? collapsed.delete(s.span_id) : collapsed.add(s.span_id);
+        row.setAttribute('aria-expanded', String(open));
+        refreshHidden();
+      };
+      if (hasKids) caret.onclick = e => { e.stopPropagation(); toggle(); };
+      row.onclick = () => select(s, false);
+      row.onkeydown = e => {
+        const rows = visible(), i = rows.indexOf(row);
+        const go = r => { if (r) select(ordered.find(o => rowOf.get(o.s.span_id) === r).s, true); };
+        if (e.key === 'ArrowDown') { e.preventDefault(); go(rows[i + 1]); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); go(rows[i - 1]); }
+        else if (e.key === 'ArrowRight' && hasKids && collapsed.has(s.span_id)) { e.preventDefault(); toggle(); }
+        else if (e.key === 'ArrowLeft') { e.preventDefault(); if (hasKids && !collapsed.has(s.span_id)) toggle(); else go(rowOf.get(s.parent_id)); }
+        else if (e.key === 'Home') { e.preventDefault(); go(rows[0]); }
+        else if (e.key === 'End') { e.preventDefault(); go(rows[rows.length - 1]); }
+      };
+      rowOf.set(s.span_id, row);
+      tree.append(row);
+    }
+    function showDetail(s) {
+      const kind = ['unspecified', 'internal', 'server', 'client', 'producer', 'consumer'][s.kind] || '';
+      const stat = s.status === 2 ? h('span', 'stat err', 'error') : s.status === 1 ? h('span', 'stat ok', 'ok') : h('span', 'stat unset', 'unset');
+      const attrs = Object.entries(s.attributes || {}).sort(([a], [b]) => a.localeCompare(b));
+      const mine = logs.filter(l => l.fields && l.fields.span_id === s.span_id).sort((a, b) => a.ts - b.ts);
+      detail.replaceChildren(
+        h('h2', null, s.name || '(unnamed)'),
+        h('div', null, stat, ' ', svcEl(s.service), h('span', 'muted', kind + ' · on ' + s.host)),
+        h('dl', null,
+          h('dt', null, 'Starts'), h('dd', null, '+' + fmtDur(s.start_us - t0) + ' (' + fmtTime(s.start_us / 1000) + ')'),
+          h('dt', null, 'Duration'), h('dd', null, fmtDur(s.duration_us) + ' (' + (100 * s.duration_us / total).toFixed(1) + '% of the trace)'),
+          ...(s.status_message ? [h('dt', null, 'Status'), h('dd', 'e', s.status_message)] : []),
+          h('dt', null, 'Span'), h('dd', 'mono', s.span_id + (s.parent_id ? ' ← ' + s.parent_id : ' (root)'))),
+        ...(attrs.length ? [h('h3', null, 'Attributes'), h('table', null, h('tbody', null, ...attrs.map(([k, v]) => h('tr', null, h('td', 'muted mono nw', k), h('td', 'mono', typeof v === 'string' ? v : JSON.stringify(v))))))] : []),
+        ...((s.events || []).length ? [h('h3', null, 'Events'), h('table', null, h('tbody', null, ...s.events.map(ev => h('tr', null, h('td', 'muted nw', '+' + fmtDur(ev.ts_us - t0)), h('td', null, ev.name, ev.attributes ? h('span', 'muted mono', ' ' + JSON.stringify(ev.attributes)) : null)))))] : []),
+        h('h3', null, 'Log lines of this span'),
+        mine.length ? h('table', null, h('tbody', null, ...mine.map(l => h('tr', null, h('td', 'muted nw', '+' + fmtDur(l.ts * 1000 - t0)), h('td', 's' + l.severity, LEVELS[l.severity] || ''), h('td', 'mono', l.message)))))
+          : h('p', 'muted', logs.length ? 'None carries this span id.' : 'No log line carries this trace id.'));
+    }
+    $('view').replaceChildren(head, h('div', 'twrap', tree, detail));
+    select(root, false);
+    say('');
+  } catch (e) {
+    if (e.status === 404) { $('view').replaceChildren(h('p', 'msg', 'This trace is not stored (or not readable with this token). ', h('a', { href: '/traces' }, 'See the latest traces'))); say(''); }
+    else failed(e, 'read');
+  }
+}
+
 // ---------- Admin ----------
 async function admin() {
   say('loading…');
@@ -624,7 +876,7 @@ async function compare() {
   } catch (e) { failed(e, 'read'); }
 }
 
-({ board, host: hostPage, admin, compare }[view] || board)();
+({ board, host: hostPage, admin, compare, traces: () => (path[1] ? traceView(path[1]) : traceList()) }[view] || board)();
 </script>
 </body>
 </html>

@@ -150,6 +150,8 @@ pub fn router(state: AppState, max_body_bytes: usize) -> Router {
         .route("/host/{name}", get(pages))
         .route("/admin", get(pages))
         .route("/compare", get(pages))
+        .route("/traces", get(pages))
+        .route("/traces/{id}", get(pages))
         .route("/healthz", get(|| async { "ok" }))
         .route("/metrics", get(metrics))
         .merge(protected)

@@ -886,9 +886,17 @@ refresh every 30 seconds.
 
 ## Board, host pages, administration and comparison
 
-Besides the search page, the web UI has four views (links in the filter row, and in the command palette).
+Besides the search page, the web UI has five views (links in the filter row, and in the command palette).
 They use the same token as the main page, kept in the same browser, and the same theme.
 
+- **`/traces`**: the [OpenTelemetry traces](#loki-gelf-and-opentelemetry), like an end-to-end transaction
+  view: the spread of their durations (a click shows the slower ones), then the latest traces with their
+  operation, service, duration, spans, errors and the services they went through, filtered by service,
+  host, operation, minimum duration, range and errors. **`/traces/<id>`** draws one trace as a waterfall:
+  each span on one time line, indented under its parent, coloured by service and red when it failed (the
+  arrow keys move along it, ← and → fold and unfold); the selected span shows its timing, status,
+  attributes, events and the log lines that carry its span id. The *trace* panel of the search page links
+  to it (*waterfall*).
 - **`/board`**: a board of the hosts, made for a screen left on the wall. Each host is a row with its
   state over the last 15 minutes (`?minutes=60` for another window): *Silent*, *Failing* (errors, with the
   latest error), *Degraded* (warnings, with the latest warning) or *Healthy*,

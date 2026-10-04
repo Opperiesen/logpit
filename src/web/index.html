@@ -411,7 +411,7 @@
     <input id="f" type="search" placeholder="field:value" aria-label="Field filter" size="14" title="Filter on a structured field: act:blocked (exact), status>=500 (also &gt;, &lt;, &lt;=, numbers only), act!=block, src~^10\. (regular expression). The field must be present.">
     <input id="re" type="search" placeholder="Regex on message" aria-label="Regular expression on message" size="18" title="Keep messages matching a regular expression, e.g. timeout|refused or (?i)error [0-9]+. It scans the entries left by the other filters, so narrow the time range first.">
     <span class="sep"></span>
-    <nav class="pages" aria-label="Views"><a href="/board">Board</a><a href="/compare">Compare</a><a href="/admin">Admin</a></nav>
+    <nav class="pages" aria-label="Views"><a href="/traces">Traces</a><a href="/board">Board</a><a href="/compare">Compare</a><a href="/admin">Admin</a></nav>
     <select id="views" aria-label="Saved views" title="Saved views, shared by everyone who uses this LogPit"><option value="">Views</option></select>
     <button id="saveView" type="button" title="Save the current search, time range and chart grouping under a name">Save view</button>
     <button id="delView" type="button" title="Delete the selected view" hidden>Delete</button>
@@ -661,10 +661,13 @@ async function fillTrace(box, row) {
     const only = document.createElement('button');
     only.type = 'button'; only.className = 'small'; only.textContent = 'search it';
     only.onclick = () => { $('f').value = 'trace_id:' + id; load(); };
+    // When the trace's spans were sent too, its waterfall is one click away.
+    const fall = document.createElement('a');
+    fall.className = 'small'; fall.href = '/traces/' + encodeURIComponent(id); fall.textContent = 'waterfall';
     const close = document.createElement('button');
     close.type = 'button'; close.className = 'small'; close.textContent = 'close';
     close.onclick = () => box.closest('tr').remove();
-    head.append(title, only, close);
+    head.append(title, only, fall, close);
 
     const line = r => {
       const el = document.createElement('div');
@@ -2564,7 +2567,7 @@ function paletteItems() {
   add('Export', 'Download CSV', () => exportLogs('csv'));
   add('Open', 'Settings', () => { $('prefs').open = true; $('token').focus(); });
   add('Open', 'Search syntax', () => { $('help').open = true; $('help').querySelector('summary').focus(); });
-  for (const [label, href] of [['Board of the hosts', '/board'], ['Compare two windows', '/compare'], ['Administration', '/admin']]) add('Page', label, () => { location.href = href; });
+  for (const [label, href] of [['Traces', '/traces'], ['Board of the hosts', '/board'], ['Compare two windows', '/compare'], ['Administration', '/admin']]) add('Page', label, () => { location.href = href; });
   for (const h of (hostRows.length ? hostRows : palHosts).slice(0, 50)) add('Host page', h.host, () => { location.href = '/host/' + encodeURIComponent(h.host); });
   add('Copy', 'This search as a CLI command', () => $('cli').click());
   return items;
